@@ -1,0 +1,58 @@
+export const demoAgents = [
+  {
+    id: 'agent-research',
+    name: 'Research Agent',
+    role: 'Research specialist',
+    description: 'Finds sources, extracts facts, and builds evidence packs.',
+    skills: ['source discovery', 'summarization', 'citation notes'],
+    agentSkills: [
+      { id: 'skill-web-research', capability: 'web_research', label: 'Web Research', provider: 'auto', mode: 'auto' },
+      { id: 'skill-summarization', capability: 'summarization', label: 'Summarization', provider: 'auto', mode: 'auto' },
+    ],
+    activeModel: { provider: 'auto', modelName: 'sonar', capability: 'web_research', mode: 'auto', costTier: 'standard', qualityTier: 'high' },
+    tools: ['browser', 'knowledge base'],
+    outputResponsibility: 'Research summary',
+  },
+  {
+    id: 'agent-analyst',
+    name: 'Data Analyst',
+    role: 'Analysis specialist',
+    description: 'Turns raw information into patterns, risks, metrics, and recommendations.',
+    skills: ['analysis', 'comparison', 'metrics'],
+    agentSkills: [
+      { id: 'skill-text-reasoning', capability: 'text_reasoning', label: 'Text Reasoning', provider: 'auto', mode: 'auto' },
+      { id: 'skill-data-analysis', capability: 'data_analysis', label: 'Data Analysis', provider: 'auto', mode: 'auto' },
+    ],
+    activeModel: { provider: 'auto', modelName: 'gpt-4.1-mini', capability: 'data_analysis', mode: 'auto', costTier: 'standard', qualityTier: 'high' },
+    tools: ['spreadsheets', 'tables'],
+    outputResponsibility: 'Insight brief',
+  },
+  {
+    id: 'agent-writer',
+    name: 'Report Writer',
+    role: 'Deliverable owner',
+    description: 'Packages work into a polished artifact the user can review and export.',
+    skills: ['writing', 'structure', 'executive summaries'],
+    agentSkills: [
+      { id: 'skill-text-reasoning', capability: 'text_reasoning', label: 'Text Reasoning', provider: 'auto', mode: 'auto' },
+      { id: 'skill-summarization', capability: 'summarization', label: 'Summarization', provider: 'auto', mode: 'auto' },
+    ],
+    activeModel: { provider: 'auto', modelName: 'deepseek-v3', capability: 'text_reasoning', mode: 'auto', costTier: 'standard', qualityTier: 'standard' },
+    tools: ['document editor', 'export'],
+    outputResponsibility: 'Final report',
+  },
+  {
+    id: 'agent-designer',
+    name: 'Presentation Designer',
+    role: 'Visual communicator',
+    description: 'Converts findings into slides, diagrams, and clear visual hierarchy.',
+    skills: ['presentation design', 'storytelling', 'layout'],
+    agentSkills: [
+      { id: 'skill-image-generation', capability: 'image_generation', label: 'Image Gen', provider: 'auto', mode: 'auto' },
+      { id: 'skill-video-generation', capability: 'video_generation', label: 'Video Gen', provider: 'auto', mode: 'auto' },
+    ],
+    activeModel: { provider: 'auto', modelName: 'nano-banana', capability: 'image_generation', mode: 'auto', costTier: 'standard', qualityTier: 'high' },
+    tools: ['presentation builder'],
+    outputResponsibility: 'Presentation draft',
+  },
+];
