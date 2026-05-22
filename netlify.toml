@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build:landing"
+  publish = "dist-landing"
+
+[[redirects]]
+  from = "/*"
+  to = "/landing.html"
+  status = 200

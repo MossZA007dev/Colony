@@ -737,3 +737,129 @@ input {
 }
 .orch-status-running { animation: statusPulse 1.4s ease-in-out infinite; }
 .orch-backdrop { animation: backdropIn 220ms ease forwards; }
+
+/* ── AI Ant prompt composer (AntPromptInput) ─────────────────
+   The composer is wrapped in <BorderGlow>, which paints the
+   outer unified border. These rules normalize the textarea,
+   toolbar divider, and child controls so the composer reads
+   as a single component instead of several stacked frames.    */
+
+.ant-composer-textarea,
+.ant-composer-textarea:hover,
+.ant-composer-textarea:focus,
+.ant-composer-textarea:focus-visible,
+.ant-composer-textarea:active {
+  /* The textarea must merge into the outer BorderGlow surface — no
+     inner box. Force every visible-surface property off so browser
+     defaults / dark color-scheme can't paint a second rectangle.
+     The OUTER composer (BorderGlow:focus-within) is the only thing
+     that should react to focus. */
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ant-composer-textarea::placeholder {
+  color: rgba(148, 163, 184, 0.62);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* Toolbar divider — same family as the outer composer border,
+   intentionally dimmer so it never reads brighter than the
+   composer edge. */
+.ant-composer-toolbar {
+  border-top: 1px solid rgba(120, 135, 165, 0.12);
+}
+
+/* Neutral toolbar control: one shared border opacity, height,
+   and dark surface across Add / Voice / Upload / etc.
+   Tokens come from the unified composer/decision-card system. */
+.ant-ctrl-neutral {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background-color: rgba(255, 255, 255, 0.025);
+  color: rgba(226, 232, 240, 0.78);
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+  cursor: pointer;
+}
+.ant-ctrl-neutral:hover {
+  border-color: rgba(148, 163, 184, 0.32);
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+.ant-ctrl-neutral:disabled {
+  cursor: not-allowed;
+  border-color: rgba(148, 163, 184, 0.10);
+  background-color: rgba(255, 255, 255, 0.03);
+  color: rgba(148, 163, 184, 0.40);
+}
+
+/* Voice-active variant uses the same shell with a subtle
+   violet tint — kept compatible with the neutral border so
+   the toolbar still reads as one row. */
+.ant-ctrl-neutral.is-active-violet {
+  border-color: rgba(167, 139, 250, 0.32);
+  background-color: rgba(124, 92, 252, 0.14);
+  color: rgba(216, 200, 255, 0.95);
+}
+
+/* Accent pill (mode selector / Auto): subtle violet tint that
+   doesn't dominate the rest of the toolbar — never brighter than
+   the primary CTA. */
+.ant-ctrl-accent {
+  border: 1px solid rgba(139, 104, 255, 0.35);
+  background-color: rgba(124, 77, 255, 0.10);
+  color: rgba(226, 218, 255, 0.92);
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+  cursor: pointer;
+}
+.ant-ctrl-accent:hover {
+  border-color: rgba(139, 104, 255, 0.50);
+  background-color: rgba(124, 77, 255, 0.16);
+}
+
+/* Read-only chip (credits left): muted, never competes with
+   actions. */
+.ant-ctrl-chip {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background-color: rgba(255, 255, 255, 0.025);
+  color: rgba(148, 163, 184, 0.55);
+}
+
+/* Send button — armed = unified off-white primary (matches the
+   "Continue" CTA in the decision card), disabled = quiet neutral
+   surface so it never reads as a broken black button. */
+.ant-ctrl-send {
+  border: 1px solid transparent;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease, color 0.18s ease;
+  cursor: pointer;
+}
+.ant-ctrl-send.is-armed {
+  border-color: transparent;
+  background-color: #F5F6F8;
+  color: #0A0D14;
+  box-shadow: 0 4px 18px rgba(245, 246, 248, 0.18);
+}
+.ant-ctrl-send.is-armed:hover {
+  background-color: #FFFFFF;
+  box-shadow: 0 6px 22px rgba(255, 255, 255, 0.24);
+}
+.ant-ctrl-send.is-armed:active {
+  transform: scale(0.98);
+}
+.ant-ctrl-send.is-disabled {
+  cursor: not-allowed;
+  border: 1px solid rgba(148, 163, 184, 0.10);
+  background-color: rgba(255, 255, 255, 0.03);
+  color: rgba(148, 163, 184, 0.40);
+  box-shadow: none;
+}
+.ant-ctrl-send.is-disabled:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+

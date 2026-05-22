@@ -1,0 +1,108 @@
+/* Landing-page-specific styles. */
+
+/* ── Premium feature card hover ────────────────────────────── */
+.card-premium {
+  transition:
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.card-premium:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 0 0 1px rgba(125, 183, 255, 0.08),
+    0 24px 60px rgba(0, 0, 0, 0.4),
+    0 0 40px rgba(124, 92, 252, 0.08);
+}
+
+/* ── Early access form inputs ──────────────────────────────── */
+.form-input {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.04);
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #ffffff;
+  outline: none;
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.form-input::placeholder {
+  color: rgba(255, 255, 255, 0.28);
+}
+.form-input:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+.form-input:focus {
+  border-color: rgba(125, 183, 255, 0.55);
+  background-color: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 0 0 3px rgba(125, 183, 255, 0.12),
+    0 0 24px rgba(124, 92, 252, 0.14);
+}
+
+.form-select-wrap {
+  position: relative;
+}
+.form-select {
+  width: 100%;
+  appearance: none;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: #0b0d12;
+  padding: 14px 44px 14px 44px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+  color-scheme: dark;
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 16px 36px rgba(0, 0, 0, 0.18);
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.form-select:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background-color: #10141c;
+}
+.form-select:focus {
+  border-color: rgba(0, 212, 170, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 3px rgba(0, 212, 170, 0.12),
+    0 18px 42px rgba(0, 0, 0, 0.24);
+}
+.form-select-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  color: rgba(125, 183, 255, 0.8);
+  pointer-events: none;
+  z-index: 1;
+  transition: color 0.2s;
+}
+.form-select-wrap:focus-within .form-select-icon {
+  color: #00d4aa;
+}
+.form-select-chevron {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.42);
+  pointer-events: none;
+  transition: color 0.2s;
+}
+.form-select-wrap:focus-within .form-select-chevron {
+  color: #00d4aa;
+}

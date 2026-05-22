@@ -80,6 +80,20 @@ export type RoutingDecision = {
   modelRoutes: ResolvedModel[];
   estimatedCredits?: number;
   modelRoutingPreference?: string;
+  backend?: {
+    intent: string;
+    status: string;
+    model: string;
+    planId?: string;
+    planName?: string;
+    routeSource?: string;
+    approvalRequired: boolean;
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      estimatedCostUsd: number;
+    };
+  };
   manualModelSelection?: {
     capability: string;
     provider: string;

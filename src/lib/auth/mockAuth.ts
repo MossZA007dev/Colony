@@ -1,6 +1,6 @@
 import type { UserRole } from '../admin/adminTypes';
 
-export type AuthProvider = 'email' | 'google';
+export type AuthProvider = 'email' | 'google' | 'development';
 export type VerificationPurpose = 'signup' | 'password_reset';
 
 export type AuthUser = {

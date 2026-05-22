@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { motion, AnimatePresence } from 'framer-motion';
 import { demoAgents } from './data/demoAgents';
 import { demoDeliverables } from './data/demoDeliverables';
 import { demoScenarios } from './data/demoScenarios';
@@ -35,23 +33,14 @@ import { currentUsagePeriod, getMonthlyUsage } from './lib/billing/usage';
 import type { PlanId as BillingPlanId, UsageFeature } from './lib/billing/types';
 import { getMockUserByEmail, MOCK_USERS } from './lib/mock/mockUsers';
 import {
-  createMockUser,
-  createVerificationCode,
   ensureMockAdminUser,
   getCurrentUser,
-  getStoredMockUser,
-  markEmailVerified,
   normalizeEmail,
-  removeVerificationCode,
-  resetMockPassword,
-  signInMockUser,
-  signInWithGoogleMock,
+  signOut as signOutMock,
   validateEmail,
-  validatePassword,
-  verifyCode,
-  wait,
 } from './lib/auth/mockAuth';
-import type { AuthUser, VerificationCode } from './lib/auth/mockAuth';
+import type { AuthProvider, AuthUser } from './lib/auth/mockAuth';
+import { canAccessAdminDashboard, canSeeDeveloperSettings, isDeveloperOrAdmin, roleBadgeLabel } from './lib/auth/roles';
 import {
   Activity,
   ArrowLeft,
@@ -88,6 +77,7 @@ import {
   AlertTriangle,
   HelpCircle,
   Home,
+  Image as ImageIcon,
   Layers3,
   Link as LinkIcon,
   Loader2,
@@ -120,31 +110,28 @@ import {
   Trash2,
   User,
   Users,
+  Video as VideoIcon,
   Workflow,
   X,
   Zap,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 
-type Page =
-  | 'Landing'
-  | 'Login'
-  | 'CreateAccount'
-  | 'ForgotPassword'
-  | 'Onboarding'
-  | 'Admin'
-  | 'Dashboard'
-  | 'AI Ant'
-  | 'Projects'
-  | 'AI Teams'
-  | 'Workflows'
-  | 'Deliverables'
-  | 'Approvals'
-  | 'Knowledge'
-  | 'Create Agent Team'
-  | 'Templates'
-  | 'Connectors'
-  | 'Billing'
-  | 'Settings';
+import { LoginPage, ForgotPasswordPage, VerifyEmailPage } from './pages/Auth';
+import { OnboardingPage } from './pages/OnboardingPage';
+import { onAuthStateChanged, signOut as signOutFirebase } from 'firebase/auth';
+import { pageFromPath, pathFromPage } from './lib/navigation/routes';
+import { authUserFromFirebase } from './lib/auth/firebaseAuthAdapter';
+import { firebaseAuth } from './lib/firebase/client';
+import { GlobalBackgroundVideo, LandingPage } from './pages/LandingPage';
+import { ColonyLogo, AntMark } from './components/brand/BrandMarks';
+import { BorderGlow } from './components/effects/BorderGlow';
+import { BlurText } from './components/effects/BlurText';
+import { Popover, PopoverTrigger, PopoverContent } from './components/ui/Popover';
+import { ProviderLogo } from './components/model/ProviderLogo';
+import { SUPPORTED_MODELS, type SupportedModel } from './lib/modelCatalog';
+import type { Page } from './types/navigation';
 
 type NewProjectType = 'Sales Analysis' | 'Content Workflow' | 'File Report' | 'Custom';
 
@@ -174,40 +161,7 @@ const glyph = {
   dot: '\u2022',
 };
 
-// Single source of truth for brand asset paths. Replace files in
-// public/assets/logos/ to swap real brand art (see public/assets/README.md).
-const LOGO_SRC = {
-  colonyWhiteNoText: '/assets/logos/Colony white no text.png',
-  colonyBlackNoText: '/assets/logos/Colony black no text.png',
-  antBlack2: '/assets/logos/ai ant black (2).png',
-  antBlack: '/assets/logos/ai ant black.png',
-} as const;
 
-function ColonyLogo({ size = 32, className = '' }: { size?: number; className?: string }) {
-  return (
-    <img
-      src={LOGO_SRC.colonyWhiteNoText}
-      width={size}
-      height={size}
-      alt="Colony"
-      className={className}
-      draggable={false}
-    />
-  );
-}
-
-function AntMark({ size = 28, tone = 'white', className = '' }: { size?: number; tone?: 'white' | 'dark'; className?: string }) {
-  return (
-    <img
-      src={tone === 'dark' ? LOGO_SRC.antBlack2 : LOGO_SRC.antBlack2}
-      width={size}
-      height={size}
-      alt="AI Ant"
-      className={className}
-      draggable={false}
-    />
-  );
-}
 
 const PROVIDER_LABELS: Record<ModelProvider, string> = {
   auto: 'Auto',
@@ -291,7 +245,7 @@ const MODEL_DESCRIPTIONS: Record<AgentCapability, string> = {
 };
 
 const MODEL_TAGS: Record<ModelConfig['costTier'] | ModelConfig['qualityTier'], string> = {
-  low: 'Low cost',
+  low: 'Low Cost',
   standard: 'Balanced',
   high: 'High quality',
   draft: 'Draft',
@@ -329,126 +283,7 @@ function modelConfigFromResolved(model: ResolvedModel): AgentModelConfig {
   };
 }
 
-// ── Central model registry ────────────────────────────────────────────────────
-// Single source of truth for every model Colony shows in the picker. Each
-// entry declares which capabilities it supports — the picker filters here
-// instead of consulting per-agent / per-capability hard-coded arrays. This
-// fixes the bug where the same capability surfaced different models per agent.
-interface SupportedModel {
-  id: string;
-  provider: ModelProvider;
-  providerLabel: string;
-  modelName: string;        // backend / model id (e.g. "deepseek-v3")
-  displayName: string;
-  shortName?: string;
-  capabilities: AgentCapability[];
-  description: string;
-  tags: string[];
-  costTier: 'low' | 'standard' | 'high';
-  qualityTier: 'draft' | 'standard' | 'high';
-  speedTier?: 'fast' | 'balanced' | 'slow';
-  logoProvider?: string;    // ProviderLogo key; defaults to `provider`
-}
 
-const SUPPORTED_MODELS: SupportedModel[] = [
-  // DeepSeek
-  { id: 'deepseek-v3', provider: 'deepseek', providerLabel: 'DeepSeek', modelName: 'deepseek-v3', displayName: 'DeepSeek V3', shortName: 'V3',
-    capabilities: ['text_reasoning', 'summarization', 'data_analysis', 'quality_review', 'code_generation'],
-    description: 'Structured reasoning, planning, and drafting.', tags: ['Fast', 'Reasoning', 'Balanced'],
-    costTier: 'standard', qualityTier: 'high', speedTier: 'fast' },
-  { id: 'deepseek-r1', provider: 'deepseek', providerLabel: 'DeepSeek', modelName: 'deepseek-r1', displayName: 'DeepSeek R1', shortName: 'R1',
-    capabilities: ['text_reasoning', 'data_analysis', 'code_generation'],
-    description: 'Long-horizon reasoning and analysis.', tags: ['Reasoning', 'Deep think'],
-    costTier: 'standard', qualityTier: 'high', speedTier: 'balanced' },
-  // Gemini
-  { id: 'gemini-2.5-flash', provider: 'gemini', providerLabel: 'Gemini', modelName: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', shortName: '2.5 Flash',
-    capabilities: ['text_reasoning', 'summarization', 'quality_review', 'data_analysis', 'web_research'],
-    description: 'Balanced, fast, multimodal.', tags: ['Balanced', 'Multimodal', 'Fast'],
-    costTier: 'low', qualityTier: 'standard', speedTier: 'fast' },
-  { id: 'gemini-2.5-pro', provider: 'gemini', providerLabel: 'Gemini', modelName: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', shortName: '2.5 Pro',
-    capabilities: ['text_reasoning', 'summarization', 'quality_review', 'data_analysis', 'code_generation'],
-    description: 'Top-tier multimodal reasoning.', tags: ['High quality', 'Multimodal'],
-    costTier: 'high', qualityTier: 'high', speedTier: 'balanced' },
-  { id: 'nano-banana', provider: 'gemini', providerLabel: 'Gemini', modelName: 'nano-banana', displayName: 'Gemini Nano Banana', shortName: 'Nano Banana',
-    capabilities: ['image_generation'],
-    description: 'Image generation and editing.', tags: ['Image', 'Creative'],
-    costTier: 'standard', qualityTier: 'high', logoProvider: 'gemini' },
-  { id: 'veo', provider: 'gemini', providerLabel: 'Gemini', modelName: 'veo', displayName: 'Veo', shortName: 'Veo',
-    capabilities: ['video_generation'],
-    description: 'High-quality video generation.', tags: ['Video', 'High quality'],
-    costTier: 'high', qualityTier: 'high', logoProvider: 'gemini' },
-  // OpenAI
-  { id: 'gpt-4.1-mini', provider: 'openai', providerLabel: 'OpenAI', modelName: 'gpt-4.1-mini', displayName: 'GPT-4.1 Mini', shortName: '4.1 Mini',
-    capabilities: ['text_reasoning', 'summarization', 'data_analysis', 'code_generation', 'quality_review'],
-    description: 'Balanced general-purpose model.', tags: ['Balanced', 'Low cost'],
-    costTier: 'low', qualityTier: 'standard', speedTier: 'fast' },
-  { id: 'gpt-4.1', provider: 'openai', providerLabel: 'OpenAI', modelName: 'gpt-4.1', displayName: 'GPT-4.1', shortName: '4.1',
-    capabilities: ['text_reasoning', 'summarization', 'data_analysis', 'code_generation'],
-    description: 'High-quality general-purpose reasoning.', tags: ['High quality'],
-    costTier: 'standard', qualityTier: 'high', speedTier: 'balanced' },
-  { id: 'gpt-4o-mini', provider: 'openai', providerLabel: 'OpenAI', modelName: 'gpt-4o-mini', displayName: 'GPT-4o Mini', shortName: '4o Mini',
-    capabilities: ['text_reasoning', 'summarization', 'data_analysis'],
-    description: 'Fast multimodal mini.', tags: ['Fast', 'Multimodal'],
-    costTier: 'low', qualityTier: 'standard', speedTier: 'fast' },
-  { id: 'gpt-4o', provider: 'openai', providerLabel: 'OpenAI', modelName: 'gpt-4o', displayName: 'GPT-4o', shortName: '4o',
-    capabilities: ['text_reasoning', 'summarization', 'data_analysis', 'code_generation'],
-    description: 'Multimodal flagship.', tags: ['Multimodal', 'High quality'],
-    costTier: 'high', qualityTier: 'high', speedTier: 'balanced' },
-  // Perplexity
-  { id: 'sonar', provider: 'perplexity', providerLabel: 'Perplexity', modelName: 'sonar', displayName: 'Perplexity Sonar', shortName: 'Sonar',
-    capabilities: ['web_research', 'summarization'],
-    description: 'Live web research with citations.', tags: ['Research', 'Fast'],
-    costTier: 'standard', qualityTier: 'high', speedTier: 'fast' },
-  { id: 'sonar-pro', provider: 'perplexity', providerLabel: 'Perplexity', modelName: 'sonar-pro', displayName: 'Perplexity Sonar Pro', shortName: 'Sonar Pro',
-    capabilities: ['web_research', 'summarization', 'data_analysis'],
-    description: 'Deeper research with broader sources.', tags: ['Research', 'High quality'],
-    costTier: 'high', qualityTier: 'high', speedTier: 'balanced' },
-  // Anthropic
-  { id: 'claude-sonnet', provider: 'anthropic', providerLabel: 'Anthropic', modelName: 'claude-sonnet', displayName: 'Claude Sonnet', shortName: 'Sonnet',
-    capabilities: ['text_reasoning', 'summarization', 'quality_review', 'code_generation', 'data_analysis'],
-    description: 'Balanced reasoning and writing.', tags: ['Balanced', 'Writing'],
-    costTier: 'standard', qualityTier: 'high', speedTier: 'balanced', logoProvider: 'claude' },
-  { id: 'claude-haiku', provider: 'anthropic', providerLabel: 'Anthropic', modelName: 'claude-haiku', displayName: 'Claude Haiku', shortName: 'Haiku',
-    capabilities: ['text_reasoning', 'summarization', 'quality_review'],
-    description: 'Fast quality review and drafting.', tags: ['Fast', 'Low cost'],
-    costTier: 'low', qualityTier: 'standard', speedTier: 'fast', logoProvider: 'claude' },
-  // Mistral
-  { id: 'mistral-large', provider: 'custom', providerLabel: 'Mistral', modelName: 'mistral-large', displayName: 'Mistral Large', shortName: 'Large',
-    capabilities: ['text_reasoning', 'summarization', 'code_generation'],
-    description: 'Open-weight high-quality reasoning.', tags: ['Open', 'Reasoning'],
-    costTier: 'standard', qualityTier: 'high', logoProvider: 'mistral' },
-  { id: 'mistral-small', provider: 'custom', providerLabel: 'Mistral', modelName: 'mistral-small', displayName: 'Mistral Small', shortName: 'Small',
-    capabilities: ['text_reasoning', 'summarization'],
-    description: 'Open-weight fast model.', tags: ['Open', 'Fast'],
-    costTier: 'low', qualityTier: 'standard', logoProvider: 'mistral' },
-  // Cohere
-  { id: 'command-r', provider: 'custom', providerLabel: 'Cohere', modelName: 'command-r', displayName: 'Command R', shortName: 'Command R',
-    capabilities: ['text_reasoning', 'summarization'],
-    description: 'Enterprise reasoning.', tags: ['Enterprise', 'Balanced'],
-    costTier: 'standard', qualityTier: 'standard', logoProvider: 'cohere' },
-  { id: 'command-r-plus', provider: 'custom', providerLabel: 'Cohere', modelName: 'command-r-plus', displayName: 'Command R+', shortName: 'R+',
-    capabilities: ['text_reasoning', 'summarization', 'data_analysis'],
-    description: 'High-quality enterprise reasoning.', tags: ['Enterprise', 'High quality'],
-    costTier: 'high', qualityTier: 'high', logoProvider: 'cohere' },
-  // Media
-  { id: 'elevenlabs-tts', provider: 'elevenlabs', providerLabel: 'ElevenLabs', modelName: 'elevenlabs-tts', displayName: 'ElevenLabs Voice', shortName: 'Voice',
-    capabilities: ['text_to_speech'],
-    description: 'Natural-sounding voice synthesis.', tags: ['Voice', 'High quality'],
-    costTier: 'standard', qualityTier: 'high' },
-  { id: 'runway-video', provider: 'runway', providerLabel: 'Runway', modelName: 'runway-gen', displayName: 'Runway Gen', shortName: 'Runway',
-    capabilities: ['video_generation'],
-    description: 'Creative video generation.', tags: ['Video', 'Creative'],
-    costTier: 'high', qualityTier: 'high' },
-  { id: 'pika-video', provider: 'pika', providerLabel: 'Pika', modelName: 'pika-video', displayName: 'Pika Video', shortName: 'Pika',
-    capabilities: ['video_generation'],
-    description: 'Fast short-form video.', tags: ['Video', 'Fast'],
-    costTier: 'standard', qualityTier: 'standard' },
-  // Connected Workspace (tool-actions)
-  { id: 'connected-workspace', provider: 'colony', providerLabel: 'Colony Bridge', modelName: 'connected-workspace', displayName: 'Colony Bridge Tool', shortName: 'Bridge',
-    capabilities: ['file_reading', 'browser_action', 'connected_tool_action', 'workflow_automation'],
-    description: 'Bridge AI Ant to files, apps, browser, and connected tools after approval.', tags: ['Bridge', 'Approval'],
-    costTier: 'low', qualityTier: 'standard' },
-];
 
 function supportedModelsForCapability(capability: AgentCapability): SupportedModel[] {
   return SUPPORTED_MODELS.filter((m) => m.capabilities.includes(capability));
@@ -1238,886 +1073,11 @@ const agentFlow = [
   { icon: glyph.guard, name: 'Approval Guard', tone: 'text-warning border-warning/30 bg-warning/10' },
 ];
 
-function Reveal({ children, delay = 0, className = '' }: { children: React.ReactNode; delay?: number; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          node.classList.add('is-visible');
-          observer.unobserve(node);
-        }
-      },
-      { threshold: 0.16 },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
 
-  return (
-    <div ref={ref} className={`reveal-up ${className}`} style={{ transitionDelay: `${delay}ms` }}>
-      {children}
-    </div>
-  );
-}
-
-function GradientButton({ children, onClick, className = '' }: { children: React.ReactNode; onClick?: () => void; className?: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`group inline-flex items-center justify-center gap-2 rounded-full bg-ink px-6 py-3 font-heading text-sm font-bold text-white shadow-[0_18px_50px_rgba(0,0,0,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#1a1a2e] hover:shadow-[0_22px_70px_rgba(0,0,0,0.16)] ${className}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function GhostButton({ children, onClick, className = '' }: { children: React.ReactNode; onClick?: () => void; className?: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center justify-center gap-2 rounded-full border border-black/15 bg-transparent px-6 py-3 text-sm font-medium text-ink transition-all duration-300 hover:-translate-y-0.5 hover:border-black/30 hover:bg-black/[0.03] hover:shadow-[0_14px_42px_rgba(0,0,0,0.08)] ${className}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function GlobalBackgroundVideo() {
-  return (
-    <div className="fixed inset-0 z-0 pointer-events-none opacity-[0.04]">
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        className="w-full h-full object-cover pointer-events-none"
-        src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260508_064122_c4750c0e-7476-4b44-94a2-a85a65c63bf2.mp4"
-      />
-    </div>
-  );
-}
-
-const landingNavLinks = [
-  'Features',
-  'Models',
-  'Team',
-  'Pilot Users',
-  'Use Cases',
-  'Comparison',
-  'Roadmap',
-  'Early Access',
-];
-
-const VIDEO_BG_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260508_064122_c4750c0e-7476-4b44-94a2-a85a65c63bf2.mp4';
-
-function LandingPage({ goTo }: { goTo: (page: Page) => void }) {
-  const heroRef = useRef<HTMLElement>(null);
-  const scrollToEarlyAccess = () => document.getElementById('early-access')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ['start start', 'end start'],
-  });
-
-  // Hero text lifts + fades as you scroll
-  const heroContentY       = useTransform(scrollYProgress, [0, 0.55], [0, -160]);
-  const heroContentOpacity = useTransform(scrollYProgress, [0, 0.45], [1, 0]);
-  // Video scrolls at a slower rate for parallax depth
-  const videoBgY           = useTransform(scrollYProgress, [0, 1],    [0, -70]);
-
-  // ── page root ──────────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen overflow-x-hidden bg-[#050508] text-white" style={{ fontFamily: "'Inter', 'DM Sans', sans-serif" }}>
-
-      {/* ── Navbar ── */}
-      <nav className="fixed inset-x-0 top-0 z-50 flex items-center justify-between border-b border-white/[0.07] bg-[#050508]/85 px-6 py-3.5 backdrop-blur-xl md:px-16">
-        <div className="flex items-center gap-8 md:gap-16">
-          <button onClick={() => goTo('Landing')} className="flex items-center gap-2.5">
-            <ColonyLogo size={32} />
-            <span className="text-[17px] font-semibold tracking-tight text-white">Colony</span>
-          </button>
-          <div className="hidden items-center gap-0.5 md:flex">
-            {landingNavLinks.map((link) => (
-              <a key={link} href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
-                className="rounded-md px-3 py-2 text-[13px] font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white/90">
-                {link}
-              </a>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <button onClick={() => goTo('Login')}
-            className="lp-btn-ghost hidden rounded-md px-3.5 py-2 text-[13px] font-medium sm:block">
-            Sign In
-          </button>
-          <button onClick={() => goTo('Login')}
-            className="lp-btn-navbar rounded-lg px-4 py-2 text-[13px] font-semibold">
-            Start Building →
-          </button>
-        </div>
-      </nav>
-
-      {/* ════════════════════════════════════════════════════════
-          Hero — video sits behind text as a proper background
-          ════════════════════════════════════════════════════════ */}
-      <section ref={heroRef} className="relative min-h-screen overflow-hidden bg-[#050508]">
-
-        {/* ── Layer 0: background video (absolute, z-0) ── */}
-        <motion.div
-          className="absolute inset-0 z-0"
-          style={{ y: videoBgY }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 1.2, delay: 0.3 }}
-        >
-          <video
-            autoPlay loop muted playsInline
-            className="h-full w-full object-cover"
-            src={VIDEO_BG_URL}
-          />
-        </motion.div>
-
-        {/* ── Layer 1: gradient overlay (absolute, z-[1]) ── */}
-        <div className="pointer-events-none absolute inset-0 z-[1]">
-          {/* Radial centre dim — stops video from overwhelming text */}
-          <div className="absolute inset-0 bg-[#050508]/65" />
-          {/* Bottom-to-top dark fade into next section */}
-          <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#050508] to-transparent" />
-          {/* Top bar fade so nav reads cleanly */}
-          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#050508]/70 to-transparent" />
-        </div>
-
-        {/* ── Layer 2: hero text content (relative, z-[2]) ── */}
-        <motion.div
-          style={{ y: heroContentY, opacity: heroContentOpacity }}
-          className="relative z-[2] flex min-h-screen flex-col items-center justify-center px-5 pb-20 pt-[68px] text-center"
-        >
-          {/* Tag pill */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0 }}
-            className="liquid-glass mb-7 inline-flex items-center gap-2 rounded-lg px-3 py-2"
-          >
-            <span className="rounded-md px-2 py-0.5 text-[12px] font-semibold" style={{ backgroundColor: '#ffffff', color: '#050508' }}>New</span>
-            <span className="text-[13px] font-medium text-white/70">Now in Early Access</span>
-          </motion.div>
-
-          {/* Headline */}
-          <motion.h1
-            initial={{ opacity: 0, y: 22 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.65, delay: 0.1 }}
-            className="mb-5 max-w-3xl text-[clamp(40px,6.5vw,72px)] font-semibold leading-[1.1] tracking-[-0.03em] text-white"
-          >
-            Build AI teams.<br />
-            By describing{' '}
-            <span
-              className="font-normal text-white/95"
-              style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: 'italic' }}
-            >
-              the job.
-            </span>
-          </motion.h1>
-
-          {/* Subtitle */}
-          <motion.p
-            initial={{ opacity: 0, y: 22 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.65, delay: 0.2 }}
-            className="mb-9 max-w-[420px] text-[17px] font-normal leading-[1.65] text-white/70"
-          >
-            Colony turns a goal into a routed AI workflow: the right mode, the right agents, the right tools, and the right model for each job.
-          </motion.p>
-
-          {/* CTA buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 22 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.65, delay: 0.3 }}
-            className="flex flex-col items-center gap-3 sm:flex-row"
-          >
-            <motion.button
-              onClick={scrollToEarlyAccess}
-              whileHover={{ scale: 1.03, y: -2, boxShadow: '0 0 0 1px rgba(255,255,255,0.38), 0 6px 44px rgba(255,255,255,0.3), 0 2px 12px rgba(0,0,0,0.22)' }}
-              whileTap={{ scale: 0.97 }}
-              style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.22), 0 4px 28px rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.16)' }}
-              className="lp-btn-primary rounded-full px-8 py-3.5 text-[15px] font-semibold"
-            >
-              Get Started for Free
-            </motion.button>
-            <motion.button
-              onClick={() => goTo('Login')}
-              whileHover={{ scale: 1.02, y: -2 }}
-              whileTap={{ scale: 0.97 }}
-              className="lp-btn-secondary rounded-full px-8 py-3.5 text-[15px] font-medium backdrop-blur-sm"
-            >
-              Join Early Access
-            </motion.button>
-          </motion.div>
-
-          {/* Social proof */}
-          <motion.div
-            initial={{ opacity: 0, y: 22 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.65, delay: 0.38 }}
-            className="mt-8 flex items-center gap-3 text-[13px] text-white/62"
-          >
-            <div className="flex -space-x-2">
-              {['EV', 'BC', 'DP'].map((name, i) => (
-                <span
-                  key={name}
-                  className="grid h-8 w-8 place-items-center rounded-full border-2 border-[#050508] bg-white/15 text-[9px] font-bold text-white/90 ring-1 ring-white/[0.15]"
-                  style={{ transform: `translateX(${i * -2}px)` }}
-                >
-                  {name}
-                </span>
-              ))}
-            </div>
-            <span>Trusted by early teams who want AI workflows with clarity, control, and human approval.</span>
-          </motion.div>
-        </motion.div>
-
-        {/* ── Layer 3: bottom edge fade (z-[3]) ── */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-24 bg-gradient-to-t from-[#050508] to-transparent" />
-      </section>
-
-      {/* ── Orchestration preview ── */}
-      <OrchestrationPreviewSection />
-
-      {/* ── Content sections ── */}
-      <div className="bg-[#050508]">
-        <TestimonialSection />
-        <FeaturesSection />
-        <ModelSupportSection />
-        <BuildersSection />
-        <PilotUsersSection goTo={goTo} />
-        <ComparisonSection />
-        <UseCasesSection />
-        <RoadmapSection />
-        <EarlyAccessSection goTo={goTo} />
-      </div>
-
-      {/* ── Footer ── */}
-      <footer className="border-t border-white/[0.07] bg-[#050508] px-5 py-10 md:px-8">
-        <div className="mx-auto flex max-w-[1200px] flex-col items-center justify-between gap-5 text-[13px] text-white/40 md:flex-row">
-          <div className="flex items-center gap-2 text-white/85">
-            <ColonyLogo size={20} />
-            <span className="font-semibold tracking-tight">Colony</span>
-          </div>
-          <div className="flex flex-wrap justify-center gap-5">
-            {landingNavLinks.map((link) => (
-              <a key={link} href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
-                className="transition-colors hover:text-white/65">
-                {link}
-              </a>
-            ))}
-          </div>
-          <p>(c) 2025 Colony</p>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-// ── Testimonial with scroll-driven word reveal ───────────────────────────────
-
-function FeatureIconBadge({ icon }: { icon: React.ReactNode }) {
-  return (
-    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.1] bg-white/[0.05] text-white/86 shadow-[0_10px_30px_rgba(0,0,0,0.28)]">
-      {icon}
-    </div>
-  );
-}
-
-function AgentRolePill({ label }: { label: string }) {
-  return (
-    <div className="inline-flex items-center rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-white/72">
-      {label}
-    </div>
-  );
-}
-
-function AgentFlowNode({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="min-w-[148px] rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.18)] backdrop-blur-sm">
-      <p className="text-[12px] font-semibold text-white/90">{title}</p>
-      <p className="mt-1 text-[11px] leading-5 text-white/48">{subtitle}</p>
-    </div>
-  );
-}
-
-function OrchestrationPreviewSection() {
-  const nodes = [
-    ['AI Ant Scout', 'Goal parser'],
-    ['Research Agent', 'Market context'],
-    ['Strategy Analyst', 'Plan structure'],
-    ['Writer Agent', 'Draft output'],
-    ['Creative Agent', 'Asset concepts'],
-    ['Approval Guard', 'Final check'],
-  ] as const;
-
-  return (
-    <section className="px-5 py-18 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <div className="rounded-[28px] border border-white/[0.08] bg-white/[0.03] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.22)] md:p-7">
-            <div className="grid gap-6 lg:grid-cols-[1.05fr,1.35fr]">
-              <div className="space-y-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7db7ff]">You Describe The Job</p>
-                  <div className="mt-3 rounded-2xl border border-white/[0.08] bg-[#06070b]/90 px-4 py-4">
-                    <p className="text-[14px] leading-7 text-white/84">
-                      Research my competitors, draft a launch plan, generate creative assets, and ask before sending anything.
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/46">Colony Orchestrates This</p>
-                  <p className="mt-3 text-[13px] leading-6 text-white/58">
-                    Colony matches the right agents, assigns responsibilities, and keeps the workflow reviewable.
-                  </p>
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-[24px] border border-white/[0.08] bg-[#07090d]/90 p-4 md:p-5">
-                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] pb-4">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/42">Workflow Preview</p>
-                    <p className="mt-2 text-[15px] font-semibold text-white">Agent sequence</p>
-                  </div>
-                  <div className="hidden items-center gap-2 md:flex">
-                    <AgentRolePill label="Visible routing" />
-                    <AgentRolePill label="Approval-first" />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
-                  {nodes.map(([title, subtitle], index) => (
-                    <div key={title} className="flex items-center gap-3">
-                      <AgentFlowNode title={title} subtitle={subtitle} />
-                      {index < nodes.length - 1 ? <div className="hidden h-px w-7 bg-gradient-to-r from-white/22 to-transparent md:block" /> : null}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2 md:hidden">
-                  <AgentRolePill label="Visible routing" />
-                  <AgentRolePill label="Approval-first" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-function TestimonialSection() {
-  return (
-    <section className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <div className="rounded-[30px] border border-white/[0.08] bg-white/[0.03] px-6 py-8 shadow-[0_28px_80px_rgba(0,0,0,0.24)] md:px-10 md:py-10">
-            <div className="max-w-4xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#7db7ff]">Why Colony</p>
-              <h2 className="mt-4 max-w-3xl text-[30px] font-semibold leading-tight tracking-tight text-white md:text-[40px]">
-                AI workflows should feel clear, controllable, and human.
-              </h2>
-              <p className="mt-5 max-w-3xl text-[15px] leading-8 text-white/66">
-                Most workflow builders are powerful, but still too technical for many real users. Colony is designed to make AI teams understandable, visible, and safe so people can build workflows by describing the job, not by wiring complicated systems.
-              </p>
-            </div>
-
-            <div className="mt-8 flex flex-col gap-4 border-t border-white/[0.08] pt-6 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-4">
-                <div className="grid h-12 w-12 place-items-center rounded-full border border-white/[0.12] bg-white/[0.06] text-[12px] font-semibold text-white">
-                  MF
-                </div>
-                <div>
-                  <p className="text-[14px] font-semibold text-white">Moss &amp; Fais</p>
-                  <p className="text-[13px] text-white/52">Colony Team</p>
-                </div>
-              </div>
-              <p className="max-w-xl text-[13px] leading-6 text-white/48">
-                Building Colony for real-world users, small teams, and practical AI work.
-              </p>
-            </div>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-function FeaturesSection() {
-  const features = [
-    {
-      title: 'Goal-First Builder',
-      copy:
-        'Describe the job in plain language and Colony turns it into a structured AI workflow. No complex setup, no node maze, and no technical knowledge required.',
-      icon: <Target className="h-[18px] w-[18px]" />,
-    },
-    {
-      title: 'Visual AI Orchestration',
-      copy:
-        'See how agents are matched, what each one is doing, which model they use, and how work flows from one role to another in real time.',
-      icon: <Network className="h-[18px] w-[18px]" />,
-      badge: 'Visible routing',
-    },
-    {
-      title: 'Human Approval by Default',
-      copy:
-        'Colony asks before risky actions like sending messages, exporting files, or using connected apps so users stay in control.',
-      icon: <ShieldCheck className="h-[18px] w-[18px]" />,
-      badge: 'Approval-first',
-    },
-    {
-      title: 'AI Ants for Real-World Inputs',
-      copy:
-        'Use screenshots, files, spreadsheets, and app or device context as input when direct API access is not available.',
-      icon: <Layers3 className="h-[18px] w-[18px]" />,
-      badge: 'Context aware',
-    },
-    {
-      title: 'Explainable Timeline',
-      copy:
-        'Every step is visible in plain language. Review what happened, when it happened, which agent handled it, and what output was produced.',
-      icon: <Clock3 className="h-[18px] w-[18px]" />,
-      timeline: [
-        '09:00 Goal parsed',
-        '09:01 Research Agent matched',
-        '09:02 Analyst reviewed findings',
-        '09:03 Draft prepared',
-        '09:04 Approval requested',
-      ],
-    },
-    {
-      title: 'Smart Deliverables',
-      copy:
-        'Generate useful outputs like summaries, reports, research notes, structured drafts, and workflow results that are ready to review and refine.',
-      icon: <FileText className="h-[18px] w-[18px]" />,
-    },
-  ];
-
-  return (
-    <section id="features" className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#4f9eff]">Features</p>
-          <h2 className="mb-12 text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Everything your AI team needs</h2>
-        </Reveal>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {features.map((feature, index) => (
-            <Reveal key={feature.title} delay={index * 70}>
-              <div className="group flex h-full min-h-[248px] flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.05] hover:shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
-                <div className="mb-5 flex items-start justify-between gap-4">
-                  <FeatureIconBadge icon={feature.icon} />
-                  {'badge' in feature && feature.badge ? (
-                    <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/62">
-                      {feature.badge}
-                    </span>
-                  ) : null}
-                </div>
-                <h3 className="mb-3 text-[16px] font-semibold text-white">{feature.title}</h3>
-                <p className="text-[13px] leading-relaxed text-white/62">{feature.copy}</p>
-                {Array.isArray(feature.timeline) ? (
-                  <div className="mt-5 space-y-2 rounded-2xl border border-white/[0.08] bg-[#07090d]/90 p-4 text-[12px] text-white/55">
-                    {feature.timeline.map((line) => (
-                      <div key={line} className="flex items-center gap-3">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#7db7ff]/75" />
-                        <p>{line}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ModelSupportSection() {
-  const providers = Array.from(new Map(SUPPORTED_MODELS.map((model) => [model.providerLabel, model])).values())
-    .filter((model) => ['OpenAI', 'Gemini', 'DeepSeek', 'Perplexity', 'Anthropic', 'ElevenLabs', 'Runway', 'Pika', 'Colony Bridge'].includes(model.providerLabel));
-  const loop = [...providers, ...providers];
-
-  return (
-    <section id="models" className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#4f9eff]">Models</p>
-          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Colony is model-flexible by design</h2>
-          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">Users see simple skills first. Behind the scenes, Colony routes each task to the provider/model that fits the capability, cost, quality, and approval level.</p>
-        </Reveal>
-
-        <Reveal delay={90} className="mt-10 overflow-hidden rounded-[24px] border border-white/[0.07] bg-white/[0.02] py-5">
-          <div className="flex w-max animate-[marquee_34s_linear_infinite] gap-3 px-5">
-            {loop.map((model, index) => (
-              <div key={`${model.id}-${index}`} className="flex min-w-[190px] items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.035] px-4 py-3">
-                <ProviderLogo provider={model.logoProvider ?? model.provider} size="md" />
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-semibold text-white/86">{model.providerLabel}</p>
-                  <p className="truncate text-[11px] text-white/42">{model.shortName} · {model.tags.slice(0, 2).join(' · ')}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Reveal>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          {[
-            ['Skills first', 'Users choose outcomes and capabilities, not model names.'],
-            ['Advanced control', 'Power users can override provider/model per agent or skill.'],
-            ['Approval aware', 'Tool actions and costly generation stay visible before execution.'],
-          ].map(([title, copy], index) => (
-            <Reveal key={title} delay={140 + index * 70}>
-              <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6">
-                <h3 className="text-[16px] font-semibold text-white">{title}</h3>
-                <p className="mt-3 text-[13px] leading-relaxed text-white/58">{copy}</p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function BuildersSection() {
-  const team = [
-    {
-      initials: 'MO',
-      name: 'Moss',
-      role: 'Frontend, Business Development & Strategic Ideas',
-      description: 'Leads the frontend experience, product direction, business development, and strategic ideas for how Colony should feel, grow, and solve real user problems.',
-      focus: ['Frontend', 'Business Development', 'Strategic Ideas', 'Product Direction', 'UI/UX'],
-    },
-    {
-      initials: 'FP',
-      name: 'Fais Putama',
-      role: 'Backend, Database & AI Systems',
-      description: 'Focuses on backend architecture, database design, AI orchestration, model routing, agent logic, and making Colony workflows run reliably.',
-      focus: ['Backend', 'Database', 'AI Systems', 'Model Routing', 'Agent Logic'],
-    },
-    {
-      initials: 'DP',
-      name: 'Design Partners',
-      role: 'Early Users & Feedback',
-      description: 'We are working with early users and design partners to test real workflows, improve usability, and validate what Colony should become.',
-      focus: ['Pilot Feedback', 'Real Use Cases', 'Workflow Testing', 'Product Validation'],
-    },
-  ];
-
-  return (
-    <section id="team" className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#4f9eff]">Team</p>
-          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Built by a small team making AI agents easier to use</h2>
-          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">We are building Colony from a simple belief: AI agents should be useful, visible, and controllable for real users — not only developers.</p>
-        </Reveal>
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
-          {team.map((member, index) => (
-            <Reveal key={member.name} delay={index * 80}>
-              <div className="flex h-full flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.05]">
-                <div className="mb-5 flex items-center gap-4">
-                  <div className="grid h-14 w-14 place-items-center rounded-2xl border border-white/[0.12] bg-white/[0.07] text-base font-bold text-white">
-                    {member.initials}
-                  </div>
-                  <div>
-                    <h3 className="text-[17px] font-semibold text-white">{member.name}</h3>
-                    <p className="text-[13px] font-medium text-[#4f9eff]">{member.role}</p>
-                  </div>
-                </div>
-                <p className="text-[13px] leading-relaxed text-white/62">{member.description}</p>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {member.focus.map((item) => (
-                    <span key={item} className="rounded-full border border-white/[0.1] bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-white/65">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ComparisonSection() {
-  const rows = [
-    ['Starting point', 'Start from nodes, triggers, APIs, or technical setup', 'Start by describing the job in natural language'],
-    ['User experience', 'Built mainly for technical users or automation builders', 'Designed for non-technical users, small teams, and business owners'],
-    ['Workflow clarity', 'Complex flows can be hard to understand', 'Visual AI teams, explainable timeline, and human-friendly language'],
-    ['Data access', 'Often depends on APIs or manual integrations', 'Supports connectors and AI Ants for screenshots, files, and app data when APIs are unavailable'],
-    ['Safety', 'Automation may run without clear human checkpoints', 'Approval-first by default before risky actions'],
-    ['Debugging', 'Logs can feel technical', 'Agent conversations and plain-language timeline'],
-  ];
-
-  return (
-    <section id="comparison" className="px-5 py-24 md:px-8">
-      <Reveal className="mx-auto max-w-[1200px]">
-        <p className="mb-3 text-center text-xs font-bold uppercase tracking-[0.18em] text-[#4f9eff]">Comparison</p>
-        <h2 className="mx-auto max-w-4xl text-center text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">How Colony is different from traditional workflow builders</h2>
-        <p className="mx-auto mt-4 max-w-4xl text-center text-[15px] leading-relaxed text-white/60">Powerful automation tools like n8n, OpenClaw, and Dify are great for technical teams. Colony focuses on making AI agent workflows easier, safer, and more understandable for non-technical users.</p>
-        <div className="mt-10 overflow-x-auto overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-          <div className="grid min-w-[760px] grid-cols-[1.1fr_1.25fr_1.25fr] border-b border-white/[0.07] text-sm">
-            {['', 'Traditional workflow builders', 'Colony'].map((header, index) => (
-              <div key={header} className={`p-4 font-semibold ${index === 2 ? 'bg-[#4f9eff]/10 text-[#4f9eff]' : 'text-white/70'}`}>
-                {header}
-              </div>
-            ))}
-          </div>
-          <div className="min-w-[760px]">
-            {rows.map((row) => (
-              <div key={row[0]} className="grid grid-cols-[1.1fr_1.25fr_1.25fr] border-b border-white/[0.05] last:border-b-0">
-                <div className="p-4 text-[13px] font-semibold text-white/85">{row[0]}</div>
-                <div className="p-4 text-[13px] leading-relaxed text-white/48">{row[1]}</div>
-                <div className="bg-[#4f9eff]/[0.06] p-4 text-[13px] leading-relaxed text-white/80">{row[2]}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Reveal>
-    </section>
-  );
-}
-
-function PilotUsersSection({ goTo }: { goTo: (page: Page) => void }) {
-  const groups = [
-    {
-      title: 'Restaurant / Delivery',
-      copy: 'Test AI agents that summarize sales, GP fees, VAT, orders, and daily profit from screenshots or files.',
-      icon: glyph.bowl,
-    },
-    {
-      title: 'Creators',
-      copy: 'Build AI workflows for research, scripts, captions, content planning, and approval.',
-      icon: glyph.writer,
-    },
-    {
-      title: 'SMEs / Teams',
-      copy: 'Turn files, spreadsheets, and repeated tasks into explainable AI workflows.',
-      icon: glyph.board,
-    },
-  ];
-
-  return (
-    <section id="pilot-users" className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal className="overflow-hidden rounded-[28px] border border-white/[0.07] bg-white/[0.02] p-8 md:p-12">
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Pilot users</p>
-          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Looking for pilot users and design partners</h2>
-          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">We are opening early access for people and teams who want to shape the future of AI agent workflows.</p>
-          <div className="mt-10 grid gap-4 md:grid-cols-3">
-            {groups.map((group, index) => (
-              <Reveal key={group.title} delay={index * 80}>
-                <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 transition-all hover:border-white/[0.12] hover:bg-white/[0.05]">
-                  <span className="mb-5 block text-3xl">{group.icon}</span>
-                  <h3 className="text-[20px] font-semibold text-white">{group.title}</h3>
-                  <p className="mt-3 text-[13px] leading-relaxed text-white/62">{group.copy}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <button onClick={() => goTo('Login')}
-              className="lp-btn-primary inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold hover:-translate-y-0.5">
-              Become a Pilot User <span>{glyph.arrow}</span>
-            </button>
-            <button onClick={() => goTo('Login')}
-              className="lp-btn-secondary inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium hover:-translate-y-0.5">
-              Join Early Access
-            </button>
-            <button onClick={() => goTo('Login')}
-              className="lp-btn-secondary inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium hover:-translate-y-0.5">
-              Contact the Team
-            </button>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
-
-function UseCasesSection() {
-  const cases = [
-    {
-      icon: glyph.bowl,
-      title: 'Restaurant & Delivery Owners',
-      copy: 'Connect LINE MAN, Grab, or upload screenshots. Get daily profit reports automatically.',
-    },
-    {
-      icon: glyph.bag,
-      title: 'Online Sellers & Creators',
-      copy: 'Track orders, plan content, reply to customers - your AI team handles the routine.',
-    },
-    {
-      icon: glyph.folder,
-      title: 'File-to-Report Teams',
-      copy: 'Upload Excel, PDF, or screenshots. Get clean summaries and business insights.',
-    },
-  ];
-
-  return (
-    <section id="use-cases" className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <h2 className="mb-10 text-center text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Built for real business owners</h2>
-        </Reveal>
-        <div className="grid gap-4 md:grid-cols-3">
-          {cases.map((item, index) => (
-            <Reveal key={item.title} delay={index * 90}>
-              <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.03] p-7 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.05]">
-                <span className="mb-6 block text-4xl">{item.icon}</span>
-                <h3 className="mb-3 text-[20px] font-semibold text-white">{item.title}</h3>
-                <p className="text-[13px] leading-relaxed text-white/62">{item.copy}</p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function RoadmapSection() {
-  const stages = [
-    {
-      title: 'Stage 1: MVP',
-      items: ['AI Agent Team Builder', 'Project-based workspace', 'Visual canvas', 'AI Team Chat', 'Human approval', 'Mock reports and workflow runs'],
-    },
-    {
-      title: 'Stage 2: AI Ants',
-      items: ['Screenshot and file reading', 'Read-only mobile/app data collection', 'Structured extraction', 'Safer data collection without relying only on APIs'],
-    },
-    {
-      title: 'Stage 3: Connectors',
-      items: ['Google Sheets', 'File Upload', 'Gmail', 'LINE', 'Google Drive', 'Notion', 'Delivery platform workflows'],
-    },
-    {
-      title: 'Stage 4: Template Marketplace',
-      items: ['Restaurant Profit Agent', 'Creator Workflow', 'File-to-Report', 'Customer Support', 'Research Assistant', 'Custom workflow templates'],
-    },
-    {
-      title: 'Stage 5: Team Collaboration',
-      items: ['Shared projects', 'Roles and permissions', 'Version history', 'Approval history', 'Team workspace'],
-    },
-  ];
-
-  return (
-    <section id="roadmap" className="px-5 py-24 md:px-8">
-      <div className="mx-auto max-w-[1200px]">
-        <Reveal>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#4f9eff]">Roadmap</p>
-          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Roadmap</h2>
-          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">We are building Colony step by step, starting with a focused MVP and expanding into a full AI agent workspace.</p>
-        </Reveal>
-        <div className="mt-10 grid gap-4 lg:grid-cols-5">
-          {stages.map((stage, index) => (
-            <Reveal key={stage.title} delay={index * 70}>
-              <div className="h-full rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.05]">
-                <div className="mb-4 flex items-center gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#4f9eff]/10 text-sm font-bold text-[#4f9eff]">{index + 1}</span>
-                  <h3 className="text-[15px] font-semibold text-white leading-tight">{stage.title}</h3>
-                </div>
-                <div className="space-y-2">
-                  {stage.items.map((item) => (
-                    <p key={item} className="text-[13px] leading-relaxed text-white/58">
-                      {glyph.dot} {item}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function EarlyAccessSection({ goTo }: { goTo: (page: Page) => void }) {
-  const [email, setEmail] = React.useState('');
-  const [role, setRole] = React.useState('Founder / operator');
-  const [submitted, setSubmitted] = React.useState(false);
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!validateEmail(email)) return;
-    try {
-      const entries = JSON.parse(localStorage.getItem('colony_early_access') ?? '[]') as Array<{ email: string; role: string; createdAt: string }>;
-      localStorage.setItem('colony_early_access', JSON.stringify([{ email: normalizeEmail(email), role, createdAt: new Date().toISOString() }, ...entries]));
-    } catch { /* ignore */ }
-    setSubmitted(true);
-  };
-
-  return (
-    <section id="early-access" className="px-5 py-24 md:px-8">
-      <Reveal className="mx-auto max-w-[1200px] overflow-hidden rounded-[24px] border border-white/[0.07] bg-white/[0.02] p-8 md:p-12">
-        <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
-          <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Early access</p>
-            <h2 className="mb-5 text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[42px]">Join Colony while the product is still taking shape</h2>
-            <p className="max-w-xl text-[15px] leading-relaxed text-white/62">We are looking for thoughtful early users, design partners, and teams who want to shape a safer, friendlier way to automate daily work with AI agents.</p>
-          </div>
-          <div>
-            <form onSubmit={submit} className="rounded-[22px] border border-white/[0.07] bg-white/[0.035] p-5">
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/35">Request access</p>
-              <label className="mt-4 block text-[12px] font-semibold text-white/55">
-                Work email
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  placeholder="you@company.com"
-                  className="mt-2 w-full rounded-xl border border-white/[0.10] bg-white/[0.04] px-4 py-3 text-[14px] text-white outline-none placeholder:text-white/25 focus:border-[#4f9eff]/50"
-                />
-              </label>
-              <label className="mt-3 block text-[12px] font-semibold text-white/55">
-                What are you building?
-                <select
-                  value={role}
-                  onChange={(event) => setRole(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-white/[0.10] bg-[#08080d] px-4 py-3 text-[14px] text-white outline-none focus:border-[#4f9eff]/50"
-                >
-                  <option>Founder / operator</option>
-                  <option>Small business team</option>
-                  <option>Creator / marketer</option>
-                  <option>Developer / AI builder</option>
-                </select>
-              </label>
-              {submitted && <p className="mt-3 rounded-xl border border-[#00d4aa]/20 bg-[#00d4aa]/10 px-3 py-2 text-[12px] font-semibold text-[#00d4aa]">Saved locally for early-access follow up.</p>}
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <button type="submit"
-                  className="lp-btn-primary flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold hover:-translate-y-0.5">
-                  Join Early Access <span>{glyph.arrow}</span>
-                </button>
-                <button type="button" onClick={() => goTo('Login')}
-                  className="lp-btn-secondary flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-medium hover:-translate-y-0.5">
-                  Open Demo
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </Reveal>
-    </section>
-  );
-}
-
+// Backwards-compat alias — prefer the typed helpers in src/lib/auth/roles.ts.
 function isAdminRole(role?: UserRole) {
-  return role === 'admin' || role === 'developer';
+  return isDeveloperOrAdmin({ role });
 }
 
 function resolveBackendUserId(profile?: Pick<UserProfile, 'email' | 'role'> | null) {
@@ -2136,721 +1096,7 @@ function usageFeatureToAdminFeature(feature: UsageFeature): FeatureName {
   return feature;
 }
 
-function pageFromPath(pathname: string): Page {
-  if (pathname.startsWith('/admin')) return 'Admin';
-  if (pathname === '/create-account' || pathname === '/signup') return 'CreateAccount';
-  if (pathname === '/login' || pathname === '/signin') return 'Login';
-  if (pathname === '/forgot-password') return 'ForgotPassword';
-  if (pathname === '/onboarding') return 'Onboarding';
-  if (pathname === '/ai-ant') return 'AI Ant';
-  return 'Landing';
-}
 
-function pathFromPage(page: Page) {
-  const paths: Partial<Record<Page, string>> = {
-    Landing: '/',
-    Login: '/signin',
-    CreateAccount: '/create-account',
-    ForgotPassword: '/forgot-password',
-    Onboarding: '/onboarding',
-    Admin: '/admin',
-    'AI Ant': '/ai-ant',
-  };
-  return paths[page] ?? `/${page.toLowerCase().replace(/\s+/g, '-')}`;
-}
-
-function GoogleGlyph() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z" />
-      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z" />
-      <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z" />
-      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z" />
-    </svg>
-  );
-}
-
-type AuthFieldErrors = Partial<Record<'email' | 'password' | 'confirmPassword' | 'code' | 'newPassword', string>>;
-
-function LoginPage({ goTo, onAuthed, initialMode = 'signin' }: { goTo: (page: Page) => void; onAuthed: (user: AuthUser) => void; initialMode?: 'signin' | 'signup' }) {
-  const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
-  const [step, setStep] = useState<'form' | 'verify'>('form');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [code, setCode] = useState('');
-  const [verification, setVerification] = useState<VerificationCode | null>(null);
-  const [unverifiedEmail, setUnverifiedEmail] = useState('');
-  const [loading, setLoading] = useState<null | 'email' | 'google' | 'verify' | 'resend'>(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const validate = () => {
-    const next: AuthFieldErrors = {};
-    const cleanEmail = normalizeEmail(email);
-    if (!cleanEmail) next.email = 'Email address is required.';
-    else if (!validateEmail(cleanEmail)) next.email = 'Enter a valid email address.';
-
-    if (!password) next.password = 'Password is required.';
-    else if (mode === 'signup') {
-      const passwordResult = validatePassword(password);
-      if (!passwordResult.valid) next.password = passwordResult.message;
-    }
-
-    if (mode === 'signup') {
-      if (!confirmPassword) next.confirmPassword = 'Confirm your password.';
-      else if (confirmPassword !== password) next.confirmPassword = 'Passwords do not match.';
-    }
-
-    setFieldErrors(next);
-    return Object.keys(next).length === 0;
-  };
-
-  const runGoogle = async () => {
-    setError('');
-    setSuccess('');
-    setFieldErrors({});
-    setLoading('google');
-    try {
-      await wait(800);
-      const res = signInWithGoogleMock();
-      setSuccess('Signed in with Google. Redirecting...');
-      await wait(350);
-      onAuthed(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const submitEmail = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!validate()) return;
-    setError('');
-    setSuccess('');
-    setLoading('email');
-    try {
-      await wait(700);
-      const cleanEmail = normalizeEmail(email);
-      if (mode === 'signup') {
-        if (getStoredMockUser(cleanEmail)) {
-          setError('An account with this email already exists.');
-          return;
-        }
-        const nextCode = createVerificationCode(cleanEmail, 'signup');
-        setVerification(nextCode);
-        setStep('verify');
-        setSuccess(`We sent a verification code to ${cleanEmail}.`);
-        return;
-      }
-
-      const result = signInMockUser(cleanEmail, password);
-      if (result.reason === 'email_unverified') {
-        setUnverifiedEmail(cleanEmail);
-        setError('Please verify your email before signing in.');
-        return;
-      }
-      if (!result.user) {
-        setError('Invalid email or password.');
-        return;
-      }
-      setSuccess('Signed in. Redirecting...');
-      await wait(350);
-      onAuthed(result.user);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const verifyEmail = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    setSuccess('');
-    setFieldErrors({});
-    if (code.length !== 6) {
-      setFieldErrors({ code: 'Enter the 6-digit verification code.' });
-      return;
-    }
-    setLoading('verify');
-    try {
-      await wait(650);
-      const cleanEmail = normalizeEmail(email || unverifiedEmail);
-      const result = verifyCode(cleanEmail, code, 'signup');
-      if (result.expired) {
-        setError('This code expired. Please request a new code.');
-        return;
-      }
-      if (!result.valid) {
-        setError('Invalid verification code.');
-        return;
-      }
-      const user = unverifiedEmail ? markEmailVerified(cleanEmail) : createMockUser(cleanEmail, password);
-      removeVerificationCode(cleanEmail, 'signup');
-      if (!user) {
-        setError('Unable to verify this account.');
-        return;
-      }
-      setSuccess('Email verified. Redirecting...');
-      await wait(450);
-      onAuthed(user);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const resendCode = async () => {
-    const cleanEmail = normalizeEmail(email || unverifiedEmail);
-    if (!cleanEmail) return;
-    setError('');
-    setSuccess('');
-    setLoading('resend');
-    await wait(500);
-    const nextCode = createVerificationCode(cleanEmail, 'signup');
-    setVerification(nextCode);
-    setStep('verify');
-    setCode('');
-    setSuccess(`We sent a new verification code to ${cleanEmail}.`);
-    setLoading(null);
-  };
-
-  const switchMode = () => {
-    const nextMode = mode === 'signin' ? 'signup' : 'signin';
-    setMode(nextMode);
-    goTo(nextMode === 'signup' ? 'CreateAccount' : 'Login');
-    setStep('form');
-    setError('');
-    setSuccess('');
-    setFieldErrors({});
-    setConfirmPassword('');
-    setCode('');
-    setVerification(null);
-    setUnverifiedEmail('');
-  };
-
-  return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center bg-[#050508] px-5 text-white overflow-hidden">
-      {/* Background layers */}
-      <div className="pointer-events-none absolute inset-0 z-0">
-        <video autoPlay loop muted playsInline
-          className="absolute inset-0 h-full w-full object-cover opacity-20"
-          src={VIDEO_BG_URL}
-        />
-        <div className="absolute inset-0 bg-[#050508]/75" />
-        {/* Violet glow top-center */}
-        <div className="absolute left-1/2 top-0 h-[600px] w-[800px] -translate-x-1/2 rounded-full opacity-40"
-          style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(124,92,252,0.25) 0%, transparent 65%)' }} />
-        {/* Blue glow bottom */}
-        <div className="absolute bottom-0 left-1/2 h-[400px] w-[600px] -translate-x-1/2 rounded-full opacity-30"
-          style={{ background: 'radial-gradient(ellipse at 50% 100%, rgba(79,158,255,0.18) 0%, transparent 65%)' }} />
-      </div>
-
-      {/* Back to landing */}
-      <button onClick={() => goTo('Landing')} className="relative z-10 mb-8 flex items-center gap-2 text-white/40 transition hover:text-white/70">
-        <ArrowLeft className="h-3.5 w-3.5" />
-        <span className="text-[13px]">Back to Colony</span>
-      </button>
-
-      {/* Card */}
-      <div className="relative z-10 w-full max-w-[420px] rounded-2xl border border-white/[0.08] bg-white/[0.03] px-8 py-9 shadow-[0_32px_80px_rgba(0,0,0,0.6)] backdrop-blur-2xl">
-
-        {/* Logo */}
-        <div className="mb-7 flex flex-col items-center gap-3">
-          <div className="relative">
-            <div className="absolute inset-0 rounded-2xl blur-xl opacity-60" style={{ background: 'radial-gradient(circle, rgba(124,92,252,0.6) 0%, transparent 70%)', transform: 'scale(1.8)' }} />
-            <div className="relative flex items-center justify-center">
-              <img src="/assets/logos/Colony white no have text.png" width={96} height={96} alt="Colony" draggable={false} />
-            </div>
-          </div>
-        </div>
-
-        <h1 className="mb-1 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">
-          {step === 'verify' ? 'Verify your email' : mode === 'signin' ? 'Welcome back' : 'Create your account'}
-        </h1>
-        <p className="mb-7 text-center text-[14px] text-white/40">
-          {step === 'verify'
-            ? `We sent a 6-digit code to ${normalizeEmail(email || unverifiedEmail)}.`
-            : mode === 'signin'
-            ? 'Sign in to command AI Ant and your AI workforce.'
-            : 'Start building your AI workforce in minutes.'}
-        </p>
-
-        {step === 'verify' ? (
-          <form onSubmit={verifyEmail} className="space-y-3">
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              disabled={loading !== null}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="6-digit code"
-              maxLength={6}
-              className={`w-full rounded-xl border bg-white/[0.04] px-4 py-3 text-center text-[18px] font-bold tracking-[0.35em] text-white placeholder-white/25 outline-none transition disabled:opacity-60 ${fieldErrors.code ? 'border-red-400/45 focus:border-red-400/60 focus:ring-2 focus:ring-red-400/10' : 'border-white/[0.09] focus:border-[#7c5cfc]/50 focus:bg-white/[0.06] focus:ring-2 focus:ring-[#7c5cfc]/10'}`}
-            />
-            {fieldErrors.code && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.code}</p>}
-            {verification && (
-              <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.07] px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-100/85">
-                Development code: <span className="font-bold tracking-wider">{verification.code}</span>
-                <p className="mt-1 text-[11px] text-amber-100/55">TODO: Replace mock verification code with real email service.</p>
-              </div>
-            )}
-            {error && (
-              <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3.5 py-2.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-                <p className="text-[12px] leading-relaxed text-red-300">{error}</p>
-              </div>
-            )}
-            {success && (
-              <div className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3.5 py-2.5">
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                <p className="text-[12px] leading-relaxed text-emerald-200">{success}</p>
-              </div>
-            )}
-            <button type="submit" disabled={loading !== null} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c5cfc] py-3 text-[14px] font-semibold text-white shadow-[0_0_24px_rgba(124,92,252,0.35)] transition hover:bg-[#6d4ef0] disabled:opacity-60">
-              {loading === 'verify' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {loading === 'verify' ? 'Verifying...' : 'Verify email'}
-            </button>
-            <div className="flex items-center justify-between text-[13px]">
-              <button type="button" onClick={resendCode} disabled={loading !== null} className="text-white/45 transition hover:text-white/75 disabled:opacity-50">
-                {loading === 'resend' ? 'Sending...' : 'Resend code'}
-              </button>
-              <button type="button" onClick={() => { setStep('form'); setError(''); setSuccess(''); setCode(''); }} className="text-white/45 transition hover:text-white/75">Back</button>
-            </div>
-          </form>
-        ) : (
-          <>
-        {/* Google button */}
-        <button
-          disabled={loading !== null}
-          onClick={runGoogle}
-          className="mb-4 flex w-full items-center justify-center gap-3 rounded-xl border !border-white !bg-white py-3 text-[14px] font-semibold !text-[#070B14] shadow-[0_2px_8px_rgba(0,0,0,0.2)] transition hover:!bg-white/95 disabled:opacity-60"
-        >
-          {loading === 'google' ? <Loader2 className="h-4 w-4 animate-spin text-gray-500" /> : <GoogleGlyph />}
-          {loading === 'google' ? 'Connecting to Google...' : 'Continue with Google'}
-        </button>
-
-        {/* Divider */}
-        <div className="my-5 flex items-center gap-3">
-          <span className="h-px flex-1 bg-white/[0.08]" />
-          <span className="text-[11px] uppercase tracking-widest text-white/25">or</span>
-          <span className="h-px flex-1 bg-white/[0.08]" />
-        </div>
-
-        {/* Email form */}
-        <form onSubmit={submitEmail} className="space-y-3">
-          <div>
-            <input
-              value={email} onChange={(e) => setEmail(e.target.value)}
-              disabled={loading !== null}
-              type="email" autoComplete="email" placeholder="Email address"
-              className={`w-full rounded-xl border bg-white/[0.04] px-4 py-3 text-[14px] text-white placeholder-white/25 outline-none transition disabled:opacity-60 ${fieldErrors.email ? 'border-red-400/45 focus:border-red-400/60 focus:ring-2 focus:ring-red-400/10' : 'border-white/[0.09] focus:border-[#7c5cfc]/50 focus:bg-white/[0.06] focus:ring-2 focus:ring-[#7c5cfc]/10'}`}
-            />
-            {fieldErrors.email && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.email}</p>}
-          </div>
-          <div>
-            <div className={`flex items-center rounded-xl border bg-white/[0.04] pr-3 transition ${fieldErrors.password ? 'border-red-400/45 focus-within:border-red-400/60 focus-within:ring-2 focus-within:ring-red-400/10' : 'border-white/[0.09] focus-within:border-[#7c5cfc]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#7c5cfc]/10'}`}>
-              <input
-                value={password} onChange={(e) => setPassword(e.target.value)}
-                disabled={loading !== null}
-                type={showPassword ? 'text' : 'password'} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} placeholder="Password"
-                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-[14px] text-white placeholder-white/25 outline-none disabled:opacity-60"
-              />
-              <button type="button" disabled={loading !== null} onClick={() => setShowPassword((shown) => !shown)} className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50" aria-label={showPassword ? 'Hide password' : 'Show password'}>
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {fieldErrors.password && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.password}</p>}
-          </div>
-          {mode === 'signup' && (
-            <div>
-              <div className={`flex items-center rounded-xl border bg-white/[0.04] pr-3 transition ${fieldErrors.confirmPassword ? 'border-red-400/45 focus-within:border-red-400/60 focus-within:ring-2 focus-within:ring-red-400/10' : 'border-white/[0.09] focus-within:border-[#7c5cfc]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#7c5cfc]/10'}`}>
-                <input
-                  value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                  disabled={loading !== null}
-                  type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Confirm password"
-                  className="min-w-0 flex-1 bg-transparent px-4 py-3 text-[14px] text-white placeholder-white/25 outline-none disabled:opacity-60"
-                />
-                <button type="button" disabled={loading !== null} onClick={() => setShowConfirmPassword((shown) => !shown)} className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50" aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}>
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {fieldErrors.confirmPassword && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.confirmPassword}</p>}
-            </div>
-          )}
-          {error && (
-            <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3.5 py-2.5">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-              <div className="min-w-0">
-                <p className="text-[12px] leading-relaxed text-red-300">{error}</p>
-                {unverifiedEmail && (
-                  <button type="button" onClick={resendCode} className="mt-2 text-[12px] font-semibold text-red-100 underline underline-offset-2">
-                    Resend verification code
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          {success && (
-            <div className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3.5 py-2.5">
-              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
-              <p className="text-[12px] leading-relaxed text-emerald-200">{success}</p>
-            </div>
-          )}
-          <button
-            type="submit" disabled={loading !== null}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c5cfc] py-3 text-[14px] font-semibold text-white shadow-[0_0_24px_rgba(124,92,252,0.35)] transition hover:bg-[#6d4ef0] hover:shadow-[0_0_32px_rgba(124,92,252,0.5)] disabled:opacity-60"
-          >
-            {loading === 'email' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {loading === 'email' ? (mode === 'signup' ? 'Creating account...' : 'Signing in...') : (mode === 'signin' ? 'Sign in' : 'Create account')}
-          </button>
-        </form>
-
-        {/* Footer links */}
-        <div className="mt-5 flex items-center justify-between text-[13px]">
-          <button onClick={() => goTo('ForgotPassword')} className="text-white/35 transition hover:text-white/65">Forgot password?</button>
-          <button
-            onClick={switchMode}
-            className="font-medium text-white/55 transition hover:text-white/90"
-          >
-            {mode === 'signin' ? 'Create account ->' : '<- Sign in'}
-          </button>
-        </div>
-
-        {/* Terms */}
-        <p className="mt-6 text-center text-[11px] leading-relaxed text-white/20">
-          By continuing, you agree to Colony's{' '}
-          <span className="cursor-pointer underline underline-offset-2 hover:text-white/40">Terms of Service</span>
-          {' '}and{' '}
-          <span className="cursor-pointer underline underline-offset-2 hover:text-white/40">Privacy Policy</span>
-        </p>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ForgotPasswordPage({ goTo }: { goTo: (page: Page) => void }) {
-  const [step, setStep] = useState<'request' | 'verify' | 'reset' | 'done'>('request');
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [verification, setVerification] = useState<VerificationCode | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState<null | 'send' | 'verify' | 'reset' | 'resend'>(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
-  const [showPassword, setShowPassword] = useState(false);
-
-  const requestReset = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    setSuccess('');
-    setFieldErrors({});
-    const cleanEmail = normalizeEmail(email);
-    if (!cleanEmail) {
-      setFieldErrors({ email: 'Email address is required.' });
-      return;
-    }
-    if (!validateEmail(cleanEmail)) {
-      setFieldErrors({ email: 'Enter a valid email address.' });
-      return;
-    }
-    if (!getStoredMockUser(cleanEmail)) {
-      setError('No account exists with this email.');
-      return;
-    }
-    setLoading('send');
-    await wait(700);
-    const nextCode = createVerificationCode(cleanEmail, 'password_reset');
-    setVerification(nextCode);
-    setStep('verify');
-    setSuccess(`We sent a reset code to ${cleanEmail}.`);
-    setLoading(null);
-  };
-
-  const verifyResetCode = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    setSuccess('');
-    setFieldErrors({});
-    if (code.length !== 6) {
-      setFieldErrors({ code: 'Enter the 6-digit verification code.' });
-      return;
-    }
-    setLoading('verify');
-    await wait(600);
-    const result = verifyCode(email, code, 'password_reset');
-    setLoading(null);
-    if (result.expired) {
-      setError('This code expired. Please request a new code.');
-      return;
-    }
-    if (!result.valid) {
-      setError('Invalid verification code.');
-      return;
-    }
-    setStep('reset');
-    setSuccess('');
-  };
-
-  const resendResetCode = async () => {
-    setError('');
-    setSuccess('');
-    setLoading('resend');
-    await wait(500);
-    const nextCode = createVerificationCode(email, 'password_reset');
-    setVerification(nextCode);
-    setCode('');
-    setSuccess(`We sent a new reset code to ${normalizeEmail(email)}.`);
-    setLoading(null);
-  };
-
-  const resetPassword = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    setSuccess('');
-    setFieldErrors({});
-    const passwordResult = validatePassword(newPassword);
-    if (!passwordResult.valid) {
-      setFieldErrors({ newPassword: passwordResult.message });
-      return;
-    }
-    if (!confirmPassword) {
-      setFieldErrors({ confirmPassword: 'Confirm your new password.' });
-      return;
-    }
-    if (confirmPassword !== newPassword) {
-      setFieldErrors({ confirmPassword: 'Passwords do not match.' });
-      return;
-    }
-    setLoading('reset');
-    await wait(700);
-    const updated = resetMockPassword(email, newPassword);
-    setLoading(null);
-    if (!updated) {
-      setError('Unable to reset password for this account.');
-      return;
-    }
-    removeVerificationCode(email, 'password_reset');
-    setStep('done');
-    setSuccess('Password reset. You can now sign in.');
-  };
-
-  const title = step === 'request' ? 'Reset your password' : step === 'verify' ? 'Enter verification code' : step === 'reset' ? 'Create new password' : 'Password reset';
-  const subtitle = step === 'request'
-    ? "Enter your email and we'll send a verification code."
-    : step === 'verify'
-      ? `We sent a 6-digit code to ${normalizeEmail(email)}.`
-      : step === 'reset'
-        ? 'Choose a new password for your Colony account.'
-        : 'You can now return to sign in.';
-
-  return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#050508] px-5 text-white">
-      <div className="pointer-events-none absolute inset-0 z-0">
-        <video autoPlay loop muted playsInline className="absolute inset-0 h-full w-full object-cover opacity-20" src={VIDEO_BG_URL} />
-        <div className="absolute inset-0 bg-[#050508]/75" />
-        <div className="absolute left-1/2 top-0 h-[600px] w-[800px] -translate-x-1/2 rounded-full opacity-40" style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(124,92,252,0.25) 0%, transparent 65%)' }} />
-      </div>
-
-      <button onClick={() => goTo('Login')} className="relative z-10 mb-8 flex items-center gap-2 text-white/40 transition hover:text-white/70">
-        <ArrowLeft className="h-3.5 w-3.5" />
-        <span className="text-[13px]">Back to sign in</span>
-      </button>
-
-      <div className="relative z-10 w-full max-w-[420px] rounded-2xl border border-white/[0.08] bg-white/[0.03] px-8 py-9 shadow-[0_32px_80px_rgba(0,0,0,0.6)] backdrop-blur-2xl">
-        <div className="mb-7 flex justify-center">
-          <img src="/assets/logos/Colony white no have text.png" width={80} height={80} alt="Colony" draggable={false} />
-        </div>
-        <h1 className="mb-1 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">{title}</h1>
-        <p className="mb-7 text-center text-[14px] text-white/40">{subtitle}</p>
-
-        {step === 'request' && (
-          <form onSubmit={requestReset} className="space-y-3">
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              disabled={loading !== null}
-              type="email"
-              autoComplete="email"
-              placeholder="Email address"
-              className={`w-full rounded-xl border bg-white/[0.04] px-4 py-3 text-[14px] text-white placeholder-white/25 outline-none transition focus:bg-white/[0.06] disabled:opacity-60 ${fieldErrors.email ? 'border-red-400/45 focus:border-red-400/60 focus:ring-2 focus:ring-red-400/10' : 'border-white/[0.09] focus:border-[#7c5cfc]/50 focus:ring-2 focus:ring-[#7c5cfc]/10'}`}
-            />
-            {fieldErrors.email && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.email}</p>}
-            {error && (
-              <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3.5 py-2.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-                <p className="text-[12px] leading-relaxed text-red-300">{error}</p>
-              </div>
-            )}
-            <button type="submit" disabled={loading !== null} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c5cfc] py-3 text-[14px] font-semibold text-white shadow-[0_0_24px_rgba(124,92,252,0.35)] transition hover:bg-[#6d4ef0] disabled:opacity-60">
-              {loading === 'send' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {loading === 'send' ? 'Sending...' : 'Send reset code'}
-            </button>
-          </form>
-        )}
-
-        {step === 'verify' && (
-          <form onSubmit={verifyResetCode} className="space-y-3">
-            <input
-              value={code}
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              disabled={loading !== null}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="6-digit code"
-              className={`w-full rounded-xl border bg-white/[0.04] px-4 py-3 text-center text-[18px] font-bold tracking-[0.35em] text-white placeholder-white/25 outline-none transition disabled:opacity-60 ${fieldErrors.code ? 'border-red-400/45 focus:border-red-400/60 focus:ring-2 focus:ring-red-400/10' : 'border-white/[0.09] focus:border-[#7c5cfc]/50 focus:bg-white/[0.06] focus:ring-2 focus:ring-[#7c5cfc]/10'}`}
-            />
-            {fieldErrors.code && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.code}</p>}
-            {verification && (
-              <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.07] px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-100/85">
-                Development code: <span className="font-bold tracking-wider">{verification.code}</span>
-                <p className="mt-1 text-[11px] text-amber-100/55">TODO: Replace mock reset code with real email service.</p>
-              </div>
-            )}
-            {error && (
-              <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3.5 py-2.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-                <p className="text-[12px] leading-relaxed text-red-300">{error}</p>
-              </div>
-            )}
-            {success && (
-              <div className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3.5 py-2.5">
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                <p className="text-[12px] leading-relaxed text-emerald-200">{success}</p>
-              </div>
-            )}
-            <button type="submit" disabled={loading !== null} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c5cfc] py-3 text-[14px] font-semibold text-white shadow-[0_0_24px_rgba(124,92,252,0.35)] transition hover:bg-[#6d4ef0] disabled:opacity-60">
-              {loading === 'verify' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {loading === 'verify' ? 'Verifying...' : 'Verify code'}
-            </button>
-            <div className="flex items-center justify-between text-[13px]">
-              <button type="button" onClick={resendResetCode} disabled={loading !== null} className="text-white/45 transition hover:text-white/75 disabled:opacity-50">{loading === 'resend' ? 'Sending...' : 'Resend code'}</button>
-              <button type="button" onClick={() => { setStep('request'); setError(''); setSuccess(''); }} className="text-white/45 transition hover:text-white/75">Back</button>
-            </div>
-          </form>
-        )}
-
-        {step === 'reset' && (
-          <form onSubmit={resetPassword} className="space-y-3">
-            <div>
-              <div className={`flex items-center rounded-xl border bg-white/[0.04] pr-3 transition ${fieldErrors.newPassword ? 'border-red-400/45 focus-within:border-red-400/60 focus-within:ring-2 focus-within:ring-red-400/10' : 'border-white/[0.09] focus-within:border-[#7c5cfc]/50 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-[#7c5cfc]/10'}`}>
-                <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={loading !== null} type={showPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="New password" className="min-w-0 flex-1 bg-transparent px-4 py-3 text-[14px] text-white placeholder-white/25 outline-none disabled:opacity-60" />
-                <button type="button" disabled={loading !== null} onClick={() => setShowPassword((shown) => !shown)} className="grid h-8 w-8 place-items-center rounded-lg text-white/35 transition hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50" aria-label={showPassword ? 'Hide password' : 'Show password'}>
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {fieldErrors.newPassword && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.newPassword}</p>}
-            </div>
-            <div>
-              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} disabled={loading !== null} type={showPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Confirm new password" className={`w-full rounded-xl border bg-white/[0.04] px-4 py-3 text-[14px] text-white placeholder-white/25 outline-none transition disabled:opacity-60 ${fieldErrors.confirmPassword ? 'border-red-400/45 focus:border-red-400/60 focus:ring-2 focus:ring-red-400/10' : 'border-white/[0.09] focus:border-[#7c5cfc]/50 focus:bg-white/[0.06] focus:ring-2 focus:ring-[#7c5cfc]/10'}`} />
-              {fieldErrors.confirmPassword && <p className="mt-1.5 px-1 text-[11px] text-red-300">{fieldErrors.confirmPassword}</p>}
-            </div>
-            {error && (
-              <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3.5 py-2.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-                <p className="text-[12px] leading-relaxed text-red-300">{error}</p>
-              </div>
-            )}
-            <button type="submit" disabled={loading !== null} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7c5cfc] py-3 text-[14px] font-semibold text-white shadow-[0_0_24px_rgba(124,92,252,0.35)] transition hover:bg-[#6d4ef0] disabled:opacity-60">
-              {loading === 'reset' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {loading === 'reset' ? 'Resetting...' : 'Reset password'}
-            </button>
-          </form>
-        )}
-
-        {step === 'done' && (
-          <div className="space-y-3">
-            {success && (
-              <div className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3.5 py-2.5">
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                <p className="text-[12px] leading-relaxed text-emerald-200">{success}</p>
-              </div>
-            )}
-            <button type="button" onClick={() => goTo('Login')} className="flex w-full items-center justify-center rounded-xl bg-[#7c5cfc] py-3 text-[14px] font-semibold text-white shadow-[0_0_24px_rgba(124,92,252,0.35)] transition hover:bg-[#6d4ef0]">
-              Back to sign in
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const ONBOARDING_QUESTIONS: { id: string; q: string; choices: string[] }[] = [
-  { id: 'use', q: 'What do you want to use Colony for?', choices: ['Build a startup or business', 'Automate daily work', 'Research and analysis', 'Content and marketing', 'Personal productivity', 'Other'] },
-  { id: 'role', q: 'What best describes you?', choices: ['Solo founder', 'Student', 'Creator', 'Developer', 'Small business owner', 'Team operator', 'Other'] },
-  { id: 'help', q: 'What kind of AI help do you want most?', choices: ['AI agent team', 'File/screenshot analysis', 'Workflow automation', 'Research assistant', 'Business reporting', 'Device/tool operation'] },
-  { id: 'level', q: 'How technical are you?', choices: ['Non-technical', 'Beginner', 'Intermediate', 'Advanced', 'Developer'] },
-  { id: 'first', q: 'What should AI Ant create first for you?', choices: ['New project', 'AI agent team', 'Workflow', 'Report', 'Research plan', 'I want to chat first'] },
-];
-
-function OnboardingPage({ onComplete, onSkip }: { onComplete: (answers: Record<string, string>) => void; onSkip: () => void }) {
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const total = ONBOARDING_QUESTIONS.length;
-  const current = ONBOARDING_QUESTIONS[step];
-
-  const pick = (choice: string) => {
-    const next = { ...answers, [current.id]: choice };
-    setAnswers(next);
-    if (step < total - 1) setStep(step + 1);
-    else onComplete(next);
-  };
-
-  return (
-    <div className="relative grid min-h-screen place-items-center bg-[#060609] px-5 text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_35%,rgba(79,158,255,0.07),transparent)]" />
-      <div className="relative z-10 w-full max-w-lg">
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <ColonyLogo size={32} />
-            <span className="font-heading text-lg font-extrabold">Colony</span>
-          </div>
-          <button onClick={onSkip} className="text-[13px] text-white/40 transition hover:text-white/70">Skip</button>
-        </div>
-
-        <div className="mb-6 flex gap-1.5">
-          {ONBOARDING_QUESTIONS.map((_, i) => (
-            <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= step ? 'bg-[#4f9eff]' : 'bg-white/10'}`} />
-          ))}
-        </div>
-
-        <p className="mb-1 text-[13px] font-medium text-white/40">Question {step + 1} of {total}</p>
-        <h1 className="mb-7 font-heading text-3xl font-extrabold leading-tight">{current.q}</h1>
-
-        <div className="space-y-2.5">
-          {current.choices.map((choice) => (
-            <button
-              key={choice}
-              onClick={() => pick(choice)}
-              className="flex w-full items-center justify-between rounded-xl border border-white/[0.1] bg-white/[0.04] px-5 py-3.5 text-left text-sm font-medium text-white/85 transition hover:border-[#4f9eff]/40 hover:bg-white/[0.07]"
-            >
-              {choice}
-              <ArrowRight className="h-4 w-4 text-white/30" />
-            </button>
-          ))}
-        </div>
-
-        {step > 0 && (
-          <button onClick={() => setStep(step - 1)} className="mt-6 flex items-center gap-1.5 text-[13px] text-white/45 transition hover:text-white/80">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function EmptyState({ title, message }: { title: string; message: string }) {
   return (
@@ -3025,7 +1271,7 @@ function Sidebar({
   page, setPage, isMobileOpen, setIsMobileOpen,
   activeProjectId, setActiveProjectId, projects, onNewProject,
   onRenameProject, onDeleteProject, onDuplicateProject, onUpdateProjectInstructions,
-  profile, usageState, wsChats, wsProjects, activeWsChatId, onNewChat, onNewWsProject, onOpenWsChat, onOpenWsProject,
+  profile, usageState, wsChats, wsProjects, activeWsChatId, onNewChat, onNewWsProject, onOpenWsChat,
 }: {
   page: Page;
   setPage: (page: Page) => void;
@@ -3047,7 +1293,6 @@ function Sidebar({
   onNewChat: () => void;
   onNewWsProject: (name: string, goal: string) => void;
   onOpenWsChat: (id: string) => void;
-  onOpenWsProject: (id: string) => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [wsProjModal, setWsProjModal] = useState(false);
@@ -3194,10 +1439,10 @@ function Sidebar({
             <div className="mt-6">
               <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.15em] text-subtle">Your projects</p>
               <div className="space-y-0.5">
-                {wsProjects.filter((p) => !p.isArchived).map((p) => (
+                {wsProjects.map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => { onOpenWsProject(p.id); setIsMobileOpen(false); }}
+                    onClick={() => { setPage('Projects'); setIsMobileOpen(false); }}
                     className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-normal text-muted transition-all duration-200 hover:bg-surface2 hover:text-ink"
                   >
                     <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-60" />
@@ -3433,8 +1678,8 @@ function Sidebar({
 type AppDrawerView = 'ai-ant' | 'projects' | 'more';
 
 function KimiStyleSidebar({
-  page, profile, usageState, wsChats, wsProjects, activeWsChatId, selectedWsProjectId, collapsed, setCollapsed,
-  onNavigate, onNewChat, onOpenWsChat, onOpenWsProject, onRenameChat, onTogglePinChat, onArchiveChat, onDeleteChat,
+  page, profile, usageState, wsChats, wsProjects, activeWsChatId, collapsed, setCollapsed,
+  onNavigate, onNewChat, onOpenWsChat, onRenameChat, onTogglePinChat, onArchiveChat, onDeleteChat,
   onRenameWsProject, onArchiveWsProject, onDeleteWsProject,
 }: {
   page: Page;
@@ -3443,13 +1688,11 @@ function KimiStyleSidebar({
   wsChats: WorkspaceChat[];
   wsProjects: WorkspaceProject[];
   activeWsChatId: string | null;
-  selectedWsProjectId: string | null;
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
   onNavigate: (page: Page) => void;
   onNewChat: () => void;
   onOpenWsChat: (id: string) => void;
-  onOpenWsProject: (id: string) => void;
   onRenameChat: (id: string, title: string) => void;
   onTogglePinChat: (id: string) => void;
   onArchiveChat: (id: string) => void;
@@ -3522,134 +1765,278 @@ function KimiStyleSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 pb-3">
-        {!collapsed && <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24">Main</p>}
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.p
+              key="label-main"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24"
+            >Main</motion.p>
+          )}
+        </AnimatePresence>
         <nav className="space-y-0.5">
-          {mainItems.map(({ label, icon: Icon, page: targetPage }) => {
+          {mainItems.map(({ label, icon: Icon, page: targetPage }, idx) => {
           const active = page === targetPage;
           return (
-            <button
+            <SidebarNavButton
               key={label}
+              label={label}
+              Icon={Icon}
+              active={active}
+              collapsed={collapsed}
+              order={idx}
               onClick={() => onNavigate(targetPage)}
-              title={collapsed ? label : undefined}
-              className={`group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2 text-[13px] font-medium transition ${
-                active ? 'bg-violet-500/16 text-white ring-1 ring-violet-400/20' : 'text-white/48 hover:bg-white/[0.055] hover:text-white/85'
-              }`}
-            >
-              {active && <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-violet-400" />}
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span className="min-w-0 flex-1 truncate text-left">{label}</span>}
-              {collapsed && <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-lg border border-white/[0.08] bg-[#111827] px-2 py-1 text-xs text-white/80 shadow-xl group-hover:block">{label}</span>}
-            </button>
+            />
           );
           })}
         </nav>
 
-        {!collapsed && <p className="mb-1.5 mt-5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24">Library</p>}
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.p
+              key="label-library"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="mb-1.5 mt-5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24"
+            >Library</motion.p>
+          )}
+        </AnimatePresence>
         <nav className="space-y-0.5">
-          {libraryItems.map(({ label, icon: Icon, page: targetPage }) => {
+          {libraryItems.map(({ label, icon: Icon, page: targetPage }, idx) => {
             const active = page === targetPage;
             return (
-              <button
+              <SidebarNavButton
                 key={label}
+                label={label}
+                Icon={Icon}
+                active={active}
+                collapsed={collapsed}
+                order={mainItems.length + idx}
                 onClick={() => onNavigate(targetPage)}
-                title={collapsed ? label : undefined}
-                className={`group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2 text-[13px] font-medium transition ${
-                  active ? 'bg-violet-500/16 text-white ring-1 ring-violet-400/20' : 'text-white/48 hover:bg-white/[0.055] hover:text-white/85'
-                }`}
-              >
-                {active && <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-violet-400" />}
-                <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="min-w-0 flex-1 truncate text-left">{label}</span>}
-                {collapsed && <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-lg border border-white/[0.08] bg-[#111827] px-2 py-1 text-xs text-white/80 shadow-xl group-hover:block">{label}</span>}
-              </button>
+              />
             );
           })}
         </nav>
 
         {isAdminRole(profile.role) && (
           <>
-            {!collapsed && <p className="mb-1.5 mt-5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24">Internal</p>}
+            <AnimatePresence initial={false}>
+              {!collapsed && (
+                <motion.p
+                  key="label-internal"
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -8 }}
+                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  className="mb-1.5 mt-5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24"
+                >Internal</motion.p>
+              )}
+            </AnimatePresence>
             <nav className="space-y-0.5">
-              <button
+              <SidebarNavButton
+                label="Admin Dashboard"
+                Icon={Terminal}
+                active={page === 'Admin'}
+                collapsed={collapsed}
+                order={mainItems.length + libraryItems.length}
                 onClick={() => onNavigate('Admin')}
-                title={collapsed ? 'Admin Dashboard' : undefined}
-                className={`group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2 text-[13px] font-medium transition ${
-                  page === 'Admin' ? 'bg-violet-500/16 text-white ring-1 ring-violet-400/20' : 'text-white/48 hover:bg-white/[0.055] hover:text-white/85'
-                }`}
-              >
-                {page === 'Admin' && <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-violet-400" />}
-                <Terminal className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="min-w-0 flex-1 truncate text-left">Admin Dashboard</span>}
-                {collapsed && <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-lg border border-white/[0.08] bg-[#111827] px-2 py-1 text-xs text-white/80 shadow-xl group-hover:block">Admin Dashboard</span>}
-              </button>
+              />
             </nav>
           </>
         )}
 
-        {!collapsed && (
-          <>
-            <section className="mt-5">
-              <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24">Your Projects</p>
-              <div className="space-y-0.5">
-                {visibleProjects.slice(0, 6).map((project) => {
-                  const selected = page === 'Projects' && selectedWsProjectId === project.id;
-                  return (
-                    <div key={project.id} className="group relative">
-                      <button onClick={() => onOpenWsProject(project.id)} className={`flex w-full items-center gap-2 rounded-[10px] px-2 py-2 pr-8 text-left text-[12px] transition ${selected ? 'bg-violet-500/12 text-white ring-1 ring-violet-400/15' : 'text-white/42 hover:bg-white/[0.045] hover:text-white/75'}`}>
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setContextMenu({ type: 'project', id: project.id, x: rect.right - 180, y: rect.bottom + 6 });
-                        }}
-                        className="absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-[8px] text-white/28 opacity-0 transition hover:bg-white/[0.08] hover:text-white/75 group-hover:opacity-100"
-                        title="Project options"
+        <AnimatePresence initial={false}>
+          {!collapsed && (
+            <motion.div
+              key="sidebar-lists"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { staggerChildren: 0.04, delayChildren: 0.05 } }}
+              exit={{ opacity: 0, transition: { duration: 0.16 } }}
+            >
+              <motion.section
+                className="mt-5"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-widest text-white/24">Your Projects</p>
+                <motion.div
+                  className="space-y-0.5"
+                  variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.035 } } }}
+                  initial="hidden"
+                  animate="visible"
+                >
+                  {visibleProjects.slice(0, 4).map((project) => {
+                    const selected = page === 'Projects';
+                    return (
+                      <motion.div
+                        key={project.id}
+                        variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
+                        transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                        className="group relative"
                       >
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+                        <button onClick={() => onNavigate('Projects')} className={`flex w-full items-center gap-2 rounded-[10px] px-2 py-2 pr-8 text-left text-[12px] transition ${selected ? 'bg-violet-500/12 text-white ring-1 ring-violet-400/15' : 'text-white/42 hover:bg-white/[0.045] hover:text-white/75'}`}>
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setContextMenu({ type: 'project', id: project.id, x: rect.right - 180, y: rect.bottom + 6 });
+                          }}
+                          className="absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-[8px] text-white/28 opacity-0 transition hover:bg-white/[0.08] hover:text-white/75 group-hover:opacity-100"
+                          title="Project options"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </button>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              </motion.section>
 
-            <section className="mt-5">
-              <div className="mb-1.5 flex items-center justify-between px-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/24">Chat History</p>
-                <button className="text-[11px] font-semibold text-violet-300/60 transition hover:text-violet-200">All Chats</button>
-              </div>
-              <div className="space-y-0.5">
-                {visibleChats.slice(0, 8).map((chat) => {
-                  const active = page === 'AI Ant' && activeWsChatId === chat.id;
-                  return (
-                    <div key={chat.id} className="group relative">
-                      <button onClick={() => onOpenWsChat(chat.id)}
-                        className={`flex w-full items-center gap-2 rounded-[10px] px-2 py-2 pr-8 text-left text-[12px] transition ${active ? 'bg-white/[0.075] text-white' : 'text-white/42 hover:bg-white/[0.045] hover:text-white/75'}`}>
-                        <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">{chat.title}</span>
-                        {chat.isPinned && <span className="text-[10px] text-violet-200/70">Pinned</span>}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setContextMenu({ type: 'chat', id: chat.id, x: rect.right - 180, y: rect.bottom + 6 });
-                        }}
-                        className={`absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-[8px] text-white/28 transition hover:bg-white/[0.08] hover:text-white/75 ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                        title="Chat options"
+              <motion.section
+                className="mt-5"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0.05 }}
+              >
+                <div className="mb-1.5 flex items-center justify-between px-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/24">Chat History</p>
+                  <button className="text-[11px] font-semibold text-violet-300/60 transition hover:text-violet-200">All Chats</button>
+                </div>
+                {(() => {
+                  const recent = visibleChats.slice(0, 12);
+                  const pinnedChats = recent.filter((chat) => chat.isPinned);
+                  const unpinnedChats = recent.filter((chat) => !chat.isPinned).slice(0, 8);
+
+                  const renderChatRow = (chat: WorkspaceChat) => {
+                    const active = page === 'AI Ant' && activeWsChatId === chat.id;
+                    return (
+                      <motion.div
+                        key={chat.id}
+                        layout="position"
+                        variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
+                        exit={{ opacity: 0, x: -12, transition: { duration: 0.18 } }}
+                        transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1], layout: { type: 'spring', stiffness: 480, damping: 36, mass: 0.7 } }}
+                        className="group relative"
                       >
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                        <button onClick={() => onOpenWsChat(chat.id)}
+                          className={`flex w-full items-center gap-2 rounded-[10px] px-2 py-2 pr-14 text-left text-[12px] transition-colors ${active ? 'bg-white/[0.075] text-white' : 'text-white/42 hover:bg-white/[0.045] hover:text-white/75'}`}>
+                          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                        </button>
+                        <motion.button
+                          onClick={(e) => { e.stopPropagation(); onTogglePinChat(chat.id); }}
+                          whileTap={{ scale: 0.85 }}
+                          aria-label={chat.isPinned ? 'Unpin chat' : 'Pin chat'}
+                          title={chat.isPinned ? 'Unpin chat' : 'Pin chat'}
+                          className={`absolute right-8 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-[8px] transition ${
+                            chat.isPinned
+                              ? 'text-violet-300/85 hover:bg-violet-500/12 hover:text-violet-100'
+                              : 'text-white/28 opacity-0 hover:bg-white/[0.08] hover:text-white/75 group-hover:opacity-100'
+                          }`}
+                        >
+                          <AnimatePresence mode="wait" initial={false}>
+                            {chat.isPinned ? (
+                              <motion.span
+                                key="pinned"
+                                initial={{ opacity: 0, rotate: -35, scale: 0.7 }}
+                                animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                                exit={{ opacity: 0, rotate: 35, scale: 0.7 }}
+                                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                                className="grid place-items-center"
+                              >
+                                <Pin className="h-3.5 w-3.5 fill-current" />
+                              </motion.span>
+                            ) : (
+                              <motion.span
+                                key="unpinned"
+                                initial={{ opacity: 0, rotate: 35, scale: 0.7 }}
+                                animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                                exit={{ opacity: 0, rotate: -35, scale: 0.7 }}
+                                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                                className="grid place-items-center"
+                              >
+                                <Pin className="h-3.5 w-3.5" />
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </motion.button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setContextMenu({ type: 'chat', id: chat.id, x: rect.right - 180, y: rect.bottom + 6 });
+                          }}
+                          className={`absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-[8px] text-white/28 transition hover:bg-white/[0.08] hover:text-white/75 ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                          title="Chat options"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </button>
+                      </motion.div>
+                    );
+                  };
+
+                  return (
+                    <motion.div
+                      layout
+                      variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.03 } } }}
+                      initial="hidden"
+                      animate="visible"
+                      className="space-y-2"
+                    >
+                      <AnimatePresence initial={false}>
+                        {pinnedChats.length > 0 && (
+                          <motion.div
+                            key="pinned-group"
+                            layout
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                            className="overflow-hidden"
+                          >
+                            <motion.p
+                              layout="position"
+                              className="mb-1 flex items-center gap-1.5 px-2 text-[9px] font-bold uppercase tracking-[0.16em] text-violet-200/55"
+                            >
+                              <Pin className="h-2.5 w-2.5 fill-current" />
+                              Pinned
+                            </motion.p>
+                            <div className="space-y-0.5">
+                              <AnimatePresence initial={false}>
+                                {pinnedChats.map(renderChatRow)}
+                              </AnimatePresence>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <motion.div layout="position" className="space-y-0.5">
+                        {pinnedChats.length > 0 && (
+                          <motion.p
+                            layout="position"
+                            className="mb-1 px-2 text-[9px] font-bold uppercase tracking-[0.16em] text-white/24"
+                          >Recent</motion.p>
+                        )}
+                        <AnimatePresence initial={false}>
+                          {unpinnedChats.map(renderChatRow)}
+                        </AnimatePresence>
+                      </motion.div>
+                    </motion.div>
                   );
-                })}
-              </div>
-            </section>
-          </>
-        )}
+                })()}
+              </motion.section>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="shrink-0 border-t border-white/[0.07] p-3">
@@ -3725,6 +2112,58 @@ function KimiStyleSidebar({
       />
     )}
     </>
+  );
+}
+
+function SidebarNavButton({
+  label, Icon, active, collapsed, order, onClick,
+}: {
+  label: string;
+  Icon: React.ElementType;
+  active: boolean;
+  collapsed: boolean;
+  order: number;
+  onClick: () => void;
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      title={collapsed ? label : undefined}
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1], delay: 0.02 * order }}
+      whileHover={{ x: collapsed ? 0 : 2 }}
+      whileTap={{ scale: 0.97 }}
+      className={`group relative flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2 text-[13px] font-medium transition-colors ${
+        active ? 'bg-violet-500/16 text-white ring-1 ring-violet-400/20' : 'text-white/48 hover:bg-white/[0.055] hover:text-white/85'
+      }`}
+    >
+      {active && (
+        <motion.span
+          layoutId="sidebar-active-rail"
+          className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-violet-400"
+          transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.6 }}
+        />
+      )}
+      <Icon className="h-4 w-4 shrink-0" />
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.span
+            key="label"
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="min-w-0 flex-1 truncate text-left"
+          >
+            {label}
+          </motion.span>
+        )}
+      </AnimatePresence>
+      {collapsed && (
+        <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-lg border border-white/[0.08] bg-[#111827] px-2 py-1 text-xs text-white/80 shadow-xl group-hover:block">{label}</span>
+      )}
+    </motion.button>
   );
 }
 
@@ -5103,35 +3542,6 @@ interface WorkspaceDeliverableItem {
   updatedAt: number;
 }
 
-interface ProjectInstruction {
-  id: string;
-  title?: string;
-  content: string;
-  enabled: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface ProjectFile {
-  id: string;
-  name: string;
-  type: string;
-  size?: number;
-  uploadedAt: number;
-  source: 'upload' | 'google_drive' | 'notion' | 'gmail' | 'generated';
-  status: 'ready' | 'processing' | 'failed';
-  note?: string;
-}
-
-interface ProjectKnowledgeItem {
-  id: string;
-  title: string;
-  type: 'note' | 'decision' | 'source' | 'learning' | 'summary';
-  content: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
 interface WorkspaceProject {
   id: string;
   name: string;
@@ -5141,8 +3551,8 @@ interface WorkspaceProject {
   createdAt: number;
   updatedAt: number;
   // Extended workspace fields
-  type?: 'crew' | 'enterprise' | 'workflow' | 'mixed' | 'general';
-  status?: 'draft' | 'running' | 'waiting' | 'completed' | 'paused' | 'needs_approval' | 'active' | 'planning' | 'archived';
+  type?: 'crew' | 'enterprise' | 'workflow' | 'mixed';
+  status?: 'draft' | 'running' | 'waiting' | 'completed' | 'paused' | 'needs_approval';
   agentCount?: number;
   workflowCount?: number;
   taskCount?: number;
@@ -5152,10 +3562,6 @@ interface WorkspaceProject {
   nextAction?: string;
   lastActivity?: string;
   isPinned?: boolean;
-  // Project workspace content (Claude-Projects style)
-  instructions?: ProjectInstruction[];
-  files?: ProjectFile[];
-  knowledgeItems?: ProjectKnowledgeItem[];
 }
 
 interface UserProfile {
@@ -5182,6 +3588,39 @@ function loadProfile(): UserProfile {
 
 function saveProfile(p: UserProfile) {
   try { localStorage.setItem(ONBOARDING_KEY, JSON.stringify(p)); } catch { /* ignore */ }
+}
+
+function getApiBaseUrl() {
+  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  return (configured || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '') || null;
+}
+
+function resolveSurveyUserId(profile?: Pick<UserProfile, 'email' | 'role'> | null) {
+  return profile?.email ? normalizeEmail(profile.email) : resolveBackendUserId(profile);
+}
+
+async function hasSurveySubmission(userId: string) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) return false;
+  try {
+    const response = await fetch(`${apiBaseUrl}/surveys/users/${encodeURIComponent(userId)}/status`);
+    if (!response.ok) return false;
+    const data = await response.json() as { submitted?: boolean };
+    return Boolean(data.submitted);
+  } catch { /* ignore unavailable backend */ }
+  return false;
+}
+
+async function saveSurveySubmission(userId: string, answers: Record<string, string>) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) return;
+  try {
+    await fetch(`${apiBaseUrl}/surveys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, answers }),
+    });
+  } catch { /* ignore unavailable backend */ }
 }
 
 const SEED_WS_PROJECTS: WorkspaceProject[] = [
@@ -5809,931 +4248,7 @@ function connectionPath(from: CanvasAgent, to: CanvasAgent) {
   return `M${fx},${fy} C${cp1x},${fy} ${cp2x},${ty} ${tx},${ty}`;
 }
 
-type CanvasView = 'canvas' | 'office';
 
-type OfficeAgent = {
-  id: AgentType;
-  name: string;
-  x: number;
-  y: number;
-  tx: number;
-  ty: number;
-  deskX: number;
-  deskY: number;
-  frame: number;
-  state: 'idle' | 'walk' | 'talk' | 'working' | 'celebrate';
-  bubble: string;
-  bubbleTimer: number;
-};
-
-const officeAgentsSeed: OfficeAgent[] = [
-  { id: 'ant', name: 'AI Ant Scout', x: 2.5, y: 2.5, tx: 2.5, ty: 2.5, deskX: 2, deskY: 2, frame: 0, state: 'working', bubble: 'Reading screenshot...', bubbleTimer: 2.4 },
-  { id: 'collector', name: 'Data Collector', x: 4.5, y: 2.5, tx: 4.5, ty: 2.5, deskX: 4, deskY: 2, frame: 0, state: 'idle', bubble: '', bubbleTimer: 0 },
-  { id: 'cleaner', name: 'Data Cleaner', x: 7.5, y: 2.5, tx: 7.5, ty: 2.5, deskX: 7, deskY: 2, frame: 0, state: 'idle', bubble: '', bubbleTimer: 0 },
-  { id: 'analyst', name: 'Sales Analyst', x: 9.5, y: 2.5, tx: 9.5, ty: 2.5, deskX: 9, deskY: 2, frame: 0, state: 'idle', bubble: '', bubbleTimer: 0 },
-  { id: 'writer', name: 'Report Writer', x: 2.5, y: 6.5, tx: 2.5, ty: 6.5, deskX: 2, deskY: 6, frame: 0, state: 'idle', bubble: '', bubbleTimer: 0 },
-  { id: 'guard', name: 'Approval Guard', x: 4.5, y: 6.5, tx: 4.5, ty: 6.5, deskX: 4, deskY: 6, frame: 0, state: 'idle', bubble: '', bubbleTimer: 0 },
-];
-
-const officeSteps: Array<{ agent: AgentType; message: string; log: string; meet?: boolean }> = [
-  { agent: 'ant', message: 'Found 42 orders!', log: 'AI Ant Scout read LINE MAN screenshot' },
-  { agent: 'collector', message: 'Structuring records...', log: 'Data Collector organized sales and fees' },
-  { agent: 'cleaner', message: 'Data looks clean.', log: 'Data Cleaner fixed menu names and duplicate rows' },
-  { agent: 'analyst', message: 'Profit dropped 18%.', log: 'Sales Analyst called a quick review meeting', meet: true },
-  { agent: 'writer', message: 'Report is ready.', log: 'Report Writer drafted the daily summary' },
-  { agent: 'guard', message: 'Approval needed.', log: 'Approval Guard is waiting for your decision' },
-];
-
-function isoPoint(tx: number, ty: number, originX: number, originY: number) {
-  return {
-    x: originX + (tx - ty) * 32,
-    y: originY + (tx + ty) * 16,
-  };
-}
-
-function drawIsoDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fill: string, stroke = 'rgba(0,0,0,0.08)') {
-  ctx.beginPath();
-  ctx.moveTo(x, y - h / 2);
-  ctx.lineTo(x + w / 2, y);
-  ctx.lineTo(x, y + h / 2);
-  ctx.lineTo(x - w / 2, y);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-}
-
-function drawOfficeAgent(ctx: CanvasRenderingContext2D, agent: OfficeAgent, originX: number, originY: number) {
-  const point = isoPoint(agent.x, agent.y, originX, originY);
-  const config = CHAR_CONFIGS[agent.id];
-  const frame = agent.frame;
-  const bob = agent.state === 'walk' ? [0, -2, 0, 1][frame % 4] : agent.state === 'working' || agent.state === 'talk' ? [0, -1, 0, -1][frame % 4] : 0;
-  const leg = agent.state === 'walk' ? [0, 3, 0, -3][frame % 4] : 0;
-  const cx = point.x;
-  const by = point.y - 2;
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.beginPath();
-  ctx.ellipse(cx, by + 4, 13, 5, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = config.pantsColor;
-  ctx.fillRect(cx - 7, by - 12 + leg, 5, 13);
-  ctx.fillRect(cx + 2, by - 12 - leg, 5, 13);
-  ctx.fillStyle = config.shoeColor;
-  ctx.fillRect(cx - 8, by, 8, 4);
-  ctx.fillRect(cx + 2, by, 8, 4);
-
-  ctx.fillStyle = config.outfitColor;
-  ctx.fillRect(cx - 10, by - 34 + bob, 20, 22);
-  if (config.outfitDetail) {
-    ctx.fillStyle = config.outfitDetail;
-    ctx.fillRect(cx - 5, by - 31 + bob, 10, 5);
-  }
-
-  const armWave = agent.state === 'talk' || agent.state === 'working' ? [0, -3, -5, -3][frame % 4] : 0;
-  ctx.fillStyle = config.skinColor;
-  ctx.fillRect(cx - 15, by - 32 + bob + armWave, 5, 15);
-  ctx.fillRect(cx + 10, by - 32 + bob - armWave, 5, 15);
-
-  ctx.fillStyle = config.skinColor;
-  ctx.fillRect(cx - 10, by - 52 + bob, 20, 18);
-  ctx.fillStyle = config.hairColor;
-  ctx.fillRect(cx - 11, by - 55 + bob, 22, 8);
-  ctx.fillStyle = '#10121c';
-  ctx.fillRect(cx - 6, by - 45 + bob, 4, 4);
-  ctx.fillRect(cx + 3, by - 45 + bob, 4, 4);
-
-  ctx.fillStyle = '#7f1d1d';
-  if (agent.state === 'talk' || agent.state === 'working') {
-    ctx.fillRect(cx - 4, by - 38 + bob, 8, 4);
-  } else {
-    ctx.fillRect(cx - 4, by - 38 + bob, 3, 2);
-    ctx.fillRect(cx + 2, by - 38 + bob, 3, 2);
-  }
-
-  if (config.accessory === 'antenna') {
-    ctx.fillStyle = config.accentColor ?? '#fbbf24';
-    ctx.fillRect(cx - 2, by - 66 + bob, 4, 10);
-    ctx.fillRect(cx - 5, by - 69 + bob, 10, 4);
-  }
-  if (config.accessory === 'glasses') {
-    ctx.fillStyle = '#10121c';
-    ctx.fillRect(cx - 8, by - 45 + bob, 7, 3);
-    ctx.fillRect(cx + 2, by - 45 + bob, 7, 3);
-  }
-  if (config.accessory === 'shield') {
-    ctx.fillStyle = config.accentColor ?? '#d97706';
-    ctx.fillRect(cx + 12, by - 28 + bob, 9, 12);
-  }
-
-  if (agent.state === 'celebrate') {
-    ['#fbbf24', '#34d399', '#60a5fa', '#f472b6'].forEach((color, index) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(cx + (index - 1.5) * 12 + Math.sin(Date.now() / 180 + index) * 4, by - 78 - ((frame + index) % 6) * 5, 5, 5);
-    });
-  }
-
-  ctx.font = "600 10px 'DM Sans', sans-serif";
-  ctx.textAlign = 'center';
-  const label = agent.name.split(' ').slice(-1)[0];
-  const textWidth = ctx.measureText(label).width;
-  ctx.fillStyle = 'rgba(12,12,20,0.76)';
-  ctx.beginPath();
-  ctx.roundRect(cx - textWidth / 2 - 7, by - 82, textWidth + 14, 17, 5);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillText(label, cx, by - 69);
-  ctx.restore();
-}
-
-type Office3DState = 'idle' | 'running' | 'done' | 'waiting' | 'talk' | 'celebrate';
-type OfficeCameraPreset = 'iso' | 'top' | 'side';
-type OfficeMesh = THREE.Group & {
-  userData: {
-    type: AgentType;
-    state: Office3DState;
-    target: THREE.Vector3 | null;
-    speed: number;
-    bobTime: number;
-    walkTime: number;
-    head: THREE.Group;
-    armL: THREE.Group;
-    armR: THREE.Group;
-    legL: THREE.Mesh;
-    legR: THREE.Mesh;
-    statusDot: THREE.Mesh<THREE.SphereGeometry, THREE.MeshLambertMaterial>;
-  };
-};
-
-const office3DAgentTypes: AgentType[] = ['ant', 'collector', 'cleaner', 'analyst', 'writer', 'guard'];
-const office3DShort: Record<AgentType, string> = {
-  ant: 'ant',
-  collector: 'col',
-  cleaner: 'cln',
-  analyst: 'ana',
-  writer: 'wri',
-  guard: 'grd',
-};
-
-const office3DDesks: Record<AgentType, { x: number; z: number }> = {
-  ant: { x: -4, z: -3 },
-  collector: { x: -2, z: -3 },
-  cleaner: { x: 0, z: -3 },
-  analyst: { x: 2, z: -3 },
-  writer: { x: -4, z: 2 },
-  guard: { x: -2, z: 2 },
-};
-
-const office3DMessages: Record<AgentType, string[]> = {
-  ant: ['Reading screenshot...', 'Found 42 orders!', 'Data extracted!', 'Sending to Collector'],
-  collector: ['Collecting records...', 'Structuring data...', '42 rows ready', 'Sending to Cleaner'],
-  cleaner: ['Removing duplicates...', 'Fixing date formats...', 'Data is clean!', 'Ready for Analyst'],
-  analyst: ['Calculating profit...', 'Down 18% vs yesterday', 'Net profit: THB 3,990', 'Analysis done!'],
-  writer: ['Writing summary...', 'Adding profit warnings...', 'Report ready!', 'Sending to Guard'],
-  guard: ['Reviewing report...', 'Awaiting your approval', 'Please approve!', 'Workflow complete!'],
-};
-
-const office3DSteps: Array<{ agent: AgentType; status: string; log: string; color: string }> = [
-  { agent: 'ant', status: 'AI Ant Scout is reading LINE MAN screenshot...', log: 'AI Ant Scout started reading screenshot', color: '#16a34a' },
-  { agent: 'collector', status: 'Data Collector is structuring 42 orders...', log: 'Data Collector received data and organized records', color: '#60a5fa' },
-  { agent: 'cleaner', status: 'Data Cleaner is removing duplicates...', log: 'Data Cleaner removed duplicate rows', color: '#34d399' },
-  { agent: 'analyst', status: 'Team meeting - Sales Analyst is presenting profit trends...', log: 'Team meeting at the table to review profit data', color: '#fbbf24' },
-  { agent: 'writer', status: 'Report Writer is creating the daily profit summary...', log: 'Report Writer drafted daily summary report', color: '#a78bfa' },
-  { agent: 'guard', status: 'Review the report and approve to send.', log: 'Approval Guard is waiting for your decision', color: '#fbbf24' },
-];
-
-function OfficePreview({ onBack, runCanvasWorkflow }: { onBack: () => void; runCanvasWorkflow: () => void }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const agentsRef = useRef<Record<AgentType, OfficeMesh> | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const [cameraPreset, setCameraPresetState] = useState<OfficeCameraPreset>('iso');
-  const [step, setStep] = useState(0);
-  const stepRef = useRef(0);
-  const [speed, setSpeed] = useState(1);
-  const speedRef = useRef(1);
-  const [approveReady, setApproveReady] = useState(false);
-  const [events, setEvents] = useState<Array<{ time: string; color: string; text: string }>>([
-    { time: '09:00', color: '#60a5fa', text: '3D Office loaded - 6 agents ready' },
-    { time: '09:01', color: '#60a5fa', text: 'Daily Sales Report team is standing by' },
-  ]);
-  const [statusText, setStatusText] = useState('AI Ant Scout is reading screenshot...');
-  const [toast, setToast] = useState('');
-  const [bubbles, setBubbles] = useState<Array<{ id: AgentType; text: string; left: number; top: number; visible: boolean }>>([]);
-  const [activeStatuses, setActiveStatuses] = useState<Record<AgentType, Office3DState>>({
-    ant: 'running',
-    collector: 'idle',
-    cleaner: 'idle',
-    analyst: 'idle',
-    writer: 'idle',
-    guard: 'idle',
-  });
-
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
-
-  const showToast = useCallback((message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast(''), 2200);
-  }, []);
-
-  const addEvent = useCallback((color: string, text: string) => {
-    setEvents((current) => {
-      const minute = 900 + current.length;
-      const time = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-      return [{ time, color, text }, ...current].slice(0, 7);
-    });
-  }, []);
-
-  const setAgentStatus = useCallback((type: AgentType, status: Office3DState) => {
-    const mesh = agentsRef.current?.[type];
-    if (mesh) {
-      mesh.userData.state = status;
-      const color = status === 'running' ? 0x16a34a : status === 'done' ? 0x60a5fa : status === 'waiting' ? 0xfbbf24 : 0x444444;
-      const emissive = status === 'idle' ? 0x222222 : color;
-      mesh.userData.statusDot.material.color.setHex(color);
-      mesh.userData.statusDot.material.emissive.setHex(emissive);
-      mesh.userData.statusDot.material.emissiveIntensity = status === 'idle' ? 0.2 : 1;
-    }
-    setActiveStatuses((current) => ({ ...current, [type]: status }));
-  }, []);
-
-  const moveTo = useCallback((type: AgentType, x: number, z: number) => {
-    const mesh = agentsRef.current?.[type];
-    if (!mesh) return;
-    mesh.userData.target = new THREE.Vector3(x, 0, z);
-    const dx = x - mesh.position.x;
-    const dz = z - mesh.position.z;
-    if (Math.abs(dx) > 0.05 || Math.abs(dz) > 0.05) {
-      mesh.rotation.y = Math.atan2(dx, dz);
-    }
-  }, []);
-
-  const moveToDesk = useCallback((type: AgentType) => {
-    const desk = office3DDesks[type];
-    moveTo(type, desk.x, desk.z);
-  }, [moveTo]);
-
-  const showBubble = useCallback((id: AgentType, text: string) => {
-    setBubbles((current) => [{ id, text, left: 50, top: 50, visible: true }, ...current.filter((item) => item.id !== id)].slice(0, 3));
-    window.setTimeout(() => {
-      setBubbles((current) => current.map((item) => (item.id === id ? { ...item, visible: false } : item)));
-    }, 2400);
-  }, []);
-
-  const applyStep = useCallback((nextStep: number) => {
-    const stepData = office3DSteps[nextStep];
-    if (!stepData) return;
-    office3DAgentTypes.forEach((type) => {
-      if (type === stepData.agent) {
-        setAgentStatus(type, type === 'guard' ? 'waiting' : 'running');
-      } else {
-        const currentIndex = office3DSteps.findIndex((item) => item.agent === type);
-        setAgentStatus(type, currentIndex < nextStep ? 'done' : 'idle');
-      }
-    });
-
-    if (stepData.agent === 'analyst') {
-      moveTo('ant', -0.7, -0.1);
-      moveTo('collector', 1.7, -0.1);
-      moveTo('cleaner', -0.7, 1.1);
-      moveTo('analyst', 1.7, 1.1);
-    } else if (stepData.agent === 'collector') {
-      moveTo('ant', office3DDesks.collector.x - 0.8, office3DDesks.collector.z);
-      moveToDesk('collector');
-    } else if (stepData.agent === 'cleaner') {
-      moveTo('collector', office3DDesks.cleaner.x - 0.8, office3DDesks.cleaner.z);
-      moveToDesk('ant');
-      moveToDesk('cleaner');
-    } else if (stepData.agent === 'writer') {
-      ['ant', 'collector', 'cleaner', 'analyst'].forEach((type) => moveToDesk(type as AgentType));
-      moveTo('analyst', office3DDesks.writer.x + 0.8, office3DDesks.writer.z);
-      moveToDesk('writer');
-    } else if (stepData.agent === 'guard') {
-      moveTo('writer', office3DDesks.guard.x - 0.8, office3DDesks.guard.z);
-      moveToDesk('analyst');
-      moveToDesk('guard');
-    } else {
-      moveToDesk(stepData.agent);
-    }
-
-    setStep(nextStep);
-    stepRef.current = nextStep;
-    setStatusText(stepData.status);
-    showBubble(stepData.agent, office3DMessages[stepData.agent][Math.min(nextStep, 3)]);
-    addEvent(stepData.color, stepData.log);
-    if (stepData.agent === 'guard') {
-      setApproveReady(true);
-    }
-  }, [addEvent, moveTo, moveToDesk, setAgentStatus, showBubble]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return undefined;
-
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a16);
-    scene.fog = new THREE.Fog(0x0a0a16, 28, 60);
-
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-    camera.position.set(18, 18, 18);
-    camera.lookAt(0, 0, 0);
-    cameraRef.current = camera;
-
-    const controls = new OrbitControls(camera, canvas);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.07;
-    controls.minDistance = 6;
-    controls.maxDistance = 38;
-    controls.maxPolarAngle = Math.PI / 1.9;
-    controls.target.set(0, 0, 0);
-    controlsRef.current = controls;
-
-    const ambient = new THREE.AmbientLight(0xffeedd, 0.7);
-    scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xfff8f0, 1.8);
-    sun.position.set(10, 20, 10);
-    sun.castShadow = true;
-    sun.shadow.mapSize.width = 2048;
-    sun.shadow.mapSize.height = 2048;
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 60;
-    sun.shadow.camera.left = -15;
-    sun.shadow.camera.right = 15;
-    sun.shadow.camera.top = 15;
-    sun.shadow.camera.bottom = -15;
-    sun.shadow.bias = -0.001;
-    scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
-    fill.position.set(-8, 6, -8);
-    scene.add(fill);
-    const blueLight = new THREE.PointLight(0x4488ff, 0.8, 12);
-    blueLight.position.set(-4, 3, -4);
-    scene.add(blueLight);
-    const warmLight = new THREE.PointLight(0xff8844, 0.6, 10);
-    warmLight.position.set(4, 3, 4);
-    scene.add(warmLight);
-
-    const mat = {
-      floor: new THREE.MeshLambertMaterial({ color: 0xf2ede2 }),
-      floorAlt: new THREE.MeshLambertMaterial({ color: 0xe8e3d8 }),
-      wall: new THREE.MeshLambertMaterial({ color: 0xd4cfc5 }),
-      wallDark: new THREE.MeshLambertMaterial({ color: 0xb8b2a8 }),
-      desk: new THREE.MeshLambertMaterial({ color: 0xc8a870 }),
-      deskTop: new THREE.MeshLambertMaterial({ color: 0xd4b882 }),
-      monitor: new THREE.MeshLambertMaterial({ color: 0x1a1a2e }),
-      screen: new THREE.MeshLambertMaterial({ color: 0x4488dd, emissive: 0x2244aa, emissiveIntensity: 0.5 }),
-      chair: new THREE.MeshLambertMaterial({ color: 0x2a4a7a }),
-      cushion: new THREE.MeshLambertMaterial({ color: 0x3a5a8a }),
-      plant: new THREE.MeshLambertMaterial({ color: 0x2d6a2d }),
-      plantPot: new THREE.MeshLambertMaterial({ color: 0xc0825c }),
-      meeting: new THREE.MeshLambertMaterial({ color: 0x9b8365 }),
-      carpet: new THREE.MeshLambertMaterial({ color: 0x8a9ab0 }),
-      sofa: new THREE.MeshLambertMaterial({ color: 0x3a5f8a }),
-      shelf: new THREE.MeshLambertMaterial({ color: 0x8b7355 }),
-      board: new THREE.MeshLambertMaterial({ color: 0xf5f5f0 }),
-      boardFrame: new THREE.MeshLambertMaterial({ color: 0x8b7355 }),
-      ceiling: new THREE.MeshLambertMaterial({ color: 0xf8f4ee }),
-      glass: new THREE.MeshLambertMaterial({ color: 0x88aacc, transparent: true, opacity: 0.25 }),
-    };
-    const ownedMaterials: THREE.Material[] = Object.values(mat);
-    const ownedGeometries: THREE.BufferGeometry[] = [];
-
-    const box = (w: number, h: number, d: number, material: THREE.Material, x = 0, y = 0, z = 0) => {
-      const geometry = new THREE.BoxGeometry(w, h, d);
-      ownedGeometries.push(geometry);
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(x, y, z);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      return mesh;
-    };
-    const office = new THREE.Group();
-    scene.add(office);
-
-    for (let x = -6; x <= 6; x += 1) {
-      for (let z = -5; z <= 5; z += 1) {
-        office.add(box(1, 0.05, 1, (x + z) % 2 === 0 ? mat.floor : mat.floorAlt, x + 0.5, 0, z + 0.5));
-      }
-    }
-    office.add(box(13, 3.5, 0.2, mat.wall, 0.5, 1.75, -5.1));
-    office.add(box(0.2, 3.5, 11, mat.wall, -6.1, 1.75, 0.5));
-    office.add(box(0.15, 3.5, 11, mat.glass, 7.1, 1.75, 0.5));
-    office.add(box(5, 3.5, 0.2, mat.wall, -3, 1.75, 6.1));
-    // Keep the ceiling open so the isometric camera can see the office interior.
-    office.add(box(5, 0.06, 4, mat.carpet, 0.5, 0.03, 0.5));
-
-    const makeDesk = (x: number, z: number) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.add(box(1.4, 0.08, 0.8, mat.deskTop, 0, 0.75, 0));
-      [-0.6, 0.6].forEach((px) => [-0.3, 0.3].forEach((pz) => group.add(box(0.08, 0.7, 0.08, mat.desk, px, 0.35, pz))));
-      group.add(box(0.6, 0.4, 0.04, mat.monitor, 0, 1.15, -0.2));
-      group.add(box(0.5, 0.32, 0.02, mat.screen, 0, 1.16, -0.18));
-      group.add(box(0.06, 0.25, 0.06, mat.monitor, 0, 0.88, -0.2));
-      group.add(box(0.4, 0.02, 0.14, mat.ceiling, 0, 0.79, 0.05));
-      office.add(group);
-    };
-    const makeChair = (x: number, z: number, ry = 0) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.rotation.y = ry;
-      group.add(box(0.55, 0.06, 0.55, mat.cushion, 0, 0.44, 0));
-      group.add(box(0.55, 0.55, 0.06, mat.chair, 0, 0.72, -0.25));
-      [-0.22, 0.22].forEach((px) => [-0.22, 0.22].forEach((pz) => group.add(box(0.06, 0.42, 0.06, mat.chair, px, 0.21, pz))));
-      office.add(group);
-    };
-    const makePlant = (x: number, z: number) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.add(box(0.2, 0.25, 0.2, mat.plantPot, 0, 0.12, 0));
-      group.add(box(0.1, 0.5, 0.1, mat.plant, 0, 0.5, 0));
-      group.add(box(0.42, 0.3, 0.42, mat.plant, 0, 0.78, 0));
-      office.add(group);
-    };
-    const makeMeetingTable = (x: number, z: number) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.add(box(2.5, 0.1, 1.4, mat.meeting, 0, 0.75, 0));
-      [-0.9, 0.9].forEach((px) => [-0.5, 0.5].forEach((pz) => group.add(box(0.1, 0.7, 0.1, mat.desk, px, 0.35, pz))));
-      group.add(box(0.5, 0.02, 0.35, mat.ceiling, 0.5, 0.81, 0));
-      group.add(box(0.5, 0.3, 0.02, mat.ceiling, 0.5, 0.97, -0.17));
-      group.add(box(0.42, 0.24, 0.01, mat.screen, 0.5, 0.97, -0.16));
-      office.add(group);
-    };
-    const makeSofa = (x: number, z: number) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.add(box(2.2, 0.2, 0.8, mat.sofa, 0, 0.4, 0));
-      group.add(box(2.2, 0.6, 0.15, mat.cushion, 0, 0.7, -0.32));
-      group.add(box(0.15, 0.6, 0.8, mat.sofa, -1, 0.7, 0));
-      group.add(box(0.15, 0.6, 0.8, mat.sofa, 1, 0.7, 0));
-      office.add(group);
-    };
-    const makeWhiteboard = (x: number, z: number) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.rotation.y = Math.PI / 2;
-      group.add(box(2.5, 0.08, 0.08, mat.boardFrame, 0, 2.2, 0));
-      group.add(box(2.4, 1.4, 0.06, mat.board, 0, 1.5, 0));
-      group.add(box(0.8, 0.04, 0.04, mat.screen, -0.5, 1.65, -0.02));
-      office.add(group);
-    };
-    const makeShelf = (x: number, z: number) => {
-      const group = new THREE.Group();
-      group.position.set(x, 0, z);
-      group.rotation.y = Math.PI / 2;
-      group.add(box(1.2, 2, 0.35, mat.shelf, 0, 1, 0));
-      group.add(box(1.1, 0.04, 0.3, mat.deskTop, 0, 0.5, 0));
-      group.add(box(1.1, 0.04, 0.3, mat.deskTop, 0, 1.1, 0));
-      group.add(box(1.1, 0.04, 0.3, mat.deskTop, 0, 1.7, 0));
-      office.add(group);
-    };
-
-    [
-      [-4, -3.5, Math.PI], [-2, -3.5, Math.PI], [0, -3.5, Math.PI], [2, -3.5, Math.PI],
-      [-4, 2.5, 0], [-2, 2.5, 0], [4, -3.5, Math.PI], [4, 2.5, 0],
-    ].forEach(([x, z, ry]) => {
-      makeDesk(x, z);
-      makeChair(x, z + (ry === 0 ? 0.7 : 0.7), ry);
-    });
-    makeMeetingTable(0.5, 0.5);
-    makeChair(-0.8, -0.2, Math.PI);
-    makeChair(1.8, -0.2, Math.PI);
-    makeChair(-0.8, 1.2, 0);
-    makeChair(1.8, 1.2, 0);
-    makePlant(-5.8, -4.8);
-    makePlant(6.5, -4.8);
-    makePlant(-5.8, 5.5);
-    makeSofa(3.5, 3.8);
-    makeWhiteboard(-5.9, -1.5);
-    makeShelf(6.7, -2);
-
-    const makeAgent = (type: AgentType): OfficeMesh => {
-      const colors = {
-        ant: { skin: 0xf5cba7, hair: 0x5c3317, shirt: 0xfbbf24, pants: 0x1a1a2e, shoe: 0x0c0c14, accent: 0xfbbf24 },
-        collector: { skin: 0xd4a574, hair: 0x1a1a2e, shirt: 0x60a5fa, pants: 0x1e3a8a, shoe: 0x0c0c14, accent: 0x1e40af },
-        cleaner: { skin: 0xc8a882, hair: 0x2d4a2d, shirt: 0x34d399, pants: 0x064e3b, shoe: 0x0c0c14, accent: 0x065f46 },
-        analyst: { skin: 0xe8c99a, hair: 0x4c1d95, shirt: 0xa78bfa, pants: 0x4c1d95, shoe: 0x2e1065, accent: 0x7c3aed },
-        writer: { skin: 0xf5c6c6, hair: 0xbe185d, shirt: 0xf9a8d4, pants: 0x9d174d, shoe: 0x831843, accent: 0xbe185d },
-        guard: { skin: 0xd4a574, hair: 0x78350f, shirt: 0xfbbf24, pants: 0x78350f, shoe: 0x0c0c14, accent: 0x92400e },
-      }[type];
-      const group = new THREE.Group() as OfficeMesh;
-      const makeMat = (color: number, emissive = 0, emissiveIntensity = 0) => {
-        const material = new THREE.MeshLambertMaterial({ color, emissive, emissiveIntensity });
-        ownedMaterials.push(material);
-        return material;
-      };
-      const shadowGeometry = new THREE.CircleGeometry(0.22, 16);
-      ownedGeometries.push(shadowGeometry);
-      const shadowMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
-      ownedMaterials.push(shadowMaterial);
-      const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
-      shadow.rotation.x = -Math.PI / 2;
-      shadow.position.y = 0.01;
-      group.add(shadow);
-
-      const legL = box(0.12, 0.38, 0.12, makeMat(colors.pants), -0.1, 0.19, 0);
-      const legR = box(0.12, 0.38, 0.12, makeMat(colors.pants), 0.1, 0.19, 0);
-      group.add(legL, legR);
-      group.add(box(0.14, 0.08, 0.18, makeMat(colors.shoe), -0.1, 0.04, 0.03));
-      group.add(box(0.14, 0.08, 0.18, makeMat(colors.shoe), 0.1, 0.04, 0.03));
-      group.add(box(0.38, 0.42, 0.24, makeMat(colors.shirt), 0, 0.6, 0));
-      group.add(box(0.18, 0.12, 0.01, makeMat(colors.accent, colors.accent, 0.2), 0, 0.68, 0.12));
-
-      const armL = new THREE.Group();
-      armL.position.set(-0.25, 0.6, 0);
-      armL.add(box(0.12, 0.36, 0.12, makeMat(colors.skin), 0, -0.18, 0));
-      group.add(armL);
-      const armR = new THREE.Group();
-      armR.position.set(0.25, 0.6, 0);
-      armR.add(box(0.12, 0.36, 0.12, makeMat(colors.skin), 0, -0.18, 0));
-      group.add(armR);
-      group.add(box(0.14, 0.12, 0.14, makeMat(colors.skin), 0, 0.87, 0));
-
-      const head = new THREE.Group();
-      head.position.set(0, 1.02, 0);
-      head.add(box(0.36, 0.36, 0.32, makeMat(colors.skin), 0, 0, 0));
-      head.add(box(0.38, 0.12, 0.34, makeMat(colors.hair), 0, 0.16, 0));
-      head.add(box(0.38, 0.2, 0.08, makeMat(colors.hair), 0, 0.08, -0.14));
-      head.add(box(0.08, 0.08, 0.04, makeMat(0x1a1a2e), -0.1, 0.04, 0.15));
-      head.add(box(0.08, 0.08, 0.04, makeMat(0x1a1a2e), 0.1, 0.04, 0.15));
-      head.add(box(0.04, 0.04, 0.04, makeMat(0xffffff, 0xffffff, 0.5), -0.08, 0.06, 0.17));
-      head.add(box(0.04, 0.04, 0.04, makeMat(0xffffff, 0xffffff, 0.5), 0.12, 0.06, 0.17));
-      head.add(box(0.12, 0.03, 0.04, makeMat(0x7f1d1d), 0, -0.06, 0.15));
-      if (type === 'ant') {
-        head.add(box(0.04, 0.28, 0.04, makeMat(colors.accent, colors.accent, 0.4), 0, 0.34, 0));
-        head.add(box(0.1, 0.1, 0.1, makeMat(colors.accent, colors.accent, 0.4), 0, 0.5, 0));
-      }
-      if (type === 'cleaner' || type === 'analyst') {
-        head.add(box(0.1, 0.05, 0.04, makeMat(0x1a1a2e), -0.1, 0.04, 0.17));
-        head.add(box(0.1, 0.05, 0.04, makeMat(0x1a1a2e), 0.1, 0.04, 0.17));
-      }
-      if (type === 'collector') {
-        head.add(box(0.4, 0.06, 0.38, makeMat(colors.accent), 0, 0.22, 0));
-        head.add(box(0.44, 0.04, 0.1, makeMat(colors.accent), 0, 0.2, 0.22));
-      }
-      if (type === 'guard') {
-        armR.add(box(0.08, 0.16, 0.04, makeMat(colors.accent, colors.accent, 0.3), 0.1, -0.1, 0.06));
-      }
-      if (type === 'writer') {
-        armR.add(box(0.03, 0.22, 0.03, makeMat(0xf472b6), 0.06, -0.28, 0.06));
-      }
-      group.add(head);
-
-      const statusGeometry = new THREE.SphereGeometry(0.06, 8, 8);
-      ownedGeometries.push(statusGeometry);
-      const statusMaterial = new THREE.MeshLambertMaterial({ color: 0x444444, emissive: 0x222222, emissiveIntensity: 0.2 });
-      ownedMaterials.push(statusMaterial);
-      const statusDot = new THREE.Mesh(statusGeometry, statusMaterial);
-      statusDot.position.set(0.22, 1.45, 0);
-      group.add(statusDot);
-
-      const desk = office3DDesks[type];
-      group.position.set(desk.x, 0, desk.z);
-      group.rotation.y = Math.PI;
-      group.userData = {
-        type,
-        state: 'idle',
-        target: null,
-        speed: 2.5,
-        bobTime: 0,
-        walkTime: 0,
-        head,
-        armL,
-        armR,
-        legL,
-        legR,
-        statusDot,
-      };
-      scene.add(group);
-      return group;
-    };
-
-    const agentMeshes = {} as Record<AgentType, OfficeMesh>;
-    office3DAgentTypes.forEach((type) => {
-      agentMeshes[type] = makeAgent(type);
-    });
-    agentsRef.current = agentMeshes;
-    setAgentStatus('ant', 'running');
-
-    const resize = () => {
-      const parent = canvas.parentElement;
-      if (!parent) return;
-      const width = parent.clientWidth;
-      const height = parent.clientHeight;
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
-    resize();
-    window.addEventListener('resize', resize);
-
-    const clock = new THREE.Clock();
-    let raf = 0;
-    const animate = () => {
-      raf = window.requestAnimationFrame(animate);
-      const dt = Math.min(clock.getDelta(), 0.05);
-      controls.update();
-      office3DAgentTypes.forEach((type) => {
-        const mesh = agentMeshes[type];
-        const data = mesh.userData;
-        data.bobTime += dt;
-        if (data.target) {
-          const dx = data.target.x - mesh.position.x;
-          const dz = data.target.z - mesh.position.z;
-          const dist = Math.sqrt(dx * dx + dz * dz);
-          if (dist > 0.05) {
-            const stepSize = data.speed * speedRef.current * dt;
-            mesh.position.x += (dx / dist) * stepSize;
-            mesh.position.z += (dz / dist) * stepSize;
-            mesh.rotation.y = Math.atan2(dx, dz);
-            data.walkTime += dt * 6 * speedRef.current;
-            const swing = Math.sin(data.walkTime * Math.PI);
-            data.legL.rotation.x = swing * 0.5;
-            data.legR.rotation.x = -swing * 0.5;
-            data.armL.rotation.x = -swing * 0.4;
-            data.armR.rotation.x = swing * 0.4;
-            mesh.position.y = Math.abs(Math.sin(data.walkTime * Math.PI)) * 0.05;
-          } else {
-            mesh.position.x = data.target.x;
-            mesh.position.z = data.target.z;
-            mesh.position.y = 0;
-            data.target = null;
-            data.legL.rotation.x = 0;
-            data.legR.rotation.x = 0;
-            data.armL.rotation.x = 0;
-            data.armR.rotation.x = 0;
-          }
-        } else if (data.state === 'running') {
-          mesh.position.y = Math.sin(data.bobTime * 4) * 0.015;
-          data.head.rotation.x = Math.sin(data.bobTime * 2) * 0.05;
-          data.armR.rotation.x = Math.sin(data.bobTime * 4) * 0.15 - 0.2;
-        } else if (data.state === 'talk' || data.state === 'waiting') {
-          data.head.rotation.x = Math.sin(data.bobTime * 3) * 0.1;
-          data.armL.rotation.x = Math.sin(data.bobTime * 2) * 0.3 - 0.3;
-          data.armR.rotation.x = Math.sin(data.bobTime * 2 + 1) * 0.2 - 0.2;
-        } else if (data.state === 'celebrate') {
-          mesh.position.y = Math.abs(Math.sin(data.bobTime * 8)) * 0.18;
-          data.armL.rotation.x = Math.sin(data.bobTime * 8) * 0.5 - 1.2;
-          data.armR.rotation.x = -Math.sin(data.bobTime * 8) * 0.5 - 1.2;
-        } else {
-          mesh.position.y = Math.sin(data.bobTime * 1.5 + office3DAgentTypes.indexOf(type) * 0.8) * 0.008;
-          data.head.rotation.x = Math.sin(data.bobTime * 0.8) * 0.03;
-          data.armL.rotation.x = 0;
-          data.armR.rotation.x = 0;
-        }
-      });
-
-      setBubbles((current) => current.map((bubble) => {
-        const mesh = agentMeshes[bubble.id];
-        if (!mesh || !bubble.visible) return bubble;
-        const world = new THREE.Vector3();
-        mesh.getWorldPosition(world);
-        world.y += 1.8;
-        const projected = world.project(camera);
-        const width = canvas.clientWidth;
-        const height = canvas.clientHeight;
-        return {
-          ...bubble,
-          left: (projected.x * 0.5 + 0.5) * width - 70,
-          top: (-projected.y * 0.5 + 0.5) * height + 24,
-        };
-      }));
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    const bootTimer = window.setTimeout(() => applyStep(0), 800);
-    const interval = window.setInterval(() => {
-      const next = Math.min(stepRef.current + 1, office3DSteps.length - 1);
-      if (next !== stepRef.current) applyStep(next);
-    }, 4000 / speedRef.current);
-
-    return () => {
-      window.clearTimeout(bootTimer);
-      window.clearInterval(interval);
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
-      controls.dispose();
-      renderer.dispose();
-      ownedGeometries.forEach((geometry) => geometry.dispose());
-      ownedMaterials.forEach((material) => material.dispose());
-      agentsRef.current = null;
-      cameraRef.current = null;
-      controlsRef.current = null;
-    };
-  }, [applyStep, setAgentStatus]);
-
-  const resetOffice = () => {
-    setApproveReady(false);
-    setEvents([{ time: '09:00', color: '#60a5fa', text: '3D Office restarted' }]);
-    setStatusText('AI Ant Scout is reading screenshot...');
-    setStep(0);
-    stepRef.current = 0;
-    office3DAgentTypes.forEach((type) => {
-      setAgentStatus(type, 'idle');
-      const mesh = agentsRef.current?.[type];
-      const desk = office3DDesks[type];
-      if (mesh) {
-        mesh.position.set(desk.x, 0, desk.z);
-        mesh.userData.target = null;
-      }
-    });
-    window.setTimeout(() => applyStep(0), 500);
-    showToast('Restarting 3D office...');
-  };
-
-  const approveWorkflow = () => {
-    office3DAgentTypes.forEach((type) => setAgentStatus(type, 'celebrate'));
-    setApproveReady(false);
-    setStatusText('Report approved - daily profit report sent');
-    addEvent('#16a34a', 'Report approved - workflow complete');
-    showBubble('guard', office3DMessages.guard[3]);
-    showToast('Report sent. Workflow complete.');
-    runCanvasWorkflow();
-  };
-
-  const cameraPresets: Record<OfficeCameraPreset, THREE.Vector3> = {
-    iso: new THREE.Vector3(18, 18, 18),
-    top: new THREE.Vector3(0, 30, 0.1),
-    side: new THREE.Vector3(28, 8, 0),
-  };
-
-  const animateCameraTo = (position: THREE.Vector3) => {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera || !controls) return;
-    camera.position.copy(position);
-    controls.target.set(0, 0, 0);
-    controls.update();
-  };
-
-  const setOfficeCameraPreset = (preset: OfficeCameraPreset) => {
-    setCameraPresetState(preset);
-    animateCameraTo(cameraPresets[preset]);
-    showToast(`${preset === 'iso' ? 'Isometric' : preset === 'top' ? 'Top-down' : 'Side'} view`);
-  };
-
-  const zoomOffice = (ratio: number) => {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera || !controls) return;
-    const direction = camera.position.clone().sub(controls.target).normalize();
-    const distance = camera.position.distanceTo(controls.target);
-    const nextDistance = Math.max(controls.minDistance, Math.min(controls.maxDistance, distance * ratio));
-    camera.position.copy(controls.target.clone().add(direction.multiplyScalar(nextDistance)));
-    controls.update();
-  };
-
-  return (
-    <div className="relative flex h-full min-h-[680px] flex-col overflow-hidden bg-[#0a0a12] text-white">
-      <div className="z-40 flex min-h-[50px] items-center justify-between gap-3 border-b border-white/10 bg-[#080812]/95 px-4 backdrop-blur-xl sm:px-5">
-        <div className="flex items-center gap-2 font-heading text-[15px] font-extrabold">
-          <span className="grid h-[26px] w-[26px] place-items-center rounded-md bg-white"><AntMark tone="dark" size={16} /></span>
-          Colony
-        </div>
-        <div className="hidden min-w-0 items-center gap-2 md:flex">
-          <span className="font-heading text-[13px] font-bold">Daily Sales Report</span>
-          <span className="text-xs text-white/35">- 6 agents - Running</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="flex rounded-lg bg-white/10 p-1">
-            <button onClick={onBack} className="rounded-md px-2.5 py-1.5 text-xs font-bold text-white/50 transition hover:text-white sm:px-3">Canvas</button>
-            <button className="rounded-md bg-[#ffffff] px-3 py-1.5 text-xs font-bold text-[#0a0a12]">3D Office</button>
-            <button onClick={() => showToast('Timeline view is connected in the main app.')} className="hidden rounded-md px-3 py-1.5 text-xs font-bold text-white/50 transition hover:text-white sm:inline">Timeline</button>
-          </div>
-          <span className="hidden items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-[11px] font-bold text-warning sm:inline-flex">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
-            Safety Mode: ON
-          </span>
-        </div>
-      </div>
-
-      <div className="z-30 flex min-h-[38px] items-center overflow-x-auto border-b border-white/10 bg-black/35 px-4">
-        {office3DAgentTypes.map((type) => {
-          const status = activeStatuses[type];
-          return (
-            <div key={type} className={`flex h-[38px] items-center gap-2 border-r border-white/10 px-4 text-[11px] font-bold ${status === 'running' || status === 'waiting' ? 'text-white' : 'text-white/45'}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'animate-pulse bg-[#16a34a]' : status === 'done' || status === 'celebrate' ? 'bg-[#60a5fa]' : status === 'waiting' ? 'bg-warning' : 'bg-white/20'}`} />
-              {agentCatalog[type].icon} {agentCatalog[type].label}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="relative min-w-0 flex-1 overflow-hidden">
-          <canvas ref={canvasRef} className="block h-full w-full cursor-grab active:cursor-grabbing" />
-
-          <div className="absolute bottom-3 left-3 z-30 flex items-end gap-2">
-            <div className="flex flex-col gap-1">
-              <button onClick={() => zoomOffice(0.75)} className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/10 text-base font-bold text-white/70 transition hover:bg-white/15 hover:text-white" title="Zoom in">+</button>
-              <button onClick={() => animateCameraTo(cameraPresets[cameraPreset])} className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/10 text-sm font-bold text-white/70 transition hover:bg-white/15 hover:text-white" title="Reset camera">⊡</button>
-              <button onClick={() => zoomOffice(1.35)} className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/10 text-base font-bold text-white/70 transition hover:bg-white/15 hover:text-white" title="Zoom out">−</button>
-            </div>
-            <div className="hidden flex-col gap-1 sm:flex">
-              {[
-                ['iso', '◆ Isometric'],
-                ['top', '⊞ Top-down'],
-                ['side', '◧ Side view'],
-              ].map(([preset, label]) => (
-                <button
-                  key={preset}
-                  onClick={() => setOfficeCameraPreset(preset as OfficeCameraPreset)}
-                  className={`h-8 rounded-lg border px-3 text-[11px] font-bold transition ${cameraPreset === preset ? 'border-white/25 bg-white/15 text-white' : 'border-white/10 bg-white/[0.07] text-white/55 hover:bg-white/12 hover:text-white'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="pointer-events-none absolute left-3 top-3 z-30 hidden rounded-[10px] border border-white/10 bg-[#080812]/85 px-3 py-2 text-[11px] leading-relaxed text-white/45 backdrop-blur md:block">
-            <span className="font-bold text-white/70">Scroll</span> Zoom · <span className="font-bold text-white/70">Drag</span> Orbit · <span className="font-bold text-white/70">Right drag</span> Pan
-          </div>
-
-          {bubbles.map((bubble) => bubble.visible && (
-            <div
-              key={`${bubble.id}-${bubble.text}`}
-              className="pointer-events-none absolute z-40 max-w-[160px] rounded-[10px] border border-black/10 bg-[#ffffff] px-3 py-2 text-[11px] font-bold leading-snug text-[#0a0a12] opacity-95 shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
-              style={{ left: bubble.left, top: bubble.top }}
-            >
-              {bubble.text}
-            </div>
-          ))}
-        </div>
-
-        <aside className="hidden w-[260px] shrink-0 overflow-y-auto border-l border-white/10 bg-[#060610]/95 p-4 lg:block">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Agents</p>
-          <div className="space-y-2">
-            {office3DAgentTypes.map((type) => {
-              const status = activeStatuses[type];
-              const statusLabel = status === 'running' ? 'Working...' : status === 'done' || status === 'celebrate' ? 'Done' : status === 'waiting' ? 'Awaiting approval' : 'Idle';
-              const dotColor = status === 'running' ? '#16a34a' : status === 'done' || status === 'celebrate' ? '#60a5fa' : status === 'waiting' ? '#fbbf24' : 'rgba(255,255,255,0.15)';
-              return (
-                <div key={type} className={`flex items-center gap-3 rounded-[10px] border p-3 transition ${status === 'running' ? 'border-[#16a34a]/40 bg-[#16a34a]/10' : status === 'waiting' ? 'border-warning/40 bg-warning/10' : status === 'done' || status === 'celebrate' ? 'border-[#60a5fa]/30 bg-white/[0.04]' : 'border-white/10 bg-white/[0.04]'}`}>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-bold text-white">{agentCatalog[type].label}</p>
-                    <p className="mt-0.5 text-[10px] text-white/35">{statusLabel}</p>
-                  </div>
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
-                </div>
-              );
-            })}
-          </div>
-
-          <p className="mb-3 mt-5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Live activity</p>
-          <div className="space-y-2">
-            {events.map((event) => (
-              <div key={`${event.time}-${event.text}`} className="grid grid-cols-[38px_6px_1fr] gap-2 text-[11px] leading-snug text-white/55">
-                <span className="font-mono text-white/25">{event.time}</span>
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full" style={{ backgroundColor: event.color }} />
-                <span>{event.text}</span>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
-
-      <div className="z-40 flex min-h-[52px] items-center justify-between gap-3 border-t border-white/10 bg-[#080812]/95 px-4 backdrop-blur-xl sm:px-5">
-        <p className="min-w-0 truncate text-[12px] text-white/50 sm:text-[13px]">
-          <strong className="text-white">Running:</strong> {statusText}
-        </p>
-        <div className="flex shrink-0 items-center gap-2 overflow-x-auto">
-          <button onClick={() => setSpeed((value) => (value === 1 ? 2 : 1))} className="whitespace-nowrap rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-bold text-white/70 transition hover:bg-white/15 sm:px-4">
-            Speed: {speed}x
-          </button>
-          <button onClick={resetOffice} className="whitespace-nowrap rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-bold text-white/70 transition hover:bg-white/15 sm:px-4">
-            Restart
-          </button>
-          {approveReady && (
-            <button onClick={approveWorkflow} className="whitespace-nowrap rounded-lg bg-[#16a34a] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#15803d] sm:px-4">
-              Approve & Send Report
-            </button>
-          )}
-          <button onClick={onBack} className="whitespace-nowrap rounded-lg bg-[#ffffff] px-3 py-2 text-xs font-bold text-[#0a0a12] transition hover:bg-[#f0f2ff] sm:px-4">
-            Back to Canvas
-          </button>
-        </div>
-      </div>
-
-      {toast && <div className="absolute left-1/2 top-16 z-50 -translate-x-1/2 rounded-lg border border-white/10 bg-black/85 px-5 py-2 text-xs font-bold text-white shadow-xl">{toast}</div>}
-    </div>
-  );
-}
 
 const AGENT_IO: Record<string, { input: string; output: string }> = {
   'agent-ant':       { input: 'LINE MAN screenshot / file upload',        output: 'Raw order list, fees, delivery data' },
@@ -7835,7 +5350,6 @@ function CreateAgentTeam({ activeProjectId, setActiveProjectId, projects, onUpda
   setPage: (page: Page) => void;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState<CanvasView>('canvas');
   const [tool, setTool] = useState<CanvasTool>('select');
   const [agents, setAgents] = useState<CanvasAgent[]>(initialAgents);
   const [connections, setConnections] = useState<CanvasConnection[]>(initialConnections);
@@ -10421,9 +7935,6 @@ function CreateAgentTeam({ activeProjectId, setActiveProjectId, projects, onUpda
     setToast('Agent removed');
   };
 
-  if (view === 'office') {
-    return <OfficePreview onBack={() => setView('canvas')} runCanvasWorkflow={runWorkflow} />;
-  }
 
   return (
     <div className="relative h-full min-h-[720px] overflow-hidden bg-background text-ink">
@@ -10452,12 +7963,6 @@ function CreateAgentTeam({ activeProjectId, setActiveProjectId, projects, onUpda
           </div>
         </div>
         <div className="hidden items-center gap-1 md:flex">
-          <div className="mr-2 flex rounded-lg bg-black/[0.05] p-1">
-            <button className="rounded-md bg-ink px-3 py-1.5 text-xs font-bold text-white">Canvas</button>
-            <button onClick={() => setView('office')} className="rounded-md px-3 py-1.5 text-xs font-bold text-muted transition hover:bg-white hover:text-ink">
-              Office
-            </button>
-          </div>
           {[
             ['select', '\u2196', 'Select'],
             ['pan', '\u270B', 'Pan'],
@@ -10565,9 +8070,6 @@ function CreateAgentTeam({ activeProjectId, setActiveProjectId, projects, onUpda
             className="hidden rounded-lg border border-black/10 bg-[#ffffff] px-3 py-2 text-xs font-semibold text-ink transition hover:-translate-y-0.5 hover:border-black/25 hover:bg-surface2 md:inline-flex"
           >
             ⚙ Settings
-          </button>
-          <button onClick={() => setView('office')} className="hidden rounded-lg border border-black/10 bg-[#ffffff] px-3 py-2 text-xs font-semibold text-ink transition hover:-translate-y-0.5 hover:border-black/25 md:inline-flex">
-            Office Preview
           </button>
           {/* Execution status badge */}
           {workflowExecution.status !== 'idle' && (
@@ -15349,2901 +12851,297 @@ function CreateAgentTeam({ activeProjectId, setActiveProjectId, projects, onUpda
   );
 }
 
-function Dashboard({ usageState, setPage }: { usageState: UsageState; setPage: (page: Page) => void }) {
-  const plan = PLANS.find((p) => p.id === usageState.currentPlan) ?? PLANS[0];
-  const completedRuns = usageState.usageEvents.filter((e) => e.status === 'Completed').length;
-  const pendingApprovals = usageState.usageEvents.filter((e) => e.status === 'Failed').length;
-  const runsPct = Math.min(100, (usageState.workflowRunsUsed / plan.workflowRunsLimit) * 100);
-  const runsBarColor = runsPct >= 90 ? 'bg-red-400' : runsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-  const recentEvents = usageState.usageEvents.slice(0, 4);
+
+
+
+
+
+
+
+
+
+
+function ModalShell({ title, subtitle, onClose, children }: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="p-6 md:p-10">
-      <h2 className="mb-1 font-heading text-4xl font-extrabold text-ink">Welcome to Colony.</h2>
-      <p className="mb-8 text-muted">Your no-code AI agent builder — create teams, organize projects, and let AI collaborate safely.</p>
-      {/* Stat cards */}
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
-        {[
-          { label: 'Workflow Runs', value: usageState.workflowRunsUsed.toString(), sub: `of ${plan.workflowRunsLimit}/mo` },
-          { label: 'Credits Used', value: usageState.agentCreditsUsed.toString(), sub: `of ${plan.creditsLimit}` },
-          { label: 'Completed Runs', value: completedRuns.toString(), sub: 'this month' },
-          { label: 'Est. Cost', value: `$${usageState.estimatedCost.toFixed(2)}`, sub: 'this month' },
-        ].map(({ label, value, sub }) => (
-          <div key={label} className="card-hover rounded-2xl border border-white-07 bg-surface p-5">
-            <p className="text-sm text-muted">{label}</p>
-            <p className="mt-2 font-heading text-3xl font-extrabold text-ink">{value}</p>
-            <p className="mt-1 text-[11px] text-subtle">{sub}</p>
+    <div className="fixed inset-0 z-[420] flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-2xl overflow-hidden rounded-[22px] border border-white/[0.10] bg-[#0e0e1a] shadow-[0_32px_100px_rgba(0,0,0,0.7)]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-4">
+          <div>
+            <h3 className="font-heading text-[16px] font-extrabold text-white">{title}</h3>
+            {subtitle && <p className="mt-0.5 text-[11px] text-white/45">{subtitle}</p>}
+          </div>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-white/50 transition hover:bg-white/[0.12] hover:text-white">x</button>
+        </div>
+        <div className="max-h-[calc(88vh-72px)] overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function FileProcessingCenter({ files, setFiles, onAddToWorkflowInput, onClose }: {
+  files: ProcessedFile[];
+  setFiles: React.Dispatch<React.SetStateAction<ProcessedFile[]>>;
+  onAddToWorkflowInput: (inputType: WorkflowInputType) => void;
+  onClose: () => void;
+}) {
+  const processAgain = (id: string) => {
+    setFiles((prev) => prev.map((file) => file.id === id ? { ...file, status: 'processing' } : file));
+    window.setTimeout(() => {
+      setFiles((prev) => prev.map((file) => file.id === id ? { ...file, status: 'done', errorMessage: undefined } : file));
+    }, 700);
+  };
+
+  return (
+    <ModalShell title="File Processing Center" subtitle={`${files.length} files ready for workflow input`} onClose={onClose}>
+      <div className="space-y-3">
+        {files.map((file) => (
+          <div key={file.id} className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-white">{file.name}</p>
+                <p className="mt-1 text-[11px] text-white/40">{file.type.toUpperCase()} · {file.size} · {file.uploadedAt}</p>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-[10px] font-bold capitalize ${file.status === 'done' ? 'bg-emerald-500/15 text-emerald-300' : file.status === 'error' ? 'bg-red-500/15 text-red-300' : 'bg-white/[0.08] text-white/55'}`}>{file.status}</span>
+            </div>
+            {file.summary && <p className="mt-3 text-[12px] leading-relaxed text-white/55">{file.summary}</p>}
+            {file.keyPoints && (
+              <div className="mt-3 grid gap-1.5">
+                {file.keyPoints.slice(0, 3).map((point) => <p key={point} className="text-[11px] text-white/45">- {point}</p>)}
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button onClick={() => onAddToWorkflowInput('file-upload')} className="rounded-xl bg-white px-3 py-2 text-[11px] font-bold text-[#0a0a14]">Add to workflow</button>
+              <button onClick={() => processAgain(file.id)} className="rounded-xl border border-white/[0.12] px-3 py-2 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06]">Process again</button>
+            </div>
           </div>
         ))}
       </div>
-      {/* Usage quota */}
-      <div className="mb-6 rounded-2xl border border-white/[0.07] bg-surface p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm font-semibold text-ink">Monthly Run Usage</p>
-          <button onClick={() => setPage('Billing')} className="text-[11px] font-semibold text-accent/80 hover:text-accent transition">View Full Usage →</button>
-        </div>
-        <div className="mb-1.5 h-2.5 w-full overflow-hidden rounded-full bg-white/10">
-          <div className={`h-full rounded-full transition-all ${runsBarColor}`} style={{ width: `${runsPct}%` }} />
-        </div>
-        <div className="flex items-center justify-between text-[11px] text-muted">
-          <span>{usageState.workflowRunsUsed} used</span>
-          <span>Resets {usageState.resetDate}</span>
-          <span>{plan.workflowRunsLimit - usageState.workflowRunsUsed} remaining</span>
-        </div>
-      </div>
-      {/* Recent runs */}
-      {recentEvents.length > 0 ? (
-        <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">Recent Runs</p>
-            <button onClick={() => setPage('Billing')} className="text-[11px] font-semibold text-accent/80 hover:text-accent transition">View All →</button>
-          </div>
-          <div className="space-y-2">
-            {recentEvents.map((ev) => (
-              <div key={ev.id} className="flex items-center justify-between rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-2.5">
-                <div>
-                  <p className="text-[12px] font-semibold text-ink">{ev.workflowName}</p>
-                  <p className="text-[10px] text-muted">{ev.agentsUsed} agents · {ev.creditsUsed} credits · {ev.tokensUsed >= 1000 ? `${(ev.tokensUsed / 1000).toFixed(1)}k` : ev.tokensUsed} tokens</p>
-                </div>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${ev.status === 'Completed' ? 'bg-emerald-400/15 text-emerald-400' : ev.status === 'Failed' ? 'bg-red-400/15 text-red-400' : 'bg-white/10 text-muted'}`}>{ev.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <EmptyState title="No runs yet" message="Create or run an AI Team and this page will show simple updates, approvals, reports, and AI Ant summaries." />
-      )}
-    </div>
+    </ModalShell>
   );
 }
 
-function SettingsPage({ theme, setTheme, safetyMode, setSafetyMode, usageState, setUsageState }: { theme: 'light' | 'dark' | 'system'; setTheme: (t: 'light' | 'dark' | 'system') => void; safetyMode: boolean; setSafetyMode: (v: boolean) => void; usageState: UsageState; setUsageState: (s: UsageState) => void }) {
-  const [safetyOffConfirm, setSafetyOffConfirm] = useState(false);
-  const [approvalRule, setApprovalRule] = useState<'always' | 'high-risk' | 'never'>('always');
-  const [settingsSafetyRules, setSettingsSafetyRules] = useState<SafetyRule[]>(DEFAULT_SAFETY_RULES);
-  const [emailNotif, setEmailNotif] = useState(true);
-
-  const themeOptions: Array<{ value: 'light' | 'dark' | 'system'; label: string; Icon: React.ElementType; desc: string }> = [
-    { value: 'light', label: 'Light', Icon: Sun, desc: 'Clean light workspace' },
-    { value: 'dark', label: 'Dark', Icon: Moon, desc: 'Easy on the eyes' },
-    { value: 'system', label: 'System', Icon: Monitor, desc: 'Follow OS setting' },
-  ];
-
-  const SectionCard = ({ children }: { children: React.ReactNode }) => (
-    <div className="rounded-2xl border border-white-07 bg-surface p-6">{children}</div>
-  );
-
-  const Toggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
-    <button
-      onClick={onToggle}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${on ? 'bg-accent' : 'bg-black/10'}`}
-    >
-      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${on ? 'translate-x-6' : 'translate-x-1'}`} />
-    </button>
-  );
-
-  return (
-    <div className="max-w-2xl p-6 md:p-12">
-      <h2 className="mb-1 font-heading text-3xl font-extrabold text-ink">Settings</h2>
-      <p className="mb-10 text-sm text-muted">Manage your Colony workspace, appearance, and safety preferences.</p>
-
-      <div className="space-y-6">
-
-        {/* Appearance */}
-        <SectionCard>
-          <h3 className="mb-1 font-heading text-base font-bold text-ink">Appearance</h3>
-          <p className="mb-5 text-xs text-muted">Choose how Colony looks on your device.</p>
-          <div className="grid grid-cols-3 gap-3">
-            {themeOptions.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setTheme(opt.value)}
-                className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all duration-150 ${
-                  theme === opt.value
-                    ? 'border-accent bg-accent/8 shadow-[0_0_0_4px_rgba(0,200,200,0.08)]'
-                    : 'border-white-07 bg-surface2 hover:border-accent/30 hover:bg-accent/5'
-                }`}
-              >
-                <opt.Icon size={22} className={theme === opt.value ? 'text-accent' : 'text-muted'} />
-                <span className={`text-[13px] font-semibold ${theme === opt.value ? 'text-ink' : 'text-muted'}`}>{opt.label}</span>
-                <span className="text-[11px] text-muted">{opt.desc}</span>
-                {theme === opt.value && (
-                  <span className="mt-0.5 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white">Active</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </SectionCard>
-
-        {/* Workspace */}
-        <SectionCard>
-          <h3 className="mb-1 font-heading text-base font-bold text-ink">Workspace</h3>
-          <p className="mb-4 text-xs text-muted">Your Colony workspace settings.</p>
-          <div className="space-y-3 text-sm">
-            {[
-              ['Workspace name', 'Mango Kitchen'],
-              ['Owner', 'TopSpeed'],
-              ['Plan', 'Early Access'],
-              ['Colony version', '0.9.1'],
-            ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between border-b border-white-07 py-2 last:border-0">
-                <span className="text-muted">{label}</span>
-                <span className="font-medium text-ink">{value}</span>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-
-        {/* Safety Mode */}
-        <SectionCard>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="mb-1 font-heading text-base font-bold text-ink">Safety Mode</h3>
-              <p className="text-xs text-muted">All agent actions require your approval before executing. Recommended for production use.</p>
-            </div>
-            <Toggle on={safetyMode} onToggle={() => safetyMode ? setSafetyOffConfirm(true) : setSafetyMode(true)} />
-          </div>
-          {safetyMode ? (
-            <div className="mt-4 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/8 px-4 py-3 text-xs text-warning">
-              <ShieldCheck size={12} className="shrink-0" />
-              Safety Mode is ON — no agent will send, export, or execute anything without your explicit approval.
-            </div>
-          ) : (
-            <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-400/8 px-4 py-3 text-xs text-red-500">
-              <AlertTriangle size={12} className="shrink-0" />
-              Safety Mode is OFF — agents may execute external actions with fewer checks. Enable before running in production.
-            </div>
-          )}
-        </SectionCard>
-
-        {/* Safety Rules */}
-        <SectionCard>
-          <h3 className="mb-1 font-heading text-base font-bold text-ink">Safety Rules</h3>
-          <p className="mb-4 text-xs text-muted">Configure which actions require approval or confirmation before executing.</p>
-          <div className="space-y-3">
-            {settingsSafetyRules.map((rule) => (
-              <div key={rule.id} className="flex items-start justify-between gap-4 border-b border-white-07 pb-3 last:border-0">
-                <div>
-                  <p className="text-sm font-medium text-ink">{rule.title}</p>
-                  <p className="text-xs text-muted">{rule.description}</p>
-                </div>
-                <Toggle on={rule.enabled} onToggle={() => setSettingsSafetyRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled: !r.enabled } : r))} />
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-
-        {/* Safety OFF confirm */}
-        {safetyOffConfirm && (
-          <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="mx-4 w-full max-w-md rounded-[22px] border border-red-500/25 bg-surface p-6 shadow-[0_32px_80px_rgba(0,0,0,0.5)]">
-              <h3 className="mb-2 font-heading text-[16px] font-bold text-ink">Turn off Safety Mode?</h3>
-              <p className="mb-4 text-sm text-muted leading-relaxed">Safety Mode protects your workflow by requiring approval before sending, exporting, updating, deleting, or triggering external actions. Turning it off may allow actions to run with fewer checks.</p>
-              <div className="flex gap-2">
-                <button onClick={() => setSafetyOffConfirm(false)}
-                  className="flex-1 rounded-xl border border-white-07 px-4 py-2.5 text-sm font-semibold text-muted transition hover:text-ink">Cancel</button>
-                <button onClick={() => { setSafetyMode(false); setSafetyOffConfirm(false); }}
-                  className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white transition hover:bg-red-600">Turn Off Safety Mode</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Approval Rules */}
-        <SectionCard>
-          <h3 className="mb-1 font-heading text-base font-bold text-ink">Approval Rules</h3>
-          <p className="mb-4 text-xs text-muted">Choose when Colony asks for your sign-off.</p>
-          <div className="space-y-2">
-            {([
-              ['always', 'Always ask for approval', 'Every agent action requires your confirmation'],
-              ['high-risk', 'High-risk actions only', 'Only sending, exporting, or publishing needs approval'],
-              ['never', 'Auto-approve all', 'Not recommended — agents act without confirmation'],
-            ] as const).map(([val, label, desc]) => (
-              <button
-                key={val}
-                onClick={() => setApprovalRule(val)}
-                className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                  approvalRule === val ? 'border-accent/40 bg-accent/8' : 'border-white-07 hover:border-accent/20 hover:bg-surface2'
-                }`}
-              >
-                <span className={`mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 ${approvalRule === val ? 'border-accent bg-accent' : 'border-muted/40'}`} />
-                <div>
-                  <p className="text-sm font-medium text-ink">{label}</p>
-                  <p className="text-xs text-muted">{desc}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </SectionCard>
-
-        {/* Notifications */}
-        <SectionCard>
-          <h3 className="mb-4 font-heading text-base font-bold text-ink">Notifications</h3>
-          <div className="space-y-3">
-            {[
-              ['Email summaries', 'Get daily digests of agent activity', emailNotif, () => setEmailNotif((v) => !v)] as const,
-            ].map(([label, desc, on, onToggle]) => (
-              <div key={label} className="flex items-center justify-between gap-4 border-b border-white-07 pb-3 last:border-0">
-                <div>
-                  <p className="text-sm font-medium text-ink">{label}</p>
-                  <p className="text-xs text-muted">{desc}</p>
-                </div>
-                <Toggle on={on} onToggle={onToggle} />
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-
-        {/* Plan & Usage */}
-        <SectionCard>
-          <h3 className="mb-1 font-heading text-base font-bold text-ink">Plan &amp; Usage</h3>
-          <p className="mb-4 text-xs text-muted">Manage your Colony plan and monitor usage.</p>
-          {(() => {
-            const plan = PLANS.find((p) => p.id === usageState.currentPlan) ?? PLANS[0];
-            const runsPct = Math.min(100, (usageState.workflowRunsUsed / plan.workflowRunsLimit) * 100);
-            const creditsPct = Math.min(100, (usageState.agentCreditsUsed / plan.creditsLimit) * 100);
-            const runsBarColor = runsPct >= 90 ? 'bg-red-400' : runsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-            const creditsBarColor = creditsPct >= 90 ? 'bg-red-400' : creditsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-            return (
-              <div className="space-y-4">
-                {/* Current plan badge */}
-                <div className="flex items-center justify-between rounded-xl border border-accent/20 bg-accent/[0.06] px-4 py-3">
-                  <div>
-                    <p className="text-xs text-muted">Current plan</p>
-                    <p className="text-sm font-bold capitalize text-ink">{plan.name} — {plan.price}{plan.id !== 'free' ? plan.priceDesc : ''}</p>
-                  </div>
-                  {usageState.currentPlan !== 'max' && (
-                    <span className="rounded-xl bg-accent px-3 py-1.5 text-[11px] font-bold text-[#0a0a14]">
-                      {usageState.currentPlan === 'free' ? 'Free Plan' : `${PLANS.find(p => p.id === usageState.currentPlan)?.name ?? ''} Plan`}
-                    </span>
-                  )}
-                </div>
-                {/* Runs usage bar */}
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <p className="text-xs font-medium text-ink">Workflow Runs</p>
-                    <span className="text-[11px] text-muted">{usageState.workflowRunsUsed} / {plan.workflowRunsLimit} · resets {usageState.resetDate}</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                    <div className={`h-full rounded-full transition-all ${runsBarColor}`} style={{ width: `${runsPct}%` }} />
-                  </div>
-                </div>
-                {/* Credits usage bar */}
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <p className="text-xs font-medium text-ink">Agent Credits</p>
-                    <span className="text-[11px] text-muted">{usageState.agentCreditsUsed} / {plan.creditsLimit}</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                    <div className={`h-full rounded-full transition-all ${creditsBarColor}`} style={{ width: `${creditsPct}%` }} />
-                  </div>
-                </div>
-                {/* Token usage */}
-                <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-                  <div>
-                    <p className="text-xs text-muted">Tokens used this month</p>
-                    <p className="text-sm font-bold text-ink">{usageState.tokenUsageThisMonth >= 1000 ? `${(usageState.tokenUsageThisMonth / 1000).toFixed(1)}k` : usageState.tokenUsageThisMonth}</p>
-                  </div>
-                  <div>
-                    <p className="text-right text-xs text-muted">Est. cost</p>
-                    <p className="text-right text-sm font-bold text-ink">${usageState.estimatedCost.toFixed(2)}</p>
-                  </div>
-                </div>
-                {/* Plan comparison */}
-                <div className="space-y-2">
-                  {PLANS.filter((p) => p.id !== usageState.currentPlan).map((p) => (
-                    <div key={p.id} className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-                      <div>
-                        <p className="text-sm font-semibold text-ink">{p.name} — {p.price}<span className="text-xs text-muted ml-1">{p.priceDesc}</span></p>
-                        <p className="text-[11px] text-muted">{p.workflowRunsLimit === -1 ? 'Unlimited' : p.workflowRunsLimit} runs · {p.creditsLimit === -1 ? 'Unlimited' : p.creditsLimit.toLocaleString()} credits</p>
-                      </div>
-                      <button className="rounded-xl border border-accent/20 bg-accent/[0.07] px-3 py-1.5 text-[11px] font-bold text-accent transition hover:bg-accent/15">{p.cta}</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
-        </SectionCard>
-
-        {/* Privacy */}
-        <SectionCard>
-          <h3 className="mb-1 font-heading text-base font-bold text-ink">Privacy &amp; Data</h3>
-          <p className="mb-4 text-xs text-muted">Colony does not sell your data. Agent conversations stay within your workspace.</p>
-          <div className="flex flex-wrap gap-2">
-            <button className="rounded-full border border-white-07 px-3 py-1.5 text-xs font-medium text-muted transition hover:border-black/20 hover:text-ink">Download my data</button>
-            <button className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-medium text-red-500 transition hover:bg-red-50">Delete workspace</button>
-          </div>
-        </SectionCard>
-
-      </div>
-    </div>
-  );
-}
-
-// ── FileProcessingCenter ────────────────────────────────────────────────────
-
-function FileProcessingCenter({
-  files,
-  setFiles,
-  onAddToWorkflowInput,
-  onClose,
-}: {
-  files: ProcessedFile[];
-  setFiles: React.Dispatch<React.SetStateAction<ProcessedFile[]>>;
-  onAddToWorkflowInput: (type: WorkflowInputType) => void;
-  onClose: () => void;
-}) {
-  const [selectedId, setSelectedId] = useState<string | null>(files[0]?.id ?? null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'tables' | 'ocr' | 'raw'>('summary');
-  const [dataPreviewOpen, setDataPreviewOpen] = useState(false);
-  const [dataPreviewTable, setDataPreviewTable] = useState<ExtractedTable | null>(null);
-  const [sendToAgent, setSendToAgent] = useState('');
-  const [toast, setToast] = useState<string | null>(null);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const showToast = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 3000); };
-
-  const selected = files.find((f) => f.id === selectedId) ?? null;
-
-  const typeIcon: Record<ProcessedFileType, string> = { pdf: '📋', excel: '📊', csv: '📑', image: '🔬', unknown: '📄' };
-  const statusColor: Record<ProcessedFileStatus, string> = {
-    idle: 'text-white/40',
-    processing: 'text-accent',
-    done: 'text-emerald-400',
-    error: 'text-red-400',
-  };
-  const statusLabel: Record<ProcessedFileStatus, string> = { idle: 'Idle', processing: 'Processing…', done: 'Ready', error: 'Failed' };
-
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    const type: ProcessedFileType = ext === 'pdf' ? 'pdf' : ext === 'xlsx' || ext === 'xls' ? 'excel' : ext === 'csv' ? 'csv' : (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'webp') ? 'image' : 'unknown';
-    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-    const newFile: ProcessedFile = {
-      id: `pf-${Date.now()}`,
-      name: file.name,
-      type,
-      size: `${sizeMB} MB`,
-      status: 'processing',
-      uploadedAt: 'just now',
-    };
-    setFiles((prev) => [newFile, ...prev]);
-    setSelectedId(newFile.id);
-    // Simulate processing
-    window.setTimeout(() => {
-      setFiles((prev) => prev.map((f) => f.id === newFile.id ? {
-        ...f,
-        status: 'done',
-        summary: type === 'pdf' ? `Mock summary for ${file.name}. Document contains structured data ready for agent processing.` : undefined,
-        keyPoints: type === 'pdf' ? ['Processed successfully', 'Ready to send to agents', 'No errors detected'] : undefined,
-        tables: (type === 'excel' || type === 'csv') ? [{
-          id: `t-${Date.now()}`,
-          name: 'Sheet 1',
-          headers: ['Column A', 'Column B', 'Column C'],
-          rows: [['Row 1 A', 'Row 1 B', 'Row 1 C'], ['Row 2 A', 'Row 2 B', 'Row 2 C']],
-          rowCount: 2,
-        }] : undefined,
-        ocrText: type === 'image' ? `Extracted text from ${file.name}` : undefined,
-        ocrConfidence: type === 'image' ? 91 : undefined,
-        ocrFields: type === 'image' ? [{ label: 'Source', value: file.name }] : undefined,
-      } : f));
-      showToast(`${file.name} processed successfully`);
-    }, 2200);
-    e.target.value = '';
-  };
-
-  const retryProcessing = (fileId: string) => {
-    setFiles((prev) => prev.map((f) => f.id === fileId ? { ...f, status: 'processing', errorMessage: undefined } : f));
-    window.setTimeout(() => {
-      setFiles((prev) => prev.map((f) => f.id === fileId ? { ...f, status: 'done' } : f));
-      showToast('File reprocessed successfully');
-    }, 1800);
-  };
-
-  const deleteFile = (fileId: string) => {
-    setFiles((prev) => {
-      const next = prev.filter((f) => f.id !== fileId);
-      if (selectedId === fileId) setSelectedId(next[0]?.id ?? null);
-      return next;
-    });
-  };
-
-  const openDataPreview = (table: ExtractedTable) => {
-    setDataPreviewTable(table);
-    setDataPreviewOpen(true);
-  };
-
-  const handleSendToWorkflow = (inputType: WorkflowInputType) => {
-    onAddToWorkflowInput(inputType);
-    showToast(`Added as workflow input: ${inputType}`);
-    setDataPreviewOpen(false);
-  };
-
-  const defaultTab = (f: ProcessedFile): typeof activeTab => {
-    if (f.type === 'pdf') return 'summary';
-    if (f.type === 'excel' || f.type === 'csv') return 'tables';
-    if (f.type === 'image') return 'ocr';
-    return 'raw';
-  };
-
-  const selectFile = (id: string) => {
-    setSelectedId(id);
-    const f = files.find((fi) => fi.id === id);
-    if (f) setActiveTab(defaultTab(f));
-  };
-
-  // Data Preview Modal
-  const DataPreviewModal = () => {
-    if (!dataPreviewTable) return null;
-    return (
-      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setDataPreviewOpen(false)}>
-        <div className="relative mx-4 w-full max-w-2xl rounded-[20px] border border-white/[0.09] bg-[#181c24] shadow-2xl" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
-            <div>
-              <p className="text-[13px] font-semibold text-white">{dataPreviewTable.name}</p>
-              <p className="text-[11px] text-white/40">{dataPreviewTable.rowCount} rows · {dataPreviewTable.headers.length} columns</p>
-            </div>
-            <button onClick={() => setDataPreviewOpen(false)} className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/50 hover:bg-white/10 hover:text-white text-[13px]">✕</button>
-          </div>
-          <div className="overflow-x-auto p-4">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="border-b border-white/[0.07]">
-                  {dataPreviewTable.headers.map((h, i) => (
-                    <th key={i} className="pb-2 pr-4 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-white/40">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dataPreviewTable.rows.map((row, ri) => (
-                  <tr key={ri} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                    {row.map((cell, ci) => (
-                      <td key={ci} className="py-2 pr-4 text-white/75">{cell}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {dataPreviewTable.rowCount > dataPreviewTable.rows.length && (
-              <p className="mt-2 text-[10px] text-white/30 text-center">Showing {dataPreviewTable.rows.length} of {dataPreviewTable.rowCount} rows</p>
-            )}
-          </div>
-          <div className="border-t border-white/[0.07] px-5 py-4">
-            <p className="mb-3 text-[11px] font-semibold text-white/60">Send data to:</p>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {['file-upload', 'google-sheets', 'manual-entry'].map((t) => {
-                const opt = WORKFLOW_INPUT_OPTIONS.find((o) => o.value === t as WorkflowInputType);
-                if (!opt) return null;
-                return (
-                  <button key={t} onClick={() => handleSendToWorkflow(t as WorkflowInputType)}
-                    className="flex items-center gap-1.5 rounded-xl border border-accent/20 bg-accent/[0.07] px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                    <span>{opt.icon}</span>{opt.label}
-                  </button>
-                );
-              })}
-            </div>
-            {sendToAgent !== undefined && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-white/40">Or use as workflow input</span>
-                <button onClick={() => { handleSendToWorkflow('file-upload'); showToast('Added as workflow input'); }}
-                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/60 hover:bg-white/[0.07] transition-colors">
-                  + Add to Workflow Inputs
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <>
-      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-        <div className="relative mx-4 flex h-[88vh] w-full max-w-5xl flex-col rounded-[24px] border border-white/[0.09] bg-[#13161e] shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          {/* Header */}
-          <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-6 py-4">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">📁</span>
-              <div>
-                <h2 className="text-[15px] font-bold text-white">File Processing Center</h2>
-                <p className="text-[11px] text-white/40">{files.filter((f) => f.status === 'done').length} files ready · {files.filter((f) => f.status === 'processing').length} processing</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp" onChange={handleUpload} />
-              <button onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.08] px-3.5 py-2 text-[12px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                <span>↑</span> Upload File
-              </button>
-              <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.06] text-white/50 hover:bg-white/10 hover:text-white text-[13px]">✕</button>
-            </div>
-          </div>
-
-          <div className="flex flex-1 overflow-hidden">
-            {/* File list sidebar */}
-            <div className="w-64 shrink-0 overflow-y-auto border-r border-white/[0.06] bg-white/[0.015] p-3 space-y-1.5">
-              {files.length === 0 && (
-                <div className="flex flex-col items-center gap-3 py-12 text-center">
-                  <span className="text-3xl opacity-30">📂</span>
-                  <p className="text-[12px] text-white/30">No files yet.<br />Upload a file to get started.</p>
-                </div>
-              )}
-              {files.map((file) => (
-                <button key={file.id} onClick={() => selectFile(file.id)}
-                  className={`group w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${selectedId === file.id ? 'border-accent/25 bg-accent/[0.07]' : 'border-transparent hover:border-white/[0.08] hover:bg-white/[0.04]'}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="mt-0.5 shrink-0 text-base">{typeIcon[file.type]}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[11px] font-semibold text-white">{file.name}</p>
-                      <p className="text-[10px] text-white/35">{file.size} · {file.uploadedAt}</p>
-                      <span className={`text-[9px] font-bold uppercase tracking-wide ${statusColor[file.status]}`}>
-                        {file.status === 'processing' && <span className="inline-block animate-pulse">●</span>} {statusLabel[file.status]}
-                      </span>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); deleteFile(file.id); }}
-                      className="mt-0.5 hidden shrink-0 text-[10px] text-white/20 group-hover:block hover:text-red-400">✕</button>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Detail panel */}
-            <div className="flex flex-1 flex-col overflow-hidden">
-              {!selected ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-                  <span className="text-5xl opacity-20">📁</span>
-                  <p className="text-[13px] text-white/30">Select a file to view its contents</p>
-                  <button onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.08] px-4 py-2 text-[12px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                    ↑ Upload your first file
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* File header */}
-                  <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-5 py-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-xl">{typeIcon[selected.type]}</span>
-                      <div>
-                        <p className="text-[13px] font-bold text-white">{selected.name}</p>
-                        <p className="text-[10px] text-white/35">{selected.size} · Uploaded {selected.uploadedAt}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selected.status === 'error' && (
-                        <button onClick={() => retryProcessing(selected.id)}
-                          className="flex items-center gap-1.5 rounded-xl border border-red-400/25 bg-red-400/[0.07] px-3 py-1.5 text-[11px] font-semibold text-red-400 hover:bg-red-400/15 transition-colors">
-                          ↺ Retry
-                        </button>
-                      )}
-                      {selected.status === 'done' && (
-                        <button onClick={() => selected.tables?.[0] ? openDataPreview(selected.tables[0]) : handleSendToWorkflow('file-upload')}
-                          className="flex items-center gap-1.5 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.07] px-3 py-1.5 text-[11px] font-semibold text-emerald-400 hover:bg-emerald-400/15 transition-colors">
-                          ↗ Send to Agent
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Processing state */}
-                  {selected.status === 'processing' && (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent/20 border-t-accent" />
-                      <p className="text-[13px] font-semibold text-white/60">Processing {selected.name}…</p>
-                      <p className="text-[11px] text-white/30">Extracting structure and content</p>
-                    </div>
-                  )}
-
-                  {/* Error state */}
-                  {selected.status === 'error' && (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center px-6">
-                      <span className="text-4xl opacity-60">⚠</span>
-                      <p className="text-[13px] font-semibold text-red-400">Processing failed</p>
-                      <p className="text-[11px] text-white/40">{selected.errorMessage ?? 'An error occurred while processing the file. Please retry.'}</p>
-                      <button onClick={() => retryProcessing(selected.id)}
-                        className="flex items-center gap-1.5 rounded-xl border border-red-400/25 bg-red-400/[0.07] px-4 py-2 text-[12px] font-semibold text-red-400 hover:bg-red-400/15 transition-colors">
-                        ↺ Retry Processing
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Done state */}
-                  {selected.status === 'done' && (
-                    <>
-                      {/* Tabs */}
-                      <div className="flex shrink-0 gap-0 border-b border-white/[0.07] px-5">
-                        {([
-                          selected.type === 'pdf' && { key: 'summary', label: 'Summary' },
-                          (selected.type === 'pdf') && selected.tables && selected.tables.length > 0 && { key: 'tables', label: 'Tables' },
-                          (selected.type === 'excel' || selected.type === 'csv') && { key: 'tables', label: `Tables (${selected.tables?.length ?? 0})` },
-                          selected.type === 'image' && { key: 'ocr', label: 'OCR Results' },
-                          { key: 'raw', label: selected.type === 'image' ? 'Raw Text' : 'Preview' },
-                        ] as Array<false | { key: string; label: string }>).filter(Boolean).map((tab) => {
-                          if (!tab) return null;
-                          return (
-                            <button key={tab.key} onClick={() => setActiveTab(tab.key as typeof activeTab)}
-                              className={`px-4 py-2.5 text-[11px] font-semibold border-b-2 transition-colors ${activeTab === tab.key ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white/65'}`}>
-                              {tab.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Tab content */}
-                      <div className="flex-1 overflow-y-auto p-5 space-y-4">
-
-                        {/* Summary tab (PDF) */}
-                        {activeTab === 'summary' && selected.type === 'pdf' && (
-                          <>
-                            {selected.summary && (
-                              <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-4">
-                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">AI Summary</p>
-                                <p className="text-[12px] leading-relaxed text-white/80">{selected.summary}</p>
-                              </div>
-                            )}
-                            {selected.keyPoints && selected.keyPoints.length > 0 && (
-                              <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-4">
-                                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Key Points</p>
-                                <ul className="space-y-2">
-                                  {selected.keyPoints.map((pt, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-[12px] text-white/75">
-                                      <span className="mt-0.5 shrink-0 text-accent">→</span>{pt}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {selected.tables && selected.tables.length > 0 && (
-                              <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-4">
-                                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Detected Tables ({selected.tables.length})</p>
-                                <div className="space-y-2">
-                                  {selected.tables.map((tbl) => (
-                                    <button key={tbl.id} onClick={() => openDataPreview(tbl)}
-                                      className="flex w-full items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5 hover:border-accent/25 hover:bg-accent/[0.04] transition-colors">
-                                      <span className="text-[11px] font-semibold text-white">{tbl.name}</span>
-                                      <span className="text-[10px] text-white/35">{tbl.rowCount} rows · {tbl.headers.length} cols →</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            <div className="flex gap-2 pt-1">
-                              <button onClick={() => handleSendToWorkflow('file-upload')}
-                                className="flex items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.08] px-4 py-2 text-[12px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                                ↗ Use as Workflow Input
-                              </button>
-                            </div>
-                          </>
-                        )}
-
-                        {/* Tables tab (Excel/CSV/PDF) */}
-                        {activeTab === 'tables' && (
-                          <>
-                            {(!selected.tables || selected.tables.length === 0) ? (
-                              <p className="text-[12px] text-white/35 text-center py-8">No tables detected in this file.</p>
-                            ) : (
-                              selected.tables.map((tbl) => (
-                                <div key={tbl.id} className="rounded-[14px] border border-white/[0.07] bg-white/[0.02] overflow-hidden">
-                                  <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
-                                    <p className="text-[11px] font-bold text-white">{tbl.name}</p>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[10px] text-white/35">{tbl.rowCount} rows · {tbl.headers.length} cols</span>
-                                      <button onClick={() => openDataPreview(tbl)}
-                                        className="rounded-lg border border-accent/20 bg-accent/[0.07] px-2.5 py-1 text-[10px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                                        Preview →
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <div className="overflow-x-auto p-4">
-                                    <table className="w-full text-[11px]">
-                                      <thead>
-                                        <tr className="border-b border-white/[0.06]">
-                                          {tbl.headers.map((h, i) => (
-                                            <th key={i} className="pb-2 pr-4 text-left text-[9px] font-bold uppercase tracking-[0.1em] text-white/35">{h}</th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {tbl.rows.slice(0, 5).map((row, ri) => (
-                                          <tr key={ri} className="border-b border-white/[0.03]">
-                                            {row.map((cell, ci) => (
-                                              <td key={ci} className="py-1.5 pr-4 text-white/65">{cell}</td>
-                                            ))}
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                    {tbl.rowCount > tbl.rows.length && (
-                                      <p className="mt-2 text-[10px] text-white/25 text-center">+{tbl.rowCount - tbl.rows.length} more rows</p>
-                                    )}
-                                  </div>
-                                </div>
-                              ))
-                            )}
-                            {selected.tables && selected.tables.length > 0 && (
-                              <div className="flex gap-2 pt-1">
-                                <button onClick={() => handleSendToWorkflow('file-upload')}
-                                  className="flex items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.08] px-4 py-2 text-[12px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                                  ↗ Use as Workflow Input
-                                </button>
-                                <button onClick={() => handleSendToWorkflow('google-sheets')}
-                                  className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-[12px] text-white/55 hover:bg-white/[0.06] transition-colors">
-                                  Send to Google Sheets
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
-
-                        {/* OCR tab (Image) */}
-                        {activeTab === 'ocr' && selected.type === 'image' && (
-                          <>
-                            {selected.ocrConfidence !== undefined && (
-                              <div className="flex items-center gap-3 rounded-[14px] border border-emerald-400/15 bg-emerald-400/[0.05] px-4 py-3">
-                                <span className="text-emerald-400 text-lg">✓</span>
-                                <div>
-                                  <p className="text-[12px] font-semibold text-emerald-400">OCR Complete</p>
-                                  <p className="text-[11px] text-white/45">Confidence score: {selected.ocrConfidence}%</p>
-                                </div>
-                                <div className="ml-auto">
-                                  <div className="h-2 w-24 rounded-full bg-white/10 overflow-hidden">
-                                    <div className="h-full rounded-full bg-emerald-400" style={{ width: `${selected.ocrConfidence}%` }} />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            {selected.ocrFields && selected.ocrFields.length > 0 && (
-                              <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-4">
-                                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Extracted Fields</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {selected.ocrFields.map((field, i) => (
-                                    <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                                      <p className="text-[9px] font-bold uppercase tracking-wide text-white/30">{field.label}</p>
-                                      <p className="text-[12px] font-semibold text-white/85">{field.value}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            <div className="flex gap-2 pt-1">
-                              <button onClick={() => handleSendToWorkflow('screenshot')}
-                                className="flex items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.08] px-4 py-2 text-[12px] font-semibold text-accent hover:bg-accent/15 transition-colors">
-                                ↗ Use as Workflow Input
-                              </button>
-                            </div>
-                          </>
-                        )}
-
-                        {/* Raw / Preview tab */}
-                        {activeTab === 'raw' && (
-                          <div className="rounded-[14px] border border-white/[0.07] bg-black/25 p-4">
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-white/30">{selected.type === 'image' ? 'Raw OCR Text' : 'File Preview'}</p>
-                            <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-white/60 font-mono">
-                              {selected.ocrText ??
-                                (selected.tables ? `${selected.tables.length} table(s) detected.\nUse the Tables tab to preview data.` :
-                                selected.summary ?? 'No preview available.')}
-                            </pre>
-                          </div>
-                        )}
-
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {dataPreviewOpen && <DataPreviewModal />}
-
-      {toast && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 rounded-full border border-white/10 bg-[#1e2330] px-5 py-2.5 text-[12px] font-semibold text-white shadow-xl">
-          {toast}
-        </div>
-      )}
-    </>
-  );
-}
-
-// ── DataPipelineModal ────────────────────────────────────────────────────────
-
-function DataPipelineModal({
-  state,
-  onUpdateState,
-  onClose,
-  onSystemMessage,
-  onToast,
-  sourceHistory,
-  onUpdateHistory,
-}: {
+function DataPipelineModal({ state, onUpdateState, onClose, onSystemMessage, onToast, sourceHistory, onUpdateHistory }: {
   state: DataPreviewState;
-  onUpdateState: (s: DataPreviewState) => void;
+  onUpdateState: React.Dispatch<React.SetStateAction<DataPreviewState>>;
   onClose: () => void;
   onSystemMessage: (text: string) => void;
-  onToast: (msg: string) => void;
+  onToast: (message: string) => void;
   sourceHistory: DataSourceHistoryItem[];
-  onUpdateHistory: (h: DataSourceHistoryItem[]) => void;
+  onUpdateHistory: React.Dispatch<React.SetStateAction<DataSourceHistoryItem[]>>;
 }) {
-  const [tab, setTab] = useState<'preview' | 'map' | 'clean' | 'validate' | 'send' | 'history'>('preview');
-  const [editableRows, setEditableRows] = useState<EditableRow[]>(() =>
-    state.rows.map((row, i) => ({
-      _id: `row-${i}`,
-      _edited: false,
-      _manuallyAdded: false,
-      _isNew: false,
-      _originalData: { ...row },
-      data: { ...row },
-    }))
-  );
-  const [deletedCount, setDeletedCount] = useState(0);
-  const [editingCell, setEditingCell] = useState<{ rowId: string; col: string } | null>(null);
-  const [editCellValue, setEditCellValue] = useState('');
-  const editInputRef = useRef<HTMLInputElement>(null);
-  const [cellEdits, setCellEdits] = useState<CellEdit[]>([]);
-  const [isSaved, setIsSaved] = useState(true);
-  const [validationNeedsRefresh, setValidationNeedsRefresh] = useState(false);
-  const [showReviewEdits, setShowReviewEdits] = useState(false);
-  const [deleteConfirmRowId, setDeleteConfirmRowId] = useState<string | null>(null);
-  const [showAddRowModal, setShowAddRowModal] = useState(false);
-  const [newRowData, setNewRowData] = useState<Record<string, string>>({});
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [historyCompareId, setHistoryCompareId] = useState<string | null>(null);
-  const [historyRemoveConfirmId, setHistoryRemoveConfirmId] = useState<string | null>(null);
-  const [localMappings, setLocalMappings] = useState<ColumnMappingEntry[]>(state.mappings);
-  const [cleanOpts, setCleanOpts] = useState({
-    removeDuplicates: true, formatDates: true, formatNumbers: true, trimSpaces: true,
-    fillMissing: false, standardizeNames: false, removeEmptyRows: false, detectAbnormal: false,
-  });
-  const [cleanSummary, setCleanSummary] = useState<string[] | null>(null);
-  const [ignoredIssues, setIgnoredIssues] = useState<Set<string>>(new Set());
-  const [selectedAgent, setSelectedAgent] = useState(state.cleaned ? 'sales-analyst' : 'data-cleaner');
-
-  const errors      = state.validationIssues.filter(i => i.severity === 'error').length;
-  const warnings    = state.validationIssues.filter(i => i.severity === 'warning').length;
-  const mappedCount = localMappings.filter(m => !m.ignored).length;
-  const qColor = state.qualityScore >= 90 ? 'text-emerald-400' : state.qualityScore >= 70 ? 'text-amber-400' : 'text-red-400';
-  const qLabel = state.qualityScore >= 90 ? 'Good' : state.qualityScore >= 70 ? 'Needs Review' : 'Poor';
-  const editedRowCount = editableRows.filter(r => r._edited).length;
-  const addedRowCount  = editableRows.filter(r => r._manuallyAdded).length;
-
-  useEffect(() => {
-    if (editingCell && editInputRef.current) {
-      editInputRef.current.focus();
-      editInputRef.current.select();
-    }
-  }, [editingCell]);
-
-  const getRowIssue = (row: EditableRow): 'error' | 'warning' | undefined => {
-    const sales  = row.data['Sales']  ?? '';
-    const profit = row.data['Profit'] ?? '';
-    if (sales === '' && profit === '') return 'error';
-    const date = row.data['Date'] ?? '';
-    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'warning';
-    const oid = row.data['Order ID'] ?? '';
-    if (oid && editableRows.filter(r => r.data['Order ID'] === oid).length > 1) return 'warning';
-    return undefined;
+  const markClean = () => {
+    onUpdateState((prev) => ({ ...prev, cleaned: true, qualityScore: Math.max(prev.qualityScore, 94), duplicateCount: 0 }));
+    onUpdateHistory((prev) => prev.map((item, index) => index === 0 ? { ...item, status: 'cleaned', qualityScore: Math.max(item.qualityScore, 94) } : item));
+    onSystemMessage('System: Data pipeline cleaned and validated.');
+    onToast('Data cleaned');
   };
-
-  const getRowIssueText = (row: EditableRow): string | undefined => {
-    const sales  = row.data['Sales']  ?? '';
-    const profit = row.data['Profit'] ?? '';
-    if (sales === '' && profit === '') return "Missing required values: 'Sales' and 'Profit' are empty.";
-    const date = row.data['Date'] ?? '';
-    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      const gp    = parseFloat(row.data['GP Fee'] ?? '0');
-      const s     = parseFloat(row.data['Sales']  ?? '0');
-      const ratio = s > 0 ? (gp / s) * 100 : 0;
-      return `Non-standard date '${date}' detected.${ratio > 35 ? ` GP fee is ${ratio.toFixed(1)}% (exceeds 35%).` : ''}`;
-    }
-    const oid = row.data['Order ID'] ?? '';
-    if (oid && editableRows.filter(r => r.data['Order ID'] === oid).length > 1)
-      return `Duplicate Order ID ${oid} appears more than once.`;
-    return undefined;
-  };
-
-  const startEdit = (rowId: string, col: string, currentValue: string) => {
-    setEditingCell({ rowId, col });
-    setEditCellValue(currentValue);
-  };
-
-  const commitEdit = () => {
-    if (!editingCell) return;
-    const { rowId, col } = editingCell;
-    setEditableRows(prev => prev.map(r => {
-      if (r._id !== rowId) return r;
-      const oldVal = r.data[col] ?? '';
-      if (oldVal === editCellValue) return r;
-      const edit: CellEdit = {
-        id: `ce-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        rowId, column: col, oldValue: oldVal, newValue: editCellValue,
-        editedBy: 'TopSpeed', editedAt: 'Just now',
-      };
-      setCellEdits(prev2 => [...prev2, edit]);
-      setIsSaved(false);
-      setValidationNeedsRefresh(true);
-      return { ...r, data: { ...r.data, [col]: editCellValue }, _edited: true };
-    }));
-    setEditingCell(null);
-  };
-
-  const duplicateRow = (rowId: string) => {
-    const src = editableRows.find(r => r._id === rowId);
-    if (!src) return;
-    const newId = `row-new-${Date.now()}`;
-    const newRow: EditableRow = {
-      _id: newId, _edited: false, _manuallyAdded: true, _isNew: true,
-      _originalData: { ...src.data },
-      data: { ...src.data, 'Order ID': `${src.data['Order ID'] ?? ''}-copy` },
-    };
-    setEditableRows(prev => {
-      const idx  = prev.findIndex(r => r._id === rowId);
-      const next = [...prev];
-      next.splice(idx + 1, 0, newRow);
-      return next;
-    });
-    setIsSaved(false);
-    onToast('Row duplicated');
-    setTimeout(() => setEditableRows(prev => prev.map(r => r._id === newId ? { ...r, _isNew: false } : r)), 2000);
-  };
-
-  const deleteRow = (rowId: string) => {
-    setEditableRows(prev => prev.filter(r => r._id !== rowId));
-    setDeletedCount(c => c + 1);
-    setDeleteConfirmRowId(null);
-    setIsSaved(false);
-    onToast('Row deleted');
-  };
-
-  const resetRow = (rowId: string) => {
-    setEditableRows(prev => prev.map(r =>
-      r._id === rowId ? { ...r, data: { ...r._originalData }, _edited: false } : r
-    ));
-    setCellEdits(prev => prev.filter(e => e.rowId !== rowId));
-    setIsSaved(false);
-    onToast('Row reset to original');
-  };
-
-  const addRow = () => {
-    const blank: Record<string, string> = {};
-    state.columns.forEach(c => { blank[c] = newRowData[c] ?? ''; });
-    const newId = `row-manual-${Date.now()}`;
-    const newRow: EditableRow = {
-      _id: newId, _edited: false, _manuallyAdded: true, _isNew: true,
-      _originalData: { ...blank }, data: { ...blank },
-    };
-    setEditableRows(prev => [...prev, newRow]);
-    setShowAddRowModal(false);
-    setNewRowData({});
-    setIsSaved(false);
-    onToast('Row added');
-    setTimeout(() => setEditableRows(prev => prev.map(r => r._id === newId ? { ...r, _isNew: false } : r)), 2000);
-  };
-
-  const saveChanges = () => {
-    const updatedRows: DataPreviewRow[] = editableRows.map(r => r.data);
-    onUpdateState({ ...state, rows: updatedRows });
-    setIsSaved(true);
-    setValidationNeedsRefresh(false);
-    onToast('Data changes saved');
-    onSystemMessage('Data table was manually edited and saved before workflow run.');
-  };
-
-  const revalidate = () => {
-    const hasErrors = editableRows.some(r => getRowIssue(r) === 'error');
-    const newScore  = hasErrors ? Math.max(60, state.qualityScore - 5) : Math.min(95, state.qualityScore + 3);
-    onUpdateState({ ...state, qualityScore: newScore });
-    setValidationNeedsRefresh(false);
-    onToast('Validation refreshed');
-    onSystemMessage('Data validation re-run after manual edits.');
-  };
-
-  const applyCleaning = () => {
-    const summary: string[] = [];
-    if (cleanOpts.removeDuplicates) summary.push('Removed duplicate rows: 1 (LM-002 duplicate)');
-    if (cleanOpts.formatDates)      summary.push('Fixed date format: 1 row (LM-004 → 2026-05-12)');
-    if (cleanOpts.formatNumbers)    summary.push('Formatted number columns: Sales, GP Fee, VAT, Cost, Profit');
-    if (cleanOpts.trimSpaces)       summary.push('Trimmed whitespace: 3 cells');
-    if (cleanOpts.fillMissing)      summary.push('Missing value check: 2 empty cells found (not auto-filled)');
-    if (cleanOpts.removeEmptyRows)  summary.push('Empty rows removed: 0');
-    if (cleanOpts.detectAbnormal)   summary.push('Flagged abnormal value: LM-004 GP fee at 42.8%');
-    setCleanSummary(summary);
-    onUpdateState({ ...state, cleaned: true, qualityScore: Math.min(100, state.qualityScore + 8) });
-    onToast('Data cleaned successfully');
-    onSystemMessage('Data cleaning completed. 1 duplicate row removed and 1 date format fixed.');
-  };
-
-  const autoMap = () => {
-    setLocalMappings(MOCK_PIPELINE_MAPPINGS.map(m => ({ ...m })));
-    onToast('Columns mapped automatically');
-  };
-
-  const saveMapping = () => {
-    onUpdateState({ ...state, mappings: localMappings });
-    onToast('Mapping saved');
-    onSystemMessage('Column mapping saved for Daily Sales Report.');
-  };
-
-  const doSendToAgent = () => {
-    const labels: Record<string, string> = {
-      'data-collector': 'Data Collector', 'data-cleaner': 'Data Cleaner',
-      'sales-analyst': 'Sales Analyst', 'report-writer': 'Report Writer',
-    };
-    const name = labels[selectedAgent] ?? 'Agent';
-    onSystemMessage(`Edited data sent to ${name}.`);
-    onToast(`Data sent to ${name}`);
-    onClose();
-  };
-
-  const reuseHistoryItem = (item: DataSourceHistoryItem) => {
-    onUpdateState({ ...state, sourceName: item.name, sourceType: item.type === 'google_sheet' ? 'csv' : item.type === 'image' ? 'screenshot' : item.type });
-    onToast(`${item.name} reused as workflow input`);
-    onSystemMessage('Previous data source reused as workflow input.');
-  };
-
-  const removeHistoryItem = (id: string) => {
-    onUpdateHistory(sourceHistory.filter(h => h.id !== id));
-    setHistoryRemoveConfirmId(null);
-    onToast('Removed from history');
-  };
-
-  const StatCell = ({ label, value, sub, warn }: { label: string; value: string; sub?: string; warn?: boolean }) => (
-    <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-      <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-white/35">{label}</p>
-      <p className={`mt-1 text-[18px] font-bold leading-none ${warn ? 'text-amber-400' : 'text-white'}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-[10px] text-white/30">{sub}</p>}
-    </div>
-  );
-
-  const TABS: { key: typeof tab; label: string }[] = [
-    { key: 'preview',  label: 'Preview & Edit' },
-    { key: 'map',      label: 'Map Columns' },
-    { key: 'clean',    label: 'Clean Data' },
-    { key: 'validate', label: 'Validate' },
-    { key: 'send',     label: 'Send to Agent' },
-    { key: 'history',  label: 'Source History' },
-  ];
-
-  const historyStatusColor: Record<string, string> = {
-    extracted: 'text-accent bg-accent/15 border-accent/25',
-    cleaned:   'text-emerald-400 bg-emerald-400/15 border-emerald-400/25',
-    validated: 'text-emerald-400 bg-emerald-400/15 border-emerald-400/25',
-    ready:     'text-white/60 bg-white/[0.06] border-white/[0.1]',
-    failed:    'text-red-400 bg-red-400/15 border-red-400/25',
-  };
-  const historyTypeIcon: Record<string, string> = {
-    image: '🖼', csv: '📄', excel: '📊', pdf: '📑', google_sheet: '🟩',
-  };
-
-  const compareItem = historyCompareId ? sourceHistory.find(h => h.id === historyCompareId) : null;
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative mx-4 flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[24px] border border-white/[0.09] bg-[#13161e] shadow-2xl" onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">🔬</span>
-            <div>
-              <h2 className="text-[15px] font-bold text-white">Data Pipeline</h2>
-              <p className="text-[11px] text-white/40">{state.sourceName} · {editableRows.length} rows · {state.columns.length} columns</p>
+    <ModalShell title="Data Pipeline" subtitle={`${state.sourceName} · ${state.totalRows} rows`} onClose={onClose}>
+      <div className="grid gap-4">
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            ['Quality', `${state.qualityScore}%`],
+            ['Missing', String(state.missingCount)],
+            ['Duplicates', String(state.duplicateCount)],
+            ['Columns', String(state.columns.length)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+              <p className="text-[10px] uppercase tracking-wide text-white/30">{label}</p>
+              <p className="mt-1 text-lg font-bold text-white">{value}</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {!isSaved && (
-              <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold text-amber-400">Unsaved changes</span>
-            )}
-            {isSaved && cellEdits.length > 0 && (
-              <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-400">Saved</span>
-            )}
-            <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-1.5">
-              <span className={`text-[14px] font-bold ${qColor}`}>{state.qualityScore}/100</span>
-              <span className={`text-[10px] font-semibold ${qColor}`}>{qLabel}</span>
-            </div>
-            <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full bg-white/[0.06] text-white/50 hover:bg-white/10 hover:text-white transition-colors">✕</button>
-          </div>
-        </div>
-
-        {/* Tab bar */}
-        <div className="flex shrink-0 border-b border-white/[0.07] px-6 overflow-x-auto">
-          {TABS.map(({ key, label }) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={`shrink-0 border-b-2 px-4 py-2.5 text-[11px] font-semibold transition-colors ${tab === key ? 'border-accent text-accent' : 'border-transparent text-white/40 hover:text-white/65'}`}>
-              {label}
-              {key === 'validate' && errors > 0 && <span className="ml-1.5 rounded-full bg-red-500/20 px-1.5 py-0.5 text-[9px] text-red-400">{errors}</span>}
-              {key === 'validate' && errors === 0 && warnings > 0 && <span className="ml-1.5 rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[9px] text-amber-400">{warnings}</span>}
-              {key === 'history' && <span className="ml-1.5 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] text-white/40">{sourceHistory.length}</span>}
-            </button>
           ))}
         </div>
-
-        {/* Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-
-          {/* == Preview & Edit == */}
-          {tab === 'preview' && (
-            <div className="space-y-4 p-5">
-              {/* Source badge row */}
-              <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                <span className="rounded-full border border-white/[0.09] bg-white/[0.04] px-2.5 py-1 text-white/55">Source: {state.sourceName}</span>
-                <span className="rounded-full border border-white/[0.09] bg-white/[0.04] px-2.5 py-1 text-white/55">Processed by: AI Ant Scout</span>
-                {cellEdits.length > 0 && <span className="rounded-full border border-violet-400/25 bg-violet-400/10 px-2.5 py-1 text-violet-400">Last edited: Just now</span>}
-                <span className={`rounded-full border px-2.5 py-1 font-semibold ${errors > 0 ? 'border-red-400/25 bg-red-400/10 text-red-400' : warnings > 0 ? 'border-amber-400/25 bg-amber-400/10 text-amber-400' : 'border-emerald-400/25 bg-emerald-400/10 text-emerald-400'}`}>
-                  Validation: {errors > 0 ? 'Has Errors' : warnings > 0 ? 'Needs Review' : 'Passed'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <StatCell label="Rows"       value={String(editableRows.length)} sub={deletedCount > 0 ? `${deletedCount} deleted` : undefined} />
-                <StatCell label="Columns"    value={String(state.columns.length)} />
-                <StatCell label="Missing"    value={String(state.missingCount)}   warn={state.missingCount > 0} />
-                <StatCell label="Duplicates" value={String(state.duplicateCount)} warn={state.duplicateCount > 0} />
-              </div>
-
-              {/* Edit summary strip */}
-              {(cellEdits.length > 0 || addedRowCount > 0 || deletedCount > 0) && (
-                <div className="flex flex-wrap items-center gap-3 rounded-[14px] border border-violet-400/20 bg-violet-400/[0.05] px-4 py-3">
-                  <div className="flex flex-1 flex-wrap gap-3 text-[11px]">
-                    {cellEdits.length > 0  && <span className="text-violet-300">Edited cells: <strong>{cellEdits.length}</strong></span>}
-                    {editedRowCount > 0    && <span className="text-violet-300">Edited rows: <strong>{editedRowCount}</strong></span>}
-                    {addedRowCount > 0     && <span className="text-violet-300">Added rows: <strong>{addedRowCount}</strong></span>}
-                    {deletedCount > 0      && <span className="text-violet-300">Deleted rows: <strong>{deletedCount}</strong></span>}
-                  </div>
-                  <button onClick={() => setShowReviewEdits(true)}
-                    className="shrink-0 rounded-lg border border-violet-400/30 bg-violet-400/10 px-3 py-1.5 text-[11px] font-semibold text-violet-300 transition-colors hover:bg-violet-400/15">
-                    Review Edits
-                  </button>
-                </div>
-              )}
-
-              {/* Validation refresh banner */}
-              {validationNeedsRefresh && (
-                <div className="flex items-center gap-3 rounded-[14px] border border-amber-400/20 bg-amber-400/[0.05] px-4 py-3">
-                  <span className="text-amber-400">⚠</span>
-                  <p className="flex-1 text-[11px] text-amber-300">Validation needs refresh after manual edits.</p>
-                  <button onClick={revalidate}
-                    className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-400/15">
-                    Re-validate Data
-                  </button>
-                </div>
-              )}
-
-              {/* Quick actions */}
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => setTab('clean')}
-                  className="flex items-center gap-1.5 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white">
-                  🧹 Clean Data
-                </button>
-                <button onClick={() => setTab('map')}
-                  className="flex items-center gap-1.5 rounded-xl border border-accent/20 bg-accent/[0.06] px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10">
-                  🗺 Map Columns <span className="text-[9px] text-accent/60">{mappedCount}/{localMappings.length}</span>
-                </button>
-                <button onClick={() => setTab('validate')}
-                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-colors ${errors > 0 ? 'border-red-500/25 bg-red-500/[0.07] text-red-400 hover:bg-red-500/10' : warnings > 0 ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-400 hover:bg-amber-400/10' : 'border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-400 hover:bg-emerald-400/10'}`}>
-                  {errors > 0 ? '⚠' : warnings > 0 ? '⚠' : '✓'} Validate {(errors + warnings) > 0 ? `(${errors + warnings})` : ''}
-                </button>
-                <button onClick={() => setTab('send')}
-                  className="flex items-center gap-1.5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-1.5 text-[11px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-400/10">
-                  ↗ Send to Agent
-                </button>
-                {state.cleaned && (
-                  <span className="flex items-center gap-1.5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-1.5 text-[11px] font-semibold text-emerald-400">✓ Cleaned</span>
-                )}
-              </div>
-
-              {/* Editable data table */}
-              <div className="overflow-hidden rounded-[14px] border border-white/[0.07]">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
-                    <thead className="sticky top-0 bg-[#181c24]">
-                      <tr className="border-b border-white/[0.07]">
-                        <th className="w-7 py-2.5 pl-3 pr-2 text-left text-[9px] font-bold uppercase tracking-[0.08em] text-white/25">#</th>
-                        {state.columns.map((col, i) => (
-                          <th key={i} className="whitespace-nowrap px-3 py-2.5 text-left text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">{col}</th>
-                        ))}
-                        <th className="w-24 py-2.5 pr-3 text-right text-[9px] font-bold uppercase tracking-[0.08em] text-white/25">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {editableRows.map((row, ri) => {
-                        const issueLevel = getRowIssue(row);
-                        const issueText  = getRowIssueText(row);
-                        const isExpanded = expandedRow === row._id;
-                        const rowBg = row._isNew
-                          ? 'bg-violet-400/[0.06]'
-                          : issueLevel === 'error'   ? 'bg-red-500/[0.06]'
-                          : issueLevel === 'warning' ? 'bg-amber-400/[0.05]' : '';
-                        return (
-                          <React.Fragment key={row._id}>
-                            <tr className={`border-b border-white/[0.04] transition-colors ${rowBg} hover:brightness-125`}>
-                              <td className="py-2 pl-3 pr-1 text-white/25">
-                                <div className="flex items-center gap-0.5">
-                                  <span className="text-[10px]">{ri + 1}</span>
-                                  {issueText && (
-                                    <button onClick={() => setExpandedRow(isExpanded ? null : row._id)}
-                                      className={`text-[9px] ${issueLevel === 'error' ? 'text-red-400' : 'text-amber-400'}`}>
-                                      {issueLevel === 'error' ? '⚠' : '!'}
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                              {state.columns.map(col => {
-                                const val          = row.data[col] ?? '';
-                                const isEditing    = editingCell?.rowId === row._id && editingCell?.col === col;
-                                const isEditedCell = cellEdits.some(e => e.rowId === row._id && e.column === col);
-                                return (
-                                  <td key={col} onDoubleClick={() => startEdit(row._id, col, val)}
-                                    className={`px-2 py-1.5 ${isEditedCell ? 'bg-violet-400/[0.08]' : ''}`}>
-                                    {isEditing ? (
-                                      <input ref={editInputRef} value={editCellValue}
-                                        onChange={e => setEditCellValue(e.target.value)}
-                                        onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
-                                        onBlur={commitEdit}
-                                        className="w-full min-w-[60px] rounded border border-violet-400/50 bg-violet-400/10 px-1.5 py-0.5 text-[11px] text-white outline-none" />
-                                    ) : (
-                                      <span className={`cursor-pointer select-none ${val === '' ? 'italic text-red-400/70' : isEditedCell ? 'text-violet-300' : 'text-white/75'}`}>
-                                        {val === '' ? '—' : val}
-                                      </span>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                              <td className="py-1.5 pr-2 text-right">
-                                <div className="flex items-center justify-end gap-1 flex-wrap">
-                                  {row._edited && (
-                                    <span className="rounded-full bg-violet-400/15 px-1.5 py-0.5 text-[8px] font-bold text-violet-400">Edited</span>
-                                  )}
-                                  {row._manuallyAdded && !row._edited && (
-                                    <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[8px] font-bold text-accent">Manual</span>
-                                  )}
-                                  <button onClick={() => duplicateRow(row._id)} title="Duplicate"
-                                    className="rounded p-1 text-[10px] text-white/30 hover:bg-white/[0.06] hover:text-white/70">⊕</button>
-                                  {row._edited && (
-                                    <button onClick={() => resetRow(row._id)} title="Reset"
-                                      className="rounded p-1 text-[10px] text-white/30 hover:bg-white/[0.06] hover:text-amber-400">↺</button>
-                                  )}
-                                  <button onClick={() => setDeleteConfirmRowId(row._id)} title="Delete"
-                                    className="rounded p-1 text-[10px] text-white/30 hover:bg-red-500/[0.08] hover:text-red-400">✕</button>
-                                </div>
-                              </td>
-                            </tr>
-                            {isExpanded && issueText && (
-                              <tr>
-                                <td colSpan={state.columns.length + 2} className="border-b border-white/[0.05]">
-                                  <div className={`px-4 py-3 text-[11px] ${issueLevel === 'error' ? 'bg-red-500/[0.07]' : 'bg-amber-400/[0.06]'}`}>
-                                    <p className={`mb-1 font-semibold ${issueLevel === 'error' ? 'text-red-400' : 'text-amber-400'}`}>Row {ri + 1} — Issue detected</p>
-                                    <p className="text-white/65">{issueText}</p>
-                                    <div className="mt-2 flex gap-2">
-                                      <button onClick={e => { e.stopPropagation(); setTab('clean'); }}
-                                        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-white/60 transition-colors hover:bg-white/[0.08]">
-                                        Fix in Clean Data
-                                      </button>
-                                      <button onClick={e => { e.stopPropagation(); setExpandedRow(null); }}
-                                        className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.08]">
-                                        Dismiss
-                                      </button>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {state.totalRows > editableRows.length && (
-                  <div className="border-t border-white/[0.05] py-2.5 text-center text-[10px] text-white/30">
-                    Showing {editableRows.length} of {state.totalRows} rows
-                  </div>
-                )}
-              </div>
-
-              {/* Add row + Save */}
-              <div className="flex items-center gap-3">
-                <button onClick={() => setShowAddRowModal(true)}
-                  className="flex items-center gap-1.5 rounded-xl border border-accent/20 bg-accent/[0.06] px-3.5 py-2 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/10">
-                  + Add Row
-                </button>
-                <div className="flex-1" />
-                <button onClick={saveChanges} disabled={isSaved}
-                  className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12px] font-semibold transition-colors ${isSaved ? 'cursor-default bg-white/[0.04] text-white/30' : 'bg-violet-500 text-white hover:bg-violet-400'}`}>
-                  💾 Save Data Changes
-                </button>
-              </div>
-              <p className="text-[10px] text-white/25">Double-click any cell to edit inline. Enter to save, Escape to cancel. Edited cells shown in purple.</p>
-            </div>
-          )}
-
-          {/* == Map Columns == */}
-          {tab === 'map' && (
-            <div className="space-y-4 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[13px] font-semibold text-white">Column Mapping</p>
-                  <p className="text-[11px] text-white/45">{mappedCount} of {localMappings.length} columns mapped</p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={autoMap} className="flex items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.08] px-3.5 py-2 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/15">⚡ Auto-map</button>
-                  <button onClick={saveMapping} className="flex items-center gap-1.5 rounded-xl bg-accent px-3.5 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-accent/80">Save Mapping</button>
-                </div>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
-                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${(mappedCount / localMappings.length) * 100}%` }} />
-              </div>
-              <div className="overflow-hidden rounded-[14px] border border-white/[0.07]">
-                <div className="grid grid-cols-[1fr_1fr_90px_70px] border-b border-white/[0.07] bg-[#181c24] px-4 py-2.5">
-                  {['Source Column', 'Maps to Field', 'Confidence', 'Ignore'].map(h => (
-                    <p key={h} className="text-[9px] font-bold uppercase tracking-[0.1em] text-white/35">{h}</p>
-                  ))}
-                </div>
-                {localMappings.map(m => (
-                  <div key={m.id} className={`grid grid-cols-[1fr_1fr_90px_70px] items-center border-b border-white/[0.04] px-4 py-2.5 last:border-b-0 transition-opacity ${m.ignored ? 'opacity-40' : ''}`}>
-                    <p className="text-[12px] font-medium text-white/85">{m.sourceColumn}</p>
-                    <select value={m.targetField}
-                      onChange={e => setLocalMappings(prev => prev.map(p => p.id === m.id ? { ...p, targetField: e.target.value, ignored: e.target.value === 'ignore' } : p))}
-                      className="max-w-[170px] rounded-lg border border-white/[0.1] bg-[#1e2330] px-2 py-1.5 text-[11px] text-white/80 outline-none transition-colors focus:border-accent/50">
-                      {DATA_STANDARD_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                    </select>
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-1.5 w-10 overflow-hidden rounded-full bg-white/[0.08]">
-                        <div className={`h-full rounded-full ${m.confidence >= 95 ? 'bg-emerald-400' : m.confidence >= 80 ? 'bg-accent' : 'bg-amber-400'}`} style={{ width: `${m.confidence}%` }} />
-                      </div>
-                      <span className={`text-[10px] font-semibold ${m.confidence >= 95 ? 'text-emerald-400' : m.confidence >= 80 ? 'text-accent' : 'text-amber-400'}`}>{m.confidence}%</span>
-                    </div>
-                    <button onClick={() => setLocalMappings(prev => prev.map(p => p.id === m.id ? { ...p, ignored: !p.ignored } : p))}
-                      className={`rounded-lg border px-2 py-1 text-[9px] font-bold transition-colors ${m.ignored ? 'border-red-400/30 bg-red-400/10 text-red-400 hover:bg-red-400/15' : 'border-white/[0.1] bg-white/[0.04] text-white/35 hover:bg-white/[0.08]'}`}>
-                      {m.ignored ? 'Ignored' : 'Ignore'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* == Clean Data == */}
-          {tab === 'clean' && (
-            <div className="space-y-4 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[13px] font-semibold text-white">Data Cleaning</p>
-                  <p className="text-[11px] text-white/45">Select operations to apply to your data</p>
-                </div>
-                {state.cleaned && <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] px-3 py-1.5 text-[11px] font-semibold text-emerald-400">✓ Cleaned</span>}
-              </div>
-              <div className="space-y-2">
-                {([
-                  { key: 'removeDuplicates', label: 'Remove duplicate rows',    desc: 'Detects and removes rows with identical values',     badge: '1 found' },
-                  { key: 'formatDates',      label: 'Format dates',             desc: 'Standardize all dates to YYYY-MM-DD format',         badge: '1 row' },
-                  { key: 'formatNumbers',    label: 'Format numbers',           desc: 'Clean and normalize numeric columns' },
-                  { key: 'trimSpaces',       label: 'Trim whitespace',          desc: 'Remove leading and trailing spaces from all cells' },
-                  { key: 'fillMissing',      label: 'Fill missing values',      desc: 'Replace empty cells with a default or 0' },
-                  { key: 'standardizeNames', label: 'Standardize column names', desc: 'Normalize casing and spacing in column headers' },
-                  { key: 'removeEmptyRows',  label: 'Remove empty rows',        desc: 'Delete rows where all values are blank' },
-                  { key: 'detectAbnormal',   label: 'Flag abnormal values',     desc: 'Mark outliers such as GP fee > 40%',                 badge: '1 row' },
-                ] as { key: keyof typeof cleanOpts; label: string; desc: string; badge?: string }[]).map(({ key, label, desc, badge }) => (
-                  <label key={key} className="flex cursor-pointer items-start gap-3 rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-3.5 transition-colors hover:border-white/[0.12] hover:bg-white/[0.05]">
-                    <input type="checkbox" checked={cleanOpts[key]}
-                      onChange={e => setCleanOpts(prev => ({ ...prev, [key]: e.target.checked }))}
-                      className="mt-0.5 h-4 w-4 cursor-pointer accent-blue-400" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-[12px] font-semibold text-white">{label}</p>
-                        {badge && <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[9px] font-bold text-amber-400">{badge}</span>}
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-white/45">{desc}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
-              <button onClick={applyCleaning}
-                className="w-full rounded-xl bg-accent px-5 py-3 text-[13px] font-bold text-white transition hover:-translate-y-0.5 hover:bg-accent/80 active:translate-y-0">
-                🧹 Apply Cleaning
-              </button>
-              {cleanSummary && (
-                <div className="space-y-1.5 rounded-[14px] border border-emerald-400/20 bg-emerald-400/[0.06] p-4">
-                  <p className="mb-2 text-[11px] font-bold text-emerald-400">✓ Cleaning completed</p>
-                  {cleanSummary.map((line, i) => <p key={i} className="text-[11px] text-white/65">→ {line}</p>)}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* == Validate == */}
-          {tab === 'validate' && (
-            <div className="space-y-4 p-5">
-              {validationNeedsRefresh && (
-                <div className="flex items-center gap-3 rounded-[14px] border border-amber-400/20 bg-amber-400/[0.05] px-4 py-3">
-                  <p className="flex-1 text-[11px] text-amber-300">Validation needs refresh after manual edits.</p>
-                  <button onClick={revalidate} className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-300 hover:bg-amber-400/15">Re-validate Data</button>
-                </div>
-              )}
-              <div className={`rounded-[14px] border p-4 ${errors > 0 ? 'border-red-500/20 bg-red-500/[0.05]' : warnings > 0 ? 'border-amber-400/20 bg-amber-400/[0.05]' : 'border-emerald-400/20 bg-emerald-400/[0.05]'}`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{errors > 0 ? '⛔' : warnings > 0 ? '⚠' : '✅'}</span>
-                  <div>
-                    <p className={`text-[13px] font-bold ${errors > 0 ? 'text-red-400' : warnings > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {errors > 0 ? 'Needs Fixes' : warnings > 0 ? 'Needs Review' : 'Passed'}
-                    </p>
-                    <p className="text-[11px] text-white/45">
-                      {errors} error{errors !== 1 ? 's' : ''} · {warnings} warning{warnings !== 1 ? 's' : ''} · {state.validationIssues.filter(i => i.severity === 'info').length} info
-                    </p>
-                  </div>
-                  <button onClick={revalidate} className="ml-auto rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60 transition-colors hover:bg-white/[0.08]">Re-run</button>
-                </div>
-                {errors > 0 && <p className="mt-2 text-[11px] text-red-400/70">Fix all errors before running the workflow.</p>}
-              </div>
-              <div className="space-y-2">
-                {state.validationIssues.filter(vi => !ignoredIssues.has(vi.id)).map(issue => {
-                  const s = issue.severity === 'error'
-                    ? { border: 'border-red-500/20',   bg: 'bg-red-500/[0.05]',   text: 'text-red-400',   badge: 'bg-red-500/20 text-red-400',   label: 'Error' }
-                    : issue.severity === 'warning'
-                    ? { border: 'border-amber-400/20', bg: 'bg-amber-400/[0.05]', text: 'text-amber-400', badge: 'bg-amber-400/20 text-amber-400', label: 'Warning' }
-                    : { border: 'border-accent/20',    bg: 'bg-accent/[0.05]',    text: 'text-accent',    badge: 'bg-accent/20 text-accent',       label: 'Info' };
-                  return (
-                    <div key={issue.id} className={`rounded-[14px] border ${s.border} ${s.bg} p-4`}>
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${s.badge}`}>{s.label}</span>
-                        <p className={`text-[12px] font-semibold ${s.text}`}>{issue.title}</p>
-                      </div>
-                      <p className="text-[11px] text-white/65">{issue.description}</p>
-                      {issue.affectedRows > 0 && <p className="mt-1 text-[10px] text-white/35">Affected rows: {issue.affectedRows}</p>}
-                      <p className="mt-1.5 text-[10px] text-white/45">Fix: {issue.suggestedFix}</p>
-                      <div className="mt-3 flex gap-2">
-                        {issue.severity !== 'info' && (
-                          <button onClick={() => { setTab('clean'); onToast('Opening Clean Data…'); }}
-                            className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/70 transition-colors hover:bg-white/[0.09]">
-                            Fix automatically
-                          </button>
-                        )}
-                        <button onClick={() => setTab('preview')}
-                          className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[10px] text-white/40 transition-colors hover:bg-white/[0.07]">
-                          Review rows
-                        </button>
-                        {issue.severity !== 'error' && (
-                          <button onClick={() => setIgnoredIssues(prev => new Set([...prev, issue.id]))}
-                            className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[10px] text-white/40 transition-colors hover:bg-white/[0.07]">
-                            Ignore
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                {state.validationIssues.every(vi => ignoredIssues.has(vi.id)) && (
-                  <div className="flex flex-col items-center gap-3 py-10 text-center">
-                    <span className="text-3xl">✅</span>
-                    <p className="text-[12px] text-white/40">All issues resolved or ignored.</p>
-                    <button onClick={() => setIgnoredIssues(new Set())} className="text-[11px] text-accent hover:underline">Reset ignored</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* == Send to Agent == */}
-          {tab === 'send' && (
-            <div className="space-y-4 p-5">
-              {!isSaved && cellEdits.length > 0 && (
-                <div className="rounded-[14px] border border-amber-400/20 bg-amber-400/[0.05] p-4">
-                  <p className="text-[12px] font-semibold text-amber-300">You have unsaved data edits. Save before sending?</p>
-                  <div className="mt-3 flex gap-2">
-                    <button onClick={doSendToAgent} className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/60 hover:bg-white/[0.08]">Send anyway</button>
-                    <button onClick={() => { saveChanges(); doSendToAgent(); }} className="rounded-lg bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-400">Save and Send</button>
-                  </div>
-                </div>
-              )}
-              <div>
-                <p className="text-[13px] font-semibold text-white">Send to Agent</p>
-                <p className="text-[11px] text-white/45">Choose which agent receives this data next</p>
-              </div>
-              <div className="rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-4">
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-white/35">Data Summary</p>
-                <div className="grid grid-cols-2 gap-3 text-[12px] sm:grid-cols-3">
-                  <div><p className="text-white/45">Source</p><p className="truncate font-semibold text-white">{state.sourceName}</p></div>
-                  <div><p className="text-white/45">Rows</p><p className="font-semibold text-white">{editableRows.length}</p></div>
-                  <div><p className="text-white/45">Columns</p><p className="font-semibold text-white">{state.columns.length}</p></div>
-                  <div><p className="text-white/45">Cleaned</p><p className={`font-semibold ${state.cleaned ? 'text-emerald-400' : 'text-amber-400'}`}>{state.cleaned ? '✓ Yes' : '✗ Not yet'}</p></div>
-                  <div><p className="text-white/45">Mapped</p><p className="font-semibold text-white">{mappedCount}/{localMappings.length}</p></div>
-                  <div><p className="text-white/45">Quality</p><p className={`font-semibold ${qColor}`}>{state.qualityScore}/100</p></div>
-                  {cellEdits.length > 0 && <div><p className="text-white/45">Manual Edits</p><p className="font-semibold text-violet-400">{cellEdits.length} cells</p></div>}
-                </div>
-                {errors > 0 && (
-                  <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-[11px] text-red-400">
-                    ⛔ {errors} validation error{errors > 1 ? 's' : ''} — this data still has validation errors.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                {([
-                  { id: 'data-collector', label: 'Data Collector', icon: '📊', desc: 'Collects and organizes raw extracted data',       when: 'Raw / unprocessed data' },
-                  { id: 'data-cleaner',   label: 'Data Cleaner',   icon: '🧹', desc: 'Cleans, formats, and validates data',            when: 'Data with warnings or duplicates', recommended: !state.cleaned && (errors + warnings) > 0 },
-                  { id: 'sales-analyst',  label: 'Sales Analyst',  icon: '📈', desc: 'Analyzes sales, profit, and cost performance',   when: 'Cleaned & validated data',         recommended: state.cleaned && errors === 0 },
-                  { id: 'report-writer',  label: 'Report Writer',  icon: '📝', desc: 'Creates a formatted daily report from the data', when: 'After analysis is done' },
-                ] as { id: string; label: string; icon: string; desc: string; when: string; recommended?: boolean }[]).map(agent => (
-                  <button key={agent.id} onClick={() => setSelectedAgent(agent.id)}
-                    className={`w-full rounded-[14px] border p-4 text-left transition-all ${selectedAgent === agent.id ? 'border-accent/35 bg-accent/[0.09]' : 'border-white/[0.07] bg-white/[0.03] hover:border-white/[0.12] hover:bg-white/[0.05]'}`}>
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 text-xl">{agent.icon}</span>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-[12px] font-semibold text-white">{agent.label}</p>
-                          {agent.recommended && <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[9px] font-bold text-emerald-400">Recommended</span>}
-                        </div>
-                        <p className="mt-0.5 text-[11px] text-white/50">{agent.desc}</p>
-                        <p className="mt-1 text-[10px] text-white/30">Best for: {agent.when}</p>
-                      </div>
-                      {selectedAgent === agent.id && <span className="mt-1 text-sm text-accent">●</span>}
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <button onClick={doSendToAgent} disabled={errors > 0}
-                className={`w-full rounded-xl px-5 py-3 text-[13px] font-bold text-white transition ${errors > 0 ? 'cursor-not-allowed bg-white/10 text-white/30' : 'bg-accent hover:bg-accent/80 hover:-translate-y-0.5 active:translate-y-0'}`}>
-                ↗ Send to {selectedAgent === 'data-collector' ? 'Data Collector' : selectedAgent === 'data-cleaner' ? 'Data Cleaner' : selectedAgent === 'sales-analyst' ? 'Sales Analyst' : 'Report Writer'}
-              </button>
-            </div>
-          )}
-
-          {/* == Source History == */}
-          {tab === 'history' && (
-            <div className="space-y-4 p-5">
-              <div>
-                <p className="text-[13px] font-semibold text-white">Data Source History</p>
-                <p className="text-[11px] text-white/45">Previous data sources used in workflow runs</p>
-              </div>
-              {sourceHistory.length === 0 && (
-                <div className="flex flex-col items-center gap-3 py-16 text-center">
-                  <span className="text-3xl">📂</span>
-                  <p className="text-[12px] text-white/40">No source history yet.</p>
-                </div>
-              )}
-              <div className="space-y-3">
-                {sourceHistory.map(item => (
-                  <div key={item.id} className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 text-xl">{historyTypeIcon[item.type] ?? '📄'}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-[13px] font-semibold text-white">{item.name}</p>
-                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${historyStatusColor[item.status] ?? 'text-white/50 bg-white/[0.06] border-white/[0.1]'}`}>
-                            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-white/45">
-                          <span>Type: {item.type}</span>
-                          <span>Rows: {item.rowsExtracted}</span>
-                          <span>Used by: {item.usedByAgent}</span>
-                          <span>{item.runId}</span>
-                          <span>Quality: <span className={item.qualityScore >= 90 ? 'text-emerald-400' : item.qualityScore >= 70 ? 'text-amber-400' : 'text-red-400'}>{item.qualityScore}/100</span></span>
-                        </div>
-                        <p className="mt-1 text-[10px] text-white/30">{item.createdAt}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button onClick={() => reuseHistoryItem(item)}
-                        className="rounded-lg border border-accent/25 bg-accent/[0.08] px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/15">
-                        Reuse as Input
-                      </button>
-                      <button onClick={() => setHistoryCompareId(item.id)}
-                        className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60 transition-colors hover:bg-white/[0.08]">
-                        Compare
-                      </button>
-                      <button onClick={() => { reuseHistoryItem(item); setTab('preview'); }}
-                        className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/40 transition-colors hover:bg-white/[0.07]">
-                        Preview
-                      </button>
-                      <button onClick={() => setHistoryRemoveConfirmId(item.id)}
-                        className="rounded-lg border border-red-500/20 bg-red-500/[0.05] px-3 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/[0.10]">
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
+        <div className="overflow-hidden rounded-2xl border border-white/[0.08]">
+          <table className="w-full text-left text-[11px]">
+            <thead className="bg-white/[0.04] text-white/45">
+              <tr>{state.columns.slice(0, 5).map((column) => <th key={column} className="px-3 py-2 font-semibold">{column}</th>)}</tr>
+            </thead>
+            <tbody>
+              {state.rows.slice(0, 6).map((row, index) => (
+                <tr key={index} className="border-t border-white/[0.05] text-white/65">
+                  {state.columns.slice(0, 5).map((column) => <td key={column} className="px-3 py-2">{row[column] ?? '-'}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        {/* == Review Edits overlay == */}
-        {showReviewEdits && (
-          <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-[24px] bg-[#13161e]">
-            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-6 py-4">
-              <h3 className="text-[14px] font-bold text-white">Review Edits</h3>
-              <button onClick={() => setShowReviewEdits(false)} className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/50 hover:bg-white/10 hover:text-white">✕</button>
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-white/30">Recent sources</p>
+          {sourceHistory.slice(0, 4).map((item) => (
+            <div key={item.id} className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2">
+              <span className="text-[12px] text-white/70">{item.name}</span>
+              <span className="text-[10px] text-white/35">{item.status} · {item.qualityScore}%</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-5 space-y-2">
-              {cellEdits.length === 0 && <p className="py-10 text-center text-[12px] text-white/40">No cell edits yet.</p>}
-              {cellEdits.map(edit => {
-                const row      = editableRows.find(r => r._id === edit.rowId);
-                const rowLabel = row ? `Row ${editableRows.indexOf(row) + 1} · ${row.data['Order ID'] ?? edit.rowId}` : edit.rowId;
-                return (
-                  <div key={edit.id} className="rounded-[14px] border border-violet-400/15 bg-violet-400/[0.04] p-4">
-                    <p className="text-[11px] font-bold text-violet-300">{rowLabel}</p>
-                    <p className="mt-1 text-[11px] text-white/65">Column: <span className="text-white">{edit.column}</span></p>
-                    <div className="mt-2 flex items-center gap-3 text-[11px]">
-                      <span className="rounded bg-red-500/15 px-2 py-0.5 text-red-300 line-through">{edit.oldValue || '—'}</span>
-                      <span className="text-white/40">→</span>
-                      <span className="rounded bg-violet-400/15 px-2 py-0.5 font-semibold text-violet-300">{edit.newValue || '—'}</span>
-                    </div>
-                    <p className="mt-2 text-[10px] text-white/30">Edited by {edit.editedBy} · {edit.editedAt}</p>
-                  </div>
-                );
-              })}
-              {addedRowCount > 0 && (
-                <div className="mt-4">
-                  <p className="mb-2 text-[11px] font-bold text-accent">Manually Added Rows ({addedRowCount})</p>
-                  {editableRows.filter(r => r._manuallyAdded).map((r, i) => (
-                    <div key={r._id} className="mb-2 rounded-[12px] border border-accent/15 bg-accent/[0.04] px-4 py-3 text-[11px] text-white/60">
-                      Row {i + 1} (manual) · {r.data['Order ID'] ?? 'New row'} · Added by TopSpeed · Just now
-                    </div>
-                  ))}
-                </div>
-              )}
-              {deletedCount > 0 && <p className="mt-4 text-[11px] text-white/45">Deleted rows: <strong className="text-white">{deletedCount}</strong></p>}
-            </div>
-            <div className="shrink-0 border-t border-white/[0.07] px-6 py-4">
-              <button onClick={() => { saveChanges(); setShowReviewEdits(false); }}
-                className="w-full rounded-xl bg-violet-500 px-5 py-3 text-[13px] font-bold text-white transition hover:bg-violet-400">
-                💾 Save All Changes
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* == Add Row modal == */}
-        {showAddRowModal && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[24px] bg-black/60 backdrop-blur-sm">
-            <div className="mx-6 w-full max-w-md rounded-[20px] border border-white/[0.09] bg-[#13161e] p-6 shadow-2xl">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-[14px] font-bold text-white">Add New Row</h3>
-                <button onClick={() => { setShowAddRowModal(false); setNewRowData({}); }} className="text-white/40 hover:text-white">✕</button>
-              </div>
-              <div className="max-h-[50vh] overflow-y-auto space-y-3">
-                {state.columns.map(col => (
-                  <div key={col}>
-                    <label className="mb-1 block text-[10px] font-semibold text-white/45">{col}</label>
-                    <input value={newRowData[col] ?? ''}
-                      onChange={e => setNewRowData(prev => ({ ...prev, [col]: e.target.value }))}
-                      placeholder={`Enter ${col}…`}
-                      className="w-full rounded-xl border border-white/[0.1] bg-[#1e2330] px-3 py-2 text-[12px] text-white outline-none transition focus:border-accent/50" />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-5 flex gap-2">
-                <button onClick={() => { setShowAddRowModal(false); setNewRowData({}); }}
-                  className="flex-1 rounded-xl border border-white/[0.1] py-2.5 text-[12px] font-semibold text-white/60 hover:bg-white/[0.05]">Cancel</button>
-                <button onClick={addRow}
-                  className="flex-1 rounded-xl bg-accent py-2.5 text-[12px] font-bold text-white hover:bg-accent/80">Add Row</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* == Delete row confirm == */}
-        {deleteConfirmRowId && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[24px] bg-black/60 backdrop-blur-sm">
-            <div className="mx-6 w-full max-w-sm rounded-[20px] border border-white/[0.09] bg-[#13161e] p-6 shadow-2xl">
-              <h3 className="text-[14px] font-bold text-white">Delete Row?</h3>
-              <p className="mt-2 text-[12px] text-white/55">This row will be removed from the data table.</p>
-              <div className="mt-5 flex gap-2">
-                <button onClick={() => setDeleteConfirmRowId(null)}
-                  className="flex-1 rounded-xl border border-white/[0.1] py-2.5 text-[12px] font-semibold text-white/60 hover:bg-white/[0.05]">Cancel</button>
-                <button onClick={() => deleteRow(deleteConfirmRowId)}
-                  className="flex-1 rounded-xl bg-red-500 py-2.5 text-[12px] font-bold text-white hover:bg-red-400">Delete Row</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* == History Remove confirm == */}
-        {historyRemoveConfirmId && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[24px] bg-black/60 backdrop-blur-sm">
-            <div className="mx-6 w-full max-w-sm rounded-[20px] border border-white/[0.09] bg-[#13161e] p-6 shadow-2xl">
-              <h3 className="text-[14px] font-bold text-white">Remove from History?</h3>
-              <p className="mt-2 text-[12px] text-white/55">This source will be removed from history.</p>
-              <div className="mt-5 flex gap-2">
-                <button onClick={() => setHistoryRemoveConfirmId(null)}
-                  className="flex-1 rounded-xl border border-white/[0.1] py-2.5 text-[12px] font-semibold text-white/60 hover:bg-white/[0.05]">Cancel</button>
-                <button onClick={() => removeHistoryItem(historyRemoveConfirmId)}
-                  className="flex-1 rounded-xl bg-red-500 py-2.5 text-[12px] font-bold text-white hover:bg-red-400">Remove</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* == Compare modal == */}
-        {compareItem && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[24px] bg-black/60 backdrop-blur-sm">
-            <div className="mx-6 w-full max-w-lg rounded-[20px] border border-white/[0.09] bg-[#13161e] p-6 shadow-2xl">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-[14px] font-bold text-white">Compare Data Sources</h3>
-                <button onClick={() => setHistoryCompareId(null)} className="text-white/40 hover:text-white">✕</button>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-[14px] border border-accent/20 bg-accent/[0.05] p-4">
-                  <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-accent/60">Current Source</p>
-                  <p className="mt-1 text-[13px] font-semibold text-white">{state.sourceName}</p>
-                  <div className="mt-3 space-y-2 text-[11px]">
-                    <div className="flex justify-between"><span className="text-white/45">Rows</span><span className="text-white">{editableRows.length}</span></div>
-                    <div className="flex justify-between"><span className="text-white/45">Quality</span><span className={qColor}>{state.qualityScore}/100</span></div>
-                    <div className="flex justify-between"><span className="text-white/45">Cleaned</span><span className={state.cleaned ? 'text-emerald-400' : 'text-amber-400'}>{state.cleaned ? 'Yes' : 'No'}</span></div>
-                  </div>
-                </div>
-                <div className="rounded-[14px] border border-white/[0.08] bg-white/[0.03] p-4">
-                  <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-white/35">Historical Source</p>
-                  <p className="mt-1 text-[13px] font-semibold text-white">{compareItem.name}</p>
-                  <div className="mt-3 space-y-2 text-[11px]">
-                    <div className="flex justify-between"><span className="text-white/45">Rows</span><span className="text-white">{compareItem.rowsExtracted}</span></div>
-                    <div className="flex justify-between"><span className="text-white/45">Quality</span>
-                      <span className={compareItem.qualityScore >= 90 ? 'text-emerald-400' : compareItem.qualityScore >= 70 ? 'text-amber-400' : 'text-red-400'}>{compareItem.qualityScore}/100</span></div>
-                    <div className="flex justify-between"><span className="text-white/45">Run</span><span className="text-white">{compareItem.runId}</span></div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 rounded-[14px] border border-white/[0.07] bg-white/[0.03] p-4">
-                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.1em] text-white/35">Key Differences (mock)</p>
-                <div className="space-y-1.5 text-[11px]">
-                  <div className="flex justify-between"><span className="text-white/55">Sales total</span><div className="flex gap-2"><span className="text-white">19,240 THB</span><span className="text-white/30">vs</span><span className="text-white/60">18,420 THB</span></div></div>
-                  <div className="flex justify-between"><span className="text-white/55">Profit total</span><div className="flex gap-2"><span className="text-white">4,210 THB</span><span className="text-white/30">vs</span><span className="text-white/60">3,990 THB</span></div></div>
-                  <div className="flex justify-between"><span className="text-white/55">Row difference</span>
-                    <span className="text-accent">+{Math.abs(editableRows.length - (parseInt(compareItem.rowsExtracted) || 0))} rows</span></div>
-                </div>
-              </div>
-              <button onClick={() => setHistoryCompareId(null)}
-                className="mt-4 w-full rounded-xl border border-white/[0.1] py-2.5 text-[12px] font-semibold text-white/60 hover:bg-white/[0.05]">
-                Close
-              </button>
-            </div>
-          </div>
-        )}
-
+          ))}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-white/[0.12] px-4 py-2 text-[12px] font-semibold text-white/65">Close</button>
+          <button onClick={markClean} className="rounded-xl bg-white px-4 py-2 text-[12px] font-bold text-[#0a0a14]">Clean data</button>
+        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
-
-
-
-// ── UpgradeModal ──────────────────────────────────────────────────────────────
-
-function UpgradeModal({
-  modal,
-  usageState,
-  setUsageState,
-  onClose,
-  onViewPlans,
-  onUpgraded,
-}: {
-  modal: UpgradeModalState;
-  usageState: UsageState;
-  setUsageState: (s: UsageState) => void;
+function ApprovalHistoryModal({ requests, history, onClose }: {
+  requests: ApprovalRequest[];
+  history: ApprovalRequest[];
   onClose: () => void;
-  onViewPlans: () => void;
-  onUpgraded: (plan: PlanTier) => void;
 }) {
-  const currentPlan = PLANS.find((p) => p.id === usageState.currentPlan) ?? PLANS[0];
-  const targetPlan = PLANS.find((p) => p.id === modal.toPlan) ?? PLANS[1];
-  const creditsRemaining = currentPlan.creditsLimit - usageState.agentCreditsUsed;
-
-  const REASON_META: Record<UpgradeReason, { icon: string; title: string; subtitle: string; body: string }> = {
-    'run-limit': {
-      icon: '⚡',
-      title: 'Workflow Run Limit Reached',
-      subtitle: `${usageState.workflowRunsUsed} / ${currentPlan.workflowRunsLimit} runs used this month`,
-      body: `You've used all ${currentPlan.workflowRunsLimit} workflow runs included in the ${currentPlan.name} plan. Upgrade to continue running workflows or wait for the monthly reset on ${usageState.resetDate}.`,
-    },
-    'credits': {
-      icon: '💳',
-      title: 'Not Enough Credits',
-      subtitle: `${creditsRemaining} of ${currentPlan.creditsLimit} credits remaining`,
-      body: `This workflow requires ${modal.requiredCredits ?? '?'} agent credits but you only have ${creditsRemaining} remaining. Upgrade your plan to get more credits.`,
-    },
-    'pro-feature': {
-      icon: '🔒',
-      title: modal.featureName ? `${modal.featureName} Requires Pro` : 'This Feature Requires Pro',
-      subtitle: 'Available on Pro and Team plans',
-      body: `${modal.featureName ?? 'This feature'} is only available on Pro and Team plans. Upgrade to unlock advanced tools, version history, connectors, and export capabilities.`,
-    },
-    'team-feature': {
-      icon: '👥',
-      title: 'Team Plan Required',
-      subtitle: 'Available on Team plan only',
-      body: `${modal.featureName ?? 'This feature'} is only available on the Team plan. Upgrade to unlock shared workspaces, role permissions, audit logs, and admin controls.`,
-    },
-    'connector': {
-      icon: '🔌',
-      title: 'Advanced Connector Locked',
-      subtitle: 'Requires Pro or Team plan',
-      body: 'Advanced connectors such as Google Drive, Gmail, and custom APIs are available on Pro and Team plans. Upgrade to connect your workflow to external services.',
-    },
-    'cost-warning': {
-      icon: '⚠️',
-      title: 'This Workflow Exceeds Your Plan',
-      subtitle: `Estimated ${modal.estimatedCredits ?? '?'} credits needed`,
-      body: `This workflow may consume more credits than your current plan supports. Consider upgrading to a plan with a higher credit limit, or use Optimize Cost to reduce usage.`,
-    },
-    'project-limit': {
-      icon: '📁',
-      title: 'Project Limit Reached',
-      subtitle: `${currentPlan.projectLimit === -1 ? 'Unlimited' : currentPlan.projectLimit} projects on ${currentPlan.name}`,
-      body: `You've reached the maximum number of projects on the ${currentPlan.name} plan. Upgrade to Pro for unlimited projects.`,
-    },
-  };
-
-  const meta = REASON_META[modal.reason];
-
-  const handleUpgrade = () => {
-    setUsageState({
-      ...usageState,
-      currentPlan: modal.toPlan,
-      workflowRunsUsed: modal.toPlan === 'pro' ? usageState.workflowRunsUsed : 0,
-      agentCreditsUsed: modal.toPlan === 'pro' ? usageState.agentCreditsUsed : 0,
-    });
-    onUpgraded(modal.toPlan);
-    onClose();
-  };
-
+  const entries = [...requests, ...history].slice(0, 12);
   return (
-    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/65 backdrop-blur-sm" onClick={onClose}>
-      <div className="mx-4 w-full max-w-lg rounded-[22px] border border-accent/20 bg-[#0e0e1a] shadow-[0_32px_80px_rgba(0,0,0,0.75)]" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-start gap-3 border-b border-white/[0.06] px-6 py-5">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent/10 text-xl">{meta.icon}</div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-heading text-[17px] font-bold text-white">{meta.title}</h3>
-            <p className="mt-0.5 text-[11px] text-white/50">{meta.subtitle}</p>
-          </div>
-          <button onClick={onClose} className="shrink-0 text-white/35 hover:text-white/65 transition text-xl leading-none">✕</button>
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
-          {/* Reason body */}
-          <p className="text-[13px] leading-relaxed text-white/65">{meta.body}</p>
-
-          {/* Current plan usage summary */}
-          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-3 space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">Current Plan — {currentPlan.name}</p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { label: 'Workflow runs', value: `${usageState.workflowRunsUsed} / ${currentPlan.workflowRunsLimit}`, alert: usageState.workflowRunsUsed >= currentPlan.workflowRunsLimit },
-                { label: 'Agent credits', value: `${usageState.agentCreditsUsed} / ${currentPlan.creditsLimit}`, alert: creditsRemaining < (modal.requiredCredits ?? 0) },
-              ].map(({ label, value, alert }) => (
-                <div key={label} className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2">
-                  <span className="text-[10px] text-white/45">{label}</span>
-                  <span className={`text-[11px] font-bold ${alert ? 'text-red-400' : 'text-white/70'}`}>{value}</span>
-                </div>
-              ))}
+    <ModalShell title="Approval History" subtitle={`${entries.length} approval records`} onClose={onClose}>
+      <div className="space-y-2">
+        {entries.map((request) => (
+          <div key={`${request.id}-${request.status}`} className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-bold text-white">{request.title}</p>
+              <span className="rounded-full bg-white/[0.08] px-2 py-1 text-[10px] font-bold text-white/55">{request.status}</span>
             </div>
+            <p className="mt-1 text-[11px] text-white/40">{request.agentName} · {request.actionType} · {request.createdAt}</p>
+            <p className="mt-2 text-[12px] text-white/55">{request.summary}</p>
           </div>
-
-          {/* Target plan card */}
-          <div className="rounded-2xl border border-accent/25 bg-accent/[0.07] px-5 py-4">
-            <div className="mb-3 flex items-end justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-accent/60">Recommended</p>
-                <p className="font-heading text-[20px] font-extrabold text-white">{targetPlan.name}</p>
-              </div>
-              <div className="text-right">
-                <p className="font-heading text-[28px] font-extrabold text-accent">{targetPlan.price}</p>
-                <p className="text-[11px] text-white/40">{targetPlan.priceDesc}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {[
-                { label: 'Workflow runs', value: targetPlan.workflowRunsLimit === -1 ? 'Unlimited' : `${targetPlan.workflowRunsLimit.toLocaleString()}/mo` },
-                { label: 'Agent credits', value: targetPlan.creditsLimit === -1 ? 'Unlimited' : targetPlan.creditsLimit.toLocaleString() },
-                { label: 'Active workflows', value: targetPlan.activeWorkflowLimit === -1 ? 'Unlimited' : targetPlan.activeWorkflowLimit.toString() },
-                { label: 'Projects', value: targetPlan.projectLimit === -1 ? 'Unlimited' : targetPlan.projectLimit.toString() },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex items-center justify-between rounded-xl border border-accent/10 bg-accent/[0.06] px-3 py-1.5">
-                  <span className="text-[10px] text-white/50">{label}</span>
-                  <span className="text-[11px] font-bold text-ink">{value}</span>
-                </div>
-              ))}
-            </div>
-            <ul className="space-y-1">
-              {targetPlan.features.slice(0, 6).map((f) => (
-                <li key={f} className="flex items-center gap-2 text-[11px] text-white/65">
-                  <span className="text-accent shrink-0">✓</span>{f}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* MVP note */}
-          <p className="text-center text-[10px] text-white/25">Billing integration coming soon. This is a mock upgrade for MVP.</p>
-        </div>
-
-        {/* Footer */}
-        <div className="flex gap-2 border-t border-white/[0.06] px-6 py-4">
-          <button onClick={onClose}
-            className="rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-2.5 text-[12px] font-semibold text-white/70 transition hover:bg-white/[0.08]">Cancel</button>
-          <button onClick={onViewPlans}
-            className="rounded-xl border border-accent/20 bg-accent/[0.07] px-4 py-2.5 text-[12px] font-semibold text-accent transition hover:bg-accent/15">View Plans</button>
-          <button onClick={handleUpgrade}
-            className="flex-1 rounded-xl bg-accent py-2.5 text-[12px] font-bold text-[#0a0a14] transition hover:opacity-90">{targetPlan.cta}</button>
-        </div>
+        ))}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
-// ── ActionConfirmModal ────────────────────────────────────────────────────────
+function ApprovalRulesModal({ rules, onUpdate, onClose }: {
+  rules: ApprovalRule[];
+  onUpdate: React.Dispatch<React.SetStateAction<ApprovalRule[]>>;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title="Approval Rules" subtitle="Control when workflow actions need approval" onClose={onClose}>
+      <div className="space-y-2">
+        {rules.map((rule) => (
+          <div key={rule.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+            <div>
+              <p className="text-sm font-bold text-white">{rule.name}</p>
+              <p className="mt-1 text-[11px] text-white/40">{rule.conditionType} {rule.operator} {rule.value} - {rule.action}</p>
+            </div>
+            <button
+              onClick={() => onUpdate((prev) => prev.map((item) => item.id === rule.id ? { ...item, enabled: !item.enabled } : item))}
+              className={`rounded-full px-3 py-1 text-[11px] font-bold ${rule.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.08] text-white/40'}`}>
+              {rule.enabled ? 'On' : 'Off'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </ModalShell>
+  );
+}
 
-function ActionConfirmModal({
-  action,
-  safetyMode,
-  onConfirm,
-  onCancel,
-}: {
+function ApprovalCardModal({ request, onApprove, onReject, onClose }: {
+  request: ApprovalRequest;
+  onApprove: (id: string) => void;
+  onReject: (id: string, reason?: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title={request.title} subtitle={`${request.agentName} requests ${request.actionType}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
+          <p className="text-[12px] text-white/55">{request.summary}</p>
+          <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-black/30 p-3 text-[11px] text-white/60">{request.previewContent}</pre>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={() => { onReject(request.id); onClose(); }} className="rounded-xl border border-red-400/25 bg-red-500/10 px-4 py-2 text-[12px] font-bold text-red-300">Reject</button>
+          <button onClick={() => { onApprove(request.id); onClose(); }} className="rounded-xl bg-white px-4 py-2 text-[12px] font-bold text-[#0a0a14]">Approve</button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ActionConfirmModal({ action, safetyMode, onConfirm, onCancel }: {
   action: PendingAction;
   safetyMode: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const isHighRisk = action.riskLevel === 'High';
-  const riskColor = isHighRisk ? 'text-red-400' : action.riskLevel === 'Medium' ? 'text-amber-400' : 'text-green-400';
-  const riskBg    = isHighRisk ? 'border-red-500/20 bg-red-500/[0.06]' : action.riskLevel === 'Medium' ? 'border-amber-400/20 bg-amber-400/[0.05]' : 'border-emerald-400/20 bg-emerald-400/[0.05]';
-
   return (
-    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/65 backdrop-blur-sm" onClick={onCancel}>
-      <div className={`mx-4 w-full max-w-md rounded-[22px] border bg-[#0e0e1a] shadow-[0_32px_80px_rgba(0,0,0,0.7)] ${riskBg}`} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-white/[0.07] px-6 py-4">
-          <div>
-            <div className="mb-1 flex items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${isHighRisk ? 'border-red-400/30 bg-red-400/10 text-red-400' : action.riskLevel === 'Medium' ? 'border-amber-400/30 bg-amber-400/10 text-amber-400' : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-400'}`}>{action.riskLevel} risk</span>
-              {safetyMode && <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[9px] font-bold text-warning">Safety Mode ON</span>}
-            </div>
-            <h3 className="font-heading text-[15px] font-bold text-white">Confirm action</h3>
+    <ModalShell title="Confirm Action" subtitle={safetyMode ? 'Safety Mode is active' : 'Review before continuing'} onClose={onCancel}>
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-bold text-white">{action.actionName}</p>
+            <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[10px] font-bold text-amber-300">{action.riskLevel}</span>
           </div>
-          <button onClick={onCancel} className="grid h-8 w-8 place-items-center rounded-xl border border-white/[0.08] text-white/50 transition hover:bg-white/[0.06] hover:text-white">✕</button>
+          <p className="mt-1 text-[11px] text-white/40">{action.requestedByAgentName} · {action.workflowStep} · {action.destination}</p>
+          <p className="mt-3 text-[12px] text-white/55">{action.reason}</p>
+          <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-black/30 p-3 text-[11px] text-white/60">{action.previewContent}</pre>
         </div>
-
-        {/* Details */}
-        <div className="px-6 py-4 space-y-3">
-          <div className="space-y-2">
-            {[
-              ['Action',        action.actionName],
-              ['Requested by',  action.requestedByAgentName],
-              ['Step',          action.workflowStep],
-              ['Destination',   action.destination],
-            ].filter(([, v]) => v).map(([label, value]) => (
-              <div key={label} className="flex items-start justify-between gap-4">
-                <span className="text-[11px] text-white/40 shrink-0">{label}</span>
-                <span className="text-[11px] font-semibold text-white text-right">{value}</span>
-              </div>
-            ))}
-            <div className="flex items-start justify-between gap-4">
-              <span className="text-[11px] text-white/40 shrink-0">Risk level</span>
-              <span className={`text-[11px] font-bold ${riskColor}`}>{action.riskLevel}</span>
-            </div>
-          </div>
-
-          <div className={`rounded-xl border px-3 py-2.5 ${riskBg}`}>
-            <p className="text-[11px] text-white/70 leading-relaxed">{action.reason}</p>
-          </div>
-
-          {action.previewContent && (
-            <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
-              <p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-white/30">Preview</p>
-              <pre className="whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-white/60">{action.previewContent.slice(0, 300)}{action.previewContent.length > 300 ? '…' : ''}</pre>
-            </div>
-          )}
-
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-            <p className="text-[10px] text-white/40">
-              {safetyMode
-                ? '🛡 Safety Mode is ON — this action requires your confirmation before executing.'
-                : '⚠ Safety Mode is OFF — confirm carefully before proceeding.'}
-            </p>
-          </div>
-        </div>
-
-        {/* Buttons */}
-        <div className="flex gap-2 border-t border-white/[0.07] px-6 py-4">
-          <button onClick={onCancel}
-            className="flex-1 rounded-xl border border-white/[0.1] bg-white/[0.05] py-2.5 text-[12px] font-semibold text-white/70 transition hover:bg-white/[0.1] hover:text-white">
-            Cancel
-          </button>
-          <button onClick={onConfirm}
-            className={`flex-1 rounded-xl py-2.5 text-[12px] font-bold text-white transition ${
-              isHighRisk ? 'bg-red-500/80 hover:bg-red-500' : 'bg-amber-500/80 hover:bg-amber-500'
-            }`}>
-            {isHighRisk ? 'Confirm High-Risk Action' : 'Confirm Action'}
-          </button>
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-xl border border-white/[0.12] px-4 py-2 text-[12px] font-semibold text-white/65">Cancel</button>
+          <button onClick={onConfirm} className="rounded-xl bg-white px-4 py-2 text-[12px] font-bold text-[#0a0a14]">Confirm</button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
-// ── ApprovalHistoryModal ─────────────────────────────────────────────────────
-
-function ApprovalHistoryModal({
-  requests, history, onClose,
-}: {
-  requests: ApprovalRequest[];
-  history: ApprovalRequest[];
+function UpgradeModal({ modal, usageState, setUsageState, onClose, onViewPlans, onUpgraded }: {
+  modal: UpgradeModalState;
+  usageState: UsageState;
+  setUsageState: (state: UsageState) => void;
   onClose: () => void;
+  onViewPlans: () => void;
+  onUpgraded: (plan: PlanTier) => void;
 }) {
-  const [filter, setFilter] = React.useState<'All' | 'Approved' | 'Rejected' | 'Edited' | 'Pending'>('All');
-  const allItems = [...requests, ...history];
-  const filtered = filter === 'All' ? allItems : allItems.filter((r) => r.status === filter);
-
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative mx-4 flex w-full max-w-2xl flex-col rounded-[22px] border border-white/[0.1] bg-[#0e0e1a] shadow-[0_32px_80px_rgba(0,0,0,0.7)]" style={{ maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
-          <div>
-            <h2 className="font-heading text-[16px] font-bold text-white">Approval History</h2>
-            <p className="text-[11px] text-white/40">{allItems.length} total · {requests.filter(r => r.status === 'Pending').length} pending</p>
-          </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-xl border border-white/[0.08] text-white/50 transition hover:bg-white/[0.06] hover:text-white">✕</button>
-        </div>
-        {/* Filter tabs */}
-        <div className="flex gap-1.5 border-b border-white/[0.08] px-6 py-3">
-          {(['All', 'Pending', 'Approved', 'Edited', 'Rejected'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${filter === f ? 'bg-white/[0.12] text-white' : 'text-white/40 hover:text-white/70'}`}
-            >{f} <span className="ml-0.5 text-[9px] opacity-60">({(f === 'All' ? allItems : allItems.filter(r => r.status === f)).length})</span></button>
-          ))}
-        </div>
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-          {filtered.length === 0 && (
-            <p className="py-8 text-center text-[12px] text-white/30">No approvals match this filter.</p>
-          )}
-          {filtered.map((req) => (
-            <div key={req.id} className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4">
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                      req.status === 'Approved' ? 'bg-green-500/15 text-green-400' :
-                      req.status === 'Rejected' ? 'bg-red-500/15 text-red-400' :
-                      req.status === 'Edited'   ? 'bg-sky-500/15 text-sky-400' :
-                      'bg-orange-400/15 text-orange-400'
-                    }`}>{req.status}</span>
-                    <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-bold ${req.riskLevel === 'High' ? 'bg-red-400/10 text-red-400' : req.riskLevel === 'Medium' ? 'bg-amber-400/10 text-amber-400' : 'bg-green-400/10 text-green-400'}`}>{req.riskLevel}</span>
-                  </div>
-                  <p className="text-[12px] font-semibold text-white">{req.title}</p>
-                  <p className="text-[10px] text-white/40">{req.agentName} · {req.actionType} · {req.createdAt}</p>
-                </div>
-              </div>
-              <p className="text-[11px] text-white/60 leading-relaxed">{req.summary}</p>
-              {req.notes && (
-                <p className="mt-2 rounded-xl border border-white/[0.06] bg-black/10 px-3 py-2 text-[11px] text-white/50 italic">Note: {req.notes}</p>
-              )}
-              {req.resolvedAt && (
-                <p className="mt-1.5 text-[10px] text-white/30">Resolved by {req.approvedBy} · {req.resolvedAt}</p>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="flex justify-end border-t border-white/[0.08] px-6 py-4">
-          <button onClick={onClose} className="rounded-xl border border-white/[0.1] bg-white/[0.06] px-5 py-2 text-[12px] font-semibold text-white/80 transition hover:bg-white/[0.1] hover:text-white">Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── ApprovalRulesModal ────────────────────────────────────────────────────────
-
-function ApprovalRulesModal({
-  rules, onUpdate, onClose,
-}: {
-  rules: ApprovalRule[];
-  onUpdate: (rules: ApprovalRule[]) => void;
-  onClose: () => void;
-}) {
-  const [editingRule, setEditingRule] = React.useState<ApprovalRule | null>(null);
-  const [addingRule, setAddingRule] = React.useState(false);
-  const blankRule = (): ApprovalRule => ({ id: `rule-${Date.now()}`, name: '', conditionType: 'Risk level', operator: 'is', value: '', action: 'Require approval', enabled: true });
-  const [draftRule, setDraftRule] = React.useState<ApprovalRule>(blankRule());
-
-  const saveRule = () => {
-    if (!draftRule.name.trim()) return;
-    if (editingRule) {
-      onUpdate(rules.map((r) => r.id === editingRule.id ? draftRule : r));
-    } else {
-      onUpdate([...rules, draftRule]);
-    }
-    setEditingRule(null);
-    setAddingRule(false);
-    setDraftRule(blankRule());
+  const targetPlan = PLANS.find((plan) => plan.id === modal.toPlan) ?? PLANS[1];
+  const currentPlan = PLANS.find((plan) => plan.id === usageState.currentPlan);
+  const reasonText: Record<UpgradeReason, string> = {
+    'run-limit': 'You reached the workflow run limit for this plan.',
+    credits: `This action needs ${modal.requiredCredits ?? modal.estimatedCredits ?? 'more'} credits.`,
+    'pro-feature': `${modal.featureName ?? 'This feature'} is available on a higher plan.`,
+    'team-feature': 'Team collaboration needs a higher plan.',
+    connector: 'This connector needs a higher plan.',
+    'cost-warning': 'A higher plan gives you more credits for this workflow.',
+    'project-limit': 'You reached the project limit for this plan.',
   };
 
-  const deleteRule = (id: string) => onUpdate(rules.filter((r) => r.id !== id));
-  const toggleRule = (id: string) => onUpdate(rules.map((r) => r.id === id ? { ...r, enabled: !r.enabled } : r));
-
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative mx-4 flex w-full max-w-2xl flex-col rounded-[22px] border border-white/[0.1] bg-[#0e0e1a] shadow-[0_32px_80px_rgba(0,0,0,0.7)]" style={{ maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
-          <div>
-            <h2 className="font-heading text-[16px] font-bold text-white">Approval Rules</h2>
-            <p className="text-[11px] text-white/40">Automatic triggers that require human approval</p>
+    <ModalShell title={`Upgrade to ${targetPlan.name}`} subtitle={reasonText[modal.reason]} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4">
+            <p className="text-[10px] uppercase tracking-wide text-white/30">Current plan</p>
+            <p className="mt-1 text-lg font-bold text-white">{currentPlan?.name ?? usageState.currentPlan}</p>
+            <p className="mt-2 text-[11px] text-white/45">{usageState.workflowRunsUsed} runs · {usageState.agentCreditsUsed} credits used</p>
           </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-xl border border-white/[0.08] text-white/50 transition hover:bg-white/[0.06] hover:text-white">✕</button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
-          {rules.map((rule) => (
-            <div key={rule.id} className={`rounded-2xl border px-4 py-3 transition ${rule.enabled ? 'border-white/[0.09] bg-white/[0.04]' : 'border-white/[0.05] bg-white/[0.02] opacity-50'}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${rule.enabled ? 'bg-orange-500' : 'bg-white/10'}`}
-                    onClick={() => toggleRule(rule.id)}
-                  >
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${rule.enabled ? 'left-[18px]' : 'left-0.5'}`} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold text-white truncate">{rule.name}</p>
-                    <p className="text-[10px] text-white/40">If {rule.conditionType} {rule.operator} "{rule.value}" → {rule.action}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => { setDraftRule({ ...rule }); setEditingRule(rule); setAddingRule(false); }}
-                    className="rounded-lg border border-white/[0.07] px-2.5 py-1 text-[10px] text-white/50 transition hover:bg-white/[0.06] hover:text-white">Edit</button>
-                  <button onClick={() => deleteRule(rule.id)}
-                    className="rounded-lg border border-red-500/20 px-2.5 py-1 text-[10px] text-red-400/60 transition hover:bg-red-500/10 hover:text-red-400">Delete</button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {(addingRule || editingRule) && (
-            <div className="rounded-2xl border border-orange-400/25 bg-orange-400/[0.05] p-4 space-y-3">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-orange-300">{editingRule ? 'Edit Rule' : 'New Rule'}</p>
-              <input value={draftRule.name} onChange={(e) => setDraftRule({ ...draftRule, name: e.target.value })} placeholder="Rule name…"
-                className="w-full rounded-xl border border-white/[0.1] bg-transparent px-3 py-2 text-[12px] text-white outline-none placeholder:text-white/30 focus:border-orange-400/40" />
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <p className="mb-1 text-[10px] text-white/40">Condition</p>
-                  <select value={draftRule.conditionType} onChange={(e) => setDraftRule({ ...draftRule, conditionType: e.target.value })}
-                    className="w-full rounded-xl border border-white/[0.1] bg-[#0e0e1a] px-2 py-1.5 text-[11px] text-white outline-none">
-                    {['Risk level', 'Action type', 'Confidence score', 'Validation status', 'Output size', 'Agent role'].map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <p className="mb-1 text-[10px] text-white/40">Operator</p>
-                  <select value={draftRule.operator} onChange={(e) => setDraftRule({ ...draftRule, operator: e.target.value })}
-                    className="w-full rounded-xl border border-white/[0.1] bg-[#0e0e1a] px-2 py-1.5 text-[11px] text-white outline-none">
-                    {['is', 'is not', 'lower than', 'higher than', 'contains'].map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <p className="mb-1 text-[10px] text-white/40">Value</p>
-                  <input value={draftRule.value} onChange={(e) => setDraftRule({ ...draftRule, value: e.target.value })} placeholder="e.g. High"
-                    className="w-full rounded-xl border border-white/[0.1] bg-transparent px-2 py-1.5 text-[11px] text-white outline-none placeholder:text-white/25 focus:border-orange-400/40" />
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] text-white/40">Action</p>
-                <select value={draftRule.action} onChange={(e) => setDraftRule({ ...draftRule, action: e.target.value })}
-                  className="w-full rounded-xl border border-white/[0.1] bg-[#0e0e1a] px-3 py-2 text-[11px] text-white outline-none">
-                  {['Require approval', 'Require approval before continuing', 'Notify only', 'Block and alert'].map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </div>
-              <div className="flex gap-2 pt-1">
-                <button onClick={saveRule} className="flex-1 rounded-xl bg-orange-500/80 py-2 text-[11px] font-bold text-white transition hover:bg-orange-500">Save Rule</button>
-                <button onClick={() => { setEditingRule(null); setAddingRule(false); setDraftRule(blankRule()); }} className="rounded-xl border border-white/[0.1] px-4 py-2 text-[11px] text-white/60 transition hover:bg-white/[0.05]">Cancel</button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center justify-between border-t border-white/[0.08] px-6 py-4">
-          <button onClick={() => { setAddingRule(true); setEditingRule(null); setDraftRule(blankRule()); }}
-            className="rounded-xl border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-[12px] font-semibold text-orange-300 transition hover:bg-orange-400/20">
-            + Add Rule
-          </button>
-          <button onClick={onClose} className="rounded-xl border border-white/[0.1] bg-white/[0.06] px-5 py-2 text-[12px] font-semibold text-white/80 transition hover:bg-white/[0.1] hover:text-white">Done</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── ApprovalCardModal ─────────────────────────────────────────────────────────
-
-function ApprovalCardModal({
-  request,
-  onApprove,
-  onReject,
-  onClose,
-}: {
-  request: ApprovalRequest;
-  onApprove: (id: string) => void;
-  onReject: (id: string, reason: string) => void;
-  onClose: () => void;
-}) {
-  const [editedContent, setEditedContent] = React.useState(request.previewContent);
-  const [rejectReason, setRejectReason] = React.useState('');
-  const [view, setView] = React.useState<'overview' | 'edit' | 'reject'>('overview');
-
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative mx-4 flex w-full max-w-lg flex-col rounded-[22px] border border-white/[0.1] bg-[#0e0e1a] shadow-[0_32px_80px_rgba(0,0,0,0.7)]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between border-b border-white/[0.08] px-6 py-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wide text-orange-400">Review before AI acts</span>
-              <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-bold ${request.riskLevel === 'High' ? 'bg-red-400/15 text-red-400' : request.riskLevel === 'Medium' ? 'bg-amber-400/15 text-amber-400' : 'bg-green-400/15 text-green-400'}`}>{request.riskLevel} risk</span>
-            </div>
-            <h2 className="font-heading text-[15px] font-bold text-white">{request.title}</h2>
-            <p className="text-[10px] text-white/40">{request.agentName} · {request.actionType} · {request.createdAt}</p>
-          </div>
-          <button onClick={onClose} className="ml-4 grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-white/[0.08] text-white/50 transition hover:bg-white/[0.06] hover:text-white">✕</button>
-        </div>
-        {/* Tab nav */}
-        <div className="flex gap-1 border-b border-white/[0.08] px-6 py-2">
-          {(['overview', 'edit', 'reject'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)}
-              className={`rounded-full px-3 py-1 text-[11px] font-semibold capitalize transition ${view === v ? 'bg-white/[0.12] text-white' : 'text-white/40 hover:text-white/70'}`}
-            >{v === 'reject' ? 'Reject' : v}</button>
-          ))}
-        </div>
-        <div className="px-6 py-4">
-          {view === 'overview' && (
-            <div className="space-y-3">
-              <p className="text-[12px] leading-relaxed text-white/70">{request.summary}</p>
-              <div className="rounded-2xl border border-white/[0.07] bg-black/20 px-4 py-3">
-                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/35">Preview</p>
-                <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-white/70 font-mono">{request.previewContent}</pre>
-              </div>
-            </div>
-          )}
-          {view === 'edit' && (
-            <div className="space-y-3">
-              <p className="text-[11px] text-white/50">Edit the content below before approving.</p>
-              <textarea value={editedContent} onChange={(e) => setEditedContent(e.target.value)} rows={8}
-                className="w-full resize-none rounded-xl border border-white/[0.1] bg-black/20 px-3 py-2.5 font-mono text-[11px] text-white outline-none focus:border-accent/40" />
-            </div>
-          )}
-          {view === 'reject' && (
-            <div className="space-y-3">
-              <p className="text-[11px] text-white/50">Provide a reason for rejection (optional).</p>
-              <textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="e.g. Data not verified yet"
-                className="w-full resize-none rounded-xl border border-white/[0.1] bg-transparent px-3 py-2.5 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-red-400/40" />
-              <button onClick={() => onReject(request.id, rejectReason)}
-                className="w-full rounded-xl border border-red-500/25 bg-red-500/10 py-2.5 text-[12px] font-bold text-red-400 transition hover:bg-red-500/20">
-                Confirm Rejection
-              </button>
-            </div>
-          )}
-        </div>
-        {view !== 'reject' && (
-          <div className="flex gap-2 border-t border-white/[0.08] px-6 py-4">
-            <button onClick={() => onApprove(request.id)}
-              className="flex-1 rounded-xl bg-green-500/80 py-2.5 text-[12px] font-bold text-white transition hover:bg-green-500">
-              {view === 'edit' ? 'Approve with Edits' : 'Approve'}
-            </button>
-            <button onClick={onClose}
-              className="rounded-xl border border-white/[0.1] px-4 py-2.5 text-[12px] text-white/60 transition hover:bg-white/[0.05]">Cancel</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-// ── UsageDashboard ────────────────────────────────────────────────────────────
-
-function UsageDashboard({ usageState, setUsageState, setPage }: {
-  usageState: UsageState;
-  setUsageState: (s: UsageState) => void;
-  setPage: (page: Page) => void;
-}) {
-  const [historyFilter, setHistoryFilter] = useState<'all' | 'Completed' | 'Failed' | 'Cancelled'>('all');
-  const plan = PLANS.find((p) => p.id === usageState.currentPlan) ?? PLANS[0];
-  const runsPct = Math.min(100, (usageState.workflowRunsUsed / plan.workflowRunsLimit) * 100);
-  const creditsPct = Math.min(100, (usageState.agentCreditsUsed / plan.creditsLimit) * 100);
-  const runsBarColor = runsPct >= 90 ? 'bg-red-400' : runsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-  const creditsBarColor = creditsPct >= 90 ? 'bg-red-400' : creditsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-  const filteredEvents = historyFilter === 'all' ? usageState.usageEvents : usageState.usageEvents.filter((e) => e.status === historyFilter);
-
-  const totalTokens = usageState.usageEvents.reduce((s, e) => s + e.tokensUsed, 0);
-  const totalCredits = usageState.usageEvents.reduce((s, e) => s + e.creditsUsed, 0);
-  const completedRuns = usageState.usageEvents.filter((e) => e.status === 'Completed').length;
-  const avgAgents = usageState.usageEvents.length > 0
-    ? Math.round(usageState.usageEvents.reduce((s, e) => s + e.agentsUsed, 0) / usageState.usageEvents.length)
-    : 0;
-
-  return (
-    <div className="min-h-full p-6 md:p-10">
-      <div className="mb-8 flex items-end justify-between">
-        <div>
-          <h2 className="font-heading text-3xl font-extrabold text-ink">Usage Dashboard</h2>
-          <p className="mt-1 text-sm text-muted">Monitor workflow runs, credits, and token usage across your workspace.</p>
-        </div>
-        <div className="flex items-center gap-2 rounded-xl border border-accent/20 bg-accent/[0.07] px-4 py-2">
-          <span className="text-[11px] text-white/50">Plan:</span>
-          <span className="text-[13px] font-bold capitalize text-accent">{plan.name}</span>
-          <span className="mx-1 text-white/20">·</span>
-          <span className="text-[11px] text-white/50">Resets {usageState.resetDate}</span>
-        </div>
-      </div>
-
-      {/* Quota progress bars */}
-      <div className="mb-6 grid gap-4 md:grid-cols-2">
-        {/* Workflow Runs */}
-        <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">Workflow Runs</p>
-            <span className="text-[11px] text-muted">{usageState.workflowRunsUsed} / {plan.workflowRunsLimit}</span>
-          </div>
-          <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
-            <div className={`h-full rounded-full transition-all ${runsBarColor}`} style={{ width: `${runsPct}%` }} />
-          </div>
-          <p className="text-[11px] text-muted">{plan.workflowRunsLimit - usageState.workflowRunsUsed} remaining this month</p>
-        </div>
-        {/* Agent Credits */}
-        <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">Agent Credits</p>
-            <span className="text-[11px] text-muted">{usageState.agentCreditsUsed} / {plan.creditsLimit}</span>
-          </div>
-          <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
-            <div className={`h-full rounded-full transition-all ${creditsBarColor}`} style={{ width: `${creditsPct}%` }} />
-          </div>
-          <p className="text-[11px] text-muted">{plan.creditsLimit - usageState.agentCreditsUsed} credits remaining</p>
-        </div>
-      </div>
-
-      {/* Summary stats */}
-      <div className="mb-6 grid gap-3 md:grid-cols-4">
-        {[
-          { label: 'Total Runs', value: usageState.usageEvents.length.toString(), sub: `${completedRuns} completed` },
-          { label: 'Tokens Used', value: totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : totalTokens.toString(), sub: 'this month' },
-          { label: 'Credits Used', value: totalCredits.toString(), sub: `of ${plan.creditsLimit}` },
-          { label: 'Avg Agents/Run', value: avgAgents.toString(), sub: 'per workflow' },
-        ].map(({ label, value, sub }) => (
-          <div key={label} className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-            <p className="mb-1 text-xs text-muted">{label}</p>
-            <p className="font-heading text-2xl font-extrabold text-ink">{value}</p>
-            <p className="mt-0.5 text-[11px] text-subtle">{sub}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Estimated cost */}
-      <div className="mb-6 rounded-2xl border border-white/[0.07] bg-surface p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-ink">Estimated Cost This Month</p>
-            <p className="mt-0.5 text-[11px] text-muted">Based on token usage at current rates</p>
-          </div>
-          <p className="font-heading text-3xl font-extrabold text-ink">${usageState.estimatedCost.toFixed(2)}</p>
-        </div>
-      </div>
-
-      {/* Plan cards */}
-      <div className="mb-6">
-        <h3 className="mb-3 font-heading text-base font-bold text-ink">Plans</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          {PLANS.map((p) => {
-            const isCurrent = p.id === usageState.currentPlan;
-            return (
-              <div key={p.id} className={`rounded-2xl border p-5 transition-all ${isCurrent ? 'border-accent/30 bg-accent/[0.06]' : 'border-white/[0.07] bg-surface hover:border-white/[0.12]'}`}>
-                <div className="mb-3 flex items-start justify-between">
-                  <div>
-                    <p className="font-heading text-base font-bold text-ink">{p.name}</p>
-                    <p className="text-[11px] text-muted">{p.priceDesc}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-heading text-xl font-extrabold text-ink">{p.price}</p>
-                    {isCurrent && <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[9px] font-bold text-accent">Current</span>}
-                  </div>
-                </div>
-                <ul className="mb-4 space-y-1">
-                  {[
-                    `${p.workflowRunsLimit === -1 ? 'Unlimited' : p.workflowRunsLimit} workflow runs/mo`,
-                    `${p.creditsLimit === -1 ? 'Unlimited' : p.creditsLimit.toLocaleString()} agent credits`,
-                    `${p.projectLimit === -1 ? 'Unlimited' : p.projectLimit} projects`,
-                    `${p.seats} seat${p.seats > 1 ? 's' : ''}`,
-                  ].map((f) => (
-                    <li key={f} className="flex items-center gap-1.5 text-[11px] text-white/60">
-                      <span className={isCurrent ? 'text-accent' : 'text-white/30'}>✓</span>{f}
-                    </li>
-                  ))}
-                </ul>
-                {!isCurrent && (
-                  <button className="w-full rounded-xl bg-accent py-2 text-[12px] font-bold text-[#0a0a14] transition hover:opacity-90">{p.cta}</button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Usage history */}
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-heading text-base font-bold text-ink">Run History</h3>
-          <div className="flex gap-1">
-            {(['all', 'Completed', 'Failed', 'Cancelled'] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setHistoryFilter(f)}
-                className={`rounded-lg px-3 py-1 text-[11px] font-semibold transition ${historyFilter === f ? 'bg-accent/15 text-accent' : 'text-muted hover:text-ink'}`}
-              >{f === 'all' ? 'All' : f}</button>
-            ))}
+          <div className="rounded-2xl border border-accent/25 bg-accent/[0.08] p-4">
+            <p className="text-[10px] uppercase tracking-wide text-accent">Recommended</p>
+            <p className="mt-1 text-lg font-bold text-white">{targetPlan.name}</p>
+            <p className="mt-2 text-[11px] text-white/60">{targetPlan.creditsLimit} credits · {targetPlan.workflowRunsLimit} runs</p>
           </div>
         </div>
-        <div className="rounded-2xl border border-white/[0.07] bg-surface overflow-hidden">
-          {filteredEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-sm text-muted">No runs match this filter</p>
-            </div>
-          ) : (
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-b border-white/[0.06] text-left">
-                  {['Workflow', 'Time', 'Agents', 'Credits', 'Tokens', 'Status'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-muted">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEvents.map((ev, idx) => (
-                  <tr key={ev.id} className={`border-b border-white/[0.04] transition hover:bg-white/[0.02] ${idx % 2 === 0 ? '' : ''}`}>
-                    <td className="px-4 py-3 font-medium text-ink">{ev.workflowName}</td>
-                    <td className="px-4 py-3 text-muted">{new Date(ev.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td className="px-4 py-3 text-muted">{ev.agentsUsed}</td>
-                    <td className="px-4 py-3 text-muted">{ev.creditsUsed}</td>
-                    <td className="px-4 py-3 text-muted">{ev.tokensUsed >= 1000 ? `${(ev.tokensUsed / 1000).toFixed(1)}k` : ev.tokensUsed}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${ev.status === 'Completed' ? 'bg-emerald-400/15 text-emerald-400' : ev.status === 'Failed' ? 'bg-red-400/15 text-red-400' : 'bg-white/10 text-muted'}`}>{ev.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <div className="space-y-1">
+          {targetPlan.features.slice(0, 5).map((feature) => <p key={feature} className="text-[12px] text-white/55">- {feature}</p>)}
         </div>
-      </div>
-    </div>
-  );
-}
-
-
-// ── BillingPage ───────────────────────────────────────────────────────────────
-
-function BillingPage({
-  usageState,
-  setUsageState,
-  setPage,
-}: {
-  usageState: UsageState;
-  setUsageState: (s: UsageState) => void;
-  setPage: (page: Page) => void;
-}) {
-  const [billingTab, setBillingTab] = useState<'overview' | 'plans' | 'invoices' | 'payment'>('overview');
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-  const [autoRenew, setAutoRenew] = useState(true);
-  const [billingEmail] = useState('putamafais@gmail.com');
-  const [upgradeModal, setUpgradeModal] = useState<UpgradeModalState | null>(null);
-
-  const plan = PLANS.find((p) => p.id === usageState.currentPlan) ?? PLANS[0];
-  const runsPct = Math.min(100, (usageState.workflowRunsUsed / plan.workflowRunsLimit) * 100);
-  const creditsPct = Math.min(100, (usageState.agentCreditsUsed / plan.creditsLimit) * 100);
-  const runsBarColor = runsPct >= 90 ? 'bg-red-400' : runsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-  const creditsBarColor = creditsPct >= 90 ? 'bg-red-400' : creditsPct >= 70 ? 'bg-amber-400' : 'bg-accent';
-
-  const invoices = usageState.currentPlan === 'free'
-    ? MOCK_INVOICES.filter((inv) => inv.plan === 'Free')
-    : MOCK_INVOICES;
-
-  const TABS = [
-    { id: 'overview' as const, label: 'Overview' },
-    { id: 'plans' as const, label: 'Plans' },
-    { id: 'invoices' as const, label: 'Invoices' },
-    { id: 'payment' as const, label: 'Payment' },
-  ];
-
-  return (
-    <div className="min-h-full p-6 md:p-10">
-      {/* Page header */}
-      <div className="mb-8 text-center">
-        <h2 className="font-heading text-[34px] font-semibold tracking-[-0.03em] text-white">Colony Plans</h2>
-        <p className="mt-2 text-[15px] text-white/40">Choose the AI workforce plan that fits how you work.</p>
-        <div className="mt-4 inline-flex items-center gap-2 rounded-xl border border-accent/20 bg-accent/[0.07] px-4 py-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          <span className="text-[12px] text-white/50">Current plan:</span>
-          <span className="text-[13px] font-semibold capitalize text-accent">{plan.name}</span>
-          <span className="text-white/20">·</span>
-          <span className="text-[12px] text-white/40">Resets {usageState.resetDate}</span>
-        </div>
-      </div>
-
-      {/* Tab bar */}
-      <div className="mb-6 flex gap-1 rounded-xl border border-white/[0.07] bg-surface p-1">
-        {TABS.map((t) => (
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={onViewPlans} className="rounded-xl border border-white/[0.12] px-4 py-2 text-[12px] font-semibold text-white/65">View plans</button>
           <button
-            key={t.id}
-            onClick={() => setBillingTab(t.id)}
-            className={`flex-1 rounded-lg py-2 text-[12px] font-semibold transition ${billingTab === t.id ? 'bg-white/[0.08] text-ink' : 'text-muted hover:text-ink'}`}
-          >{t.label}</button>
-        ))}
+            onClick={() => {
+              setUsageState({ ...usageState, currentPlan: modal.toPlan });
+              onUpgraded(modal.toPlan);
+              onClose();
+            }}
+            className="rounded-xl bg-white px-4 py-2 text-[12px] font-bold text-[#0a0a14]">
+            Upgrade
+          </button>
+        </div>
       </div>
-
-      {/* ── Overview tab ── */}
-      {billingTab === 'overview' && (
-        <div className="space-y-5">
-          {/* Current plan card */}
-          <div className="rounded-2xl border border-accent/20 bg-accent/[0.05] p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-white/50 uppercase tracking-widest">Current Plan</p>
-                <p className="mt-1 font-heading text-2xl font-extrabold text-ink">{plan.name}</p>
-                <div className="mt-2 flex items-center gap-3 text-sm text-muted">
-                  <span>{plan.price}{plan.id !== 'free' ? `${plan.priceDesc}` : ' forever'}</span>
-                  <span className="text-white/20">·</span>
-                  <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />Active</span>
-                  <span className="text-white/20">·</span>
-                  <span>Resets {usageState.resetDate}</span>
-                </div>
-              </div>
-              {usageState.currentPlan !== 'max' && (
-                <button
-                  onClick={() => setBillingTab('plans')}
-                  className="rounded-xl bg-accent px-4 py-2 text-[12px] font-bold text-[#0a0a14] transition hover:opacity-90"
-                >View Plans →</button>
-              )}
-            </div>
-          </div>
-
-          {/* Usage summary */}
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Workflow runs */}
-            <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-semibold text-ink">Workflow Runs</p>
-                <span className="text-[11px] text-muted">{usageState.workflowRunsUsed} / {plan.workflowRunsLimit}</span>
-              </div>
-              <div className="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-white/10">
-                <div className={`h-full rounded-full transition-all ${runsBarColor}`} style={{ width: `${runsPct}%` }} />
-              </div>
-              <p className="text-[11px] text-muted">{plan.workflowRunsLimit - usageState.workflowRunsUsed} remaining · resets {usageState.resetDate}</p>
-              {runsPct >= 80 && <p className="mt-1.5 text-[11px] font-semibold text-amber-300">⚠ You are close to your run limit.</p>}
-            </div>
-            {/* Agent credits */}
-            <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-semibold text-ink">Agent Credits</p>
-                <span className="text-[11px] text-muted">{usageState.agentCreditsUsed} / {plan.creditsLimit}</span>
-              </div>
-              <div className="mb-2 h-2.5 w-full overflow-hidden rounded-full bg-white/10">
-                <div className={`h-full rounded-full transition-all ${creditsBarColor}`} style={{ width: `${creditsPct}%` }} />
-              </div>
-              <p className="text-[11px] text-muted">{plan.creditsLimit - usageState.agentCreditsUsed} credits remaining</p>
-              {creditsPct >= 80 && <p className="mt-1.5 text-[11px] font-semibold text-amber-300">⚠ You are close to your credit limit.</p>}
-            </div>
-          </div>
-
-          {/* Detail stats */}
-          <div className="grid gap-3 md:grid-cols-4">
-            {[
-              { label: 'Tokens Used', value: usageState.tokenUsageThisMonth >= 1000 ? `${(usageState.tokenUsageThisMonth / 1000).toFixed(1)}k` : usageState.tokenUsageThisMonth.toString(), sub: 'this month' },
-              { label: 'Est. Cost', value: `$${usageState.estimatedCost.toFixed(2)}`, sub: 'this month' },
-              { label: 'Active Projects', value: '3', sub: `of ${plan.projectLimit === -1 ? '∞' : plan.projectLimit}` },
-              { label: 'Active Workflows', value: '2', sub: `of ${plan.activeWorkflowLimit === -1 ? '∞' : plan.activeWorkflowLimit}` },
-            ].map(({ label, value, sub }) => (
-              <div key={label} className="rounded-2xl border border-white/[0.07] bg-surface p-4">
-                <p className="mb-1 text-xs text-muted">{label}</p>
-                <p className="font-heading text-xl font-extrabold text-ink">{value}</p>
-                <p className="mt-0.5 text-[11px] text-subtle">{sub}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Recent events */}
-          {usageState.usageEvents.length > 0 && (
-            <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-ink">Recent Runs</p>
-                <button onClick={() => setBillingTab('invoices')} className="text-[11px] font-semibold text-accent/80 hover:text-accent transition">View all →</button>
-              </div>
-              <div className="space-y-2">
-                {usageState.usageEvents.slice(0, 3).map((ev) => (
-                  <div key={ev.id} className="flex items-center justify-between rounded-xl border border-white/[0.04] bg-white/[0.02] px-4 py-2.5">
-                    <div>
-                      <p className="text-[12px] font-semibold text-ink">{ev.workflowName}</p>
-                      <p className="text-[10px] text-muted">{ev.agentsUsed} agents · {ev.creditsUsed} credits · {new Date(ev.timestamp).toLocaleDateString()}</p>
-                    </div>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${ev.status === 'Completed' ? 'bg-emerald-400/15 text-emerald-400' : ev.status === 'Failed' ? 'bg-red-400/15 text-red-400' : 'bg-white/10 text-muted'}`}>{ev.status}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Plans tab ── */}
-      {billingTab === 'plans' && (
-        <div className="space-y-8">
-          {/* Monthly / Yearly toggle */}
-          <div className="flex flex-col items-center gap-3">
-            <div className="flex items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.04] p-1">
-              {(['monthly', 'yearly'] as const).map((cycle) => (
-                <button
-                  key={cycle}
-                  onClick={() => setBillingCycle(cycle)}
-                  className={`relative rounded-lg px-5 py-2 text-[13px] font-semibold transition-all ${billingCycle === cycle ? 'bg-white/[0.10] text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}
-                >
-                  {cycle === 'monthly' ? 'Monthly' : 'Yearly'}
-                  {cycle === 'yearly' && (
-                    <span className="ml-2 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-400">Save 20%</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Plan cards grid */}
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {PLANS.map((p) => {
-              const isCurrent = p.id === usageState.currentPlan;
-              const currentIdx = PLANS.findIndex((pl) => pl.id === usageState.currentPlan);
-              const thisIdx = PLANS.findIndex((pl) => pl.id === p.id);
-              const isUpgrade = thisIdx > currentIdx;
-              const displayPrice = billingCycle === 'yearly' ? p.priceYearly : p.price;
-              const planColors: Record<string, { border: string; glow: string; badge: string; cta: string }> = {
-                free:  { border: 'border-white/[0.10]',   glow: '',                                          badge: 'bg-white/[0.08] text-white/60',            cta: 'bg-white/[0.08] text-white hover:bg-white/[0.14]' },
-                basic: { border: 'border-[#4f9eff]/25',   glow: 'shadow-[0_0_40px_rgba(79,158,255,0.08)]',   badge: 'bg-[#4f9eff]/15 text-[#4f9eff]',           cta: 'bg-[#4f9eff] text-[#050508] hover:opacity-90' },
-                pro:   { border: 'border-[#7c5cfc]/40',   glow: 'shadow-[0_0_60px_rgba(124,92,252,0.18)]',   badge: 'bg-[#7c5cfc]/20 text-[#a78bfa]',           cta: 'bg-[#7c5cfc] text-white hover:opacity-90' },
-                max:   { border: 'border-[#f5c842]/20',   glow: 'shadow-[0_0_40px_rgba(245,200,66,0.08)]',   badge: 'bg-[#f5c842]/15 text-[#f5c842]',           cta: 'bg-gradient-to-r from-[#f5c842] to-[#f59e0b] text-[#1a0f00] hover:opacity-90' },
-              };
-              const colors = planColors[p.id];
-              return (
-                <div key={p.id} className={`relative flex flex-col rounded-2xl border p-5 transition-all ${colors.border} ${colors.glow} ${isCurrent ? 'bg-white/[0.04]' : 'bg-white/[0.02] hover:bg-white/[0.035]'}`}>
-                  {/* Recommended badge */}
-                  {p.recommended && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <span className="rounded-full bg-[#7c5cfc] px-3 py-1 text-[10px] font-bold tracking-wide text-white shadow-[0_0_16px_rgba(124,92,252,0.5)]">RECOMMENDED</span>
-                    </div>
-                  )}
-
-                  {/* Plan name + current badge */}
-                  <div className="mb-4 flex items-start justify-between">
-                    <p className="font-heading text-[15px] font-bold text-white/90">{p.name}</p>
-                    {isCurrent && (
-                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${colors.badge}`}>Current</span>
-                    )}
-                  </div>
-
-                  {/* Price */}
-                  <div className="mb-5">
-                    <div className="flex items-end gap-1.5">
-                      <span className="font-heading text-[36px] font-semibold leading-none text-white">{displayPrice}</span>
-                      {p.id !== 'free' && <span className="mb-1 text-[12px] text-white/35">/ mo</span>}
-                    </div>
-                    {billingCycle === 'yearly' && p.id !== 'free' && (
-                      <p className="mt-1 text-[11px] text-white/30">Billed annually ({p.price}/mo if monthly)</p>
-                    )}
-                    {p.id === 'free' && <p className="mt-1 text-[11px] text-white/30">No credit card required</p>}
-                  </div>
-
-                  {/* Features */}
-                  <ul className="mb-6 flex-1 space-y-2.5">
-                    {p.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2.5 text-[12px] text-white/60">
-                        <Check className="mt-px h-3 w-3 shrink-0 text-white/40" />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-
-                  {/* CTA */}
-                  {isCurrent ? (
-                    <div className={`rounded-xl border border-white/[0.1] px-3 py-2.5 text-center text-[12px] font-semibold text-white/50`}>
-                      Active Plan
-                    </div>
-                  ) : isUpgrade ? (
-                    <button
-                      onClick={() => setUpgradeModal({ toPlan: p.id, reason: 'pro-feature', featureName: `${p.name} Plan` })}
-                      className={`w-full rounded-xl py-2.5 text-[12px] font-bold transition ${colors.cta}`}
-                    >{p.cta}</button>
-                  ) : (
-                    <div className="rounded-xl border border-white/[0.06] px-3 py-2.5 text-center text-[12px] text-white/25">
-                      Downgrade
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Feature comparison note */}
-          <p className="text-center text-[11px] text-white/25">
-            All plans include Safety Mode, Approval Workflow, and AI Team Chat. No hidden fees.
-          </p>
-        </div>
-      )}
-
-      {/* ── Invoices tab ── */}
-      {billingTab === 'invoices' && (
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-white/[0.07] bg-surface overflow-hidden">
-            {usageState.currentPlan === 'free' && invoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <p className="text-sm font-semibold text-ink">No paid invoices yet</p>
-                <p className="mt-1 text-[12px] text-muted">Invoices will appear here when you upgrade to a paid plan.</p>
-                <button onClick={() => setBillingTab('plans')} className="mt-4 rounded-xl bg-accent px-5 py-2 text-[12px] font-bold text-[#0a0a14] transition hover:opacity-90">View Plans</button>
-              </div>
-            ) : (
-              <table className="w-full text-[12px]">
-                <thead>
-                  <tr className="border-b border-white/[0.06]">
-                    {['Invoice', 'Date', 'Plan', 'Amount', 'Status', 'Action'].map((h) => (
-                      <th key={h} className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} className="border-b border-white/[0.04] transition hover:bg-white/[0.02]">
-                      <td className="px-5 py-3 font-mono text-[11px] text-ink">{inv.id}</td>
-                      <td className="px-5 py-3 text-muted">{inv.date}</td>
-                      <td className="px-5 py-3 text-muted">{inv.plan}</td>
-                      <td className="px-5 py-3 font-semibold text-ink">{inv.amount}</td>
-                      <td className="px-5 py-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${inv.status === 'Paid' ? 'bg-emerald-400/15 text-emerald-400' : inv.status === 'Pending' ? 'bg-amber-400/15 text-amber-400' : 'bg-red-400/15 text-red-400'}`}>{inv.status}</span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <button className="text-[11px] font-semibold text-accent/80 hover:text-accent transition">Download</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* Run history */}
-          <div className="rounded-2xl border border-white/[0.07] bg-surface overflow-hidden">
-            <div className="border-b border-white/[0.06] px-5 py-3">
-              <p className="text-sm font-semibold text-ink">Workflow Run History</p>
-            </div>
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-b border-white/[0.06]">
-                  {['Workflow', 'Date', 'Agents', 'Credits', 'Tokens', 'Status'].map((h) => (
-                    <th key={h} className="px-5 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-muted">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {usageState.usageEvents.map((ev) => (
-                  <tr key={ev.id} className="border-b border-white/[0.04] transition hover:bg-white/[0.02]">
-                    <td className="px-5 py-2.5 font-medium text-ink">{ev.workflowName}</td>
-                    <td className="px-5 py-2.5 text-muted">{new Date(ev.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
-                    <td className="px-5 py-2.5 text-muted">{ev.agentsUsed}</td>
-                    <td className="px-5 py-2.5 text-muted">{ev.creditsUsed}</td>
-                    <td className="px-5 py-2.5 text-muted">{ev.tokensUsed >= 1000 ? `${(ev.tokensUsed / 1000).toFixed(1)}k` : ev.tokensUsed}</td>
-                    <td className="px-5 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${ev.status === 'Completed' ? 'bg-emerald-400/15 text-emerald-400' : ev.status === 'Failed' ? 'bg-red-400/15 text-red-400' : 'bg-white/10 text-muted'}`}>{ev.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── Payment tab ── */}
-      {billingTab === 'payment' && (
-        <div className="max-w-xl space-y-5">
-          {/* Payment method */}
-          <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-            <h3 className="mb-4 font-heading text-base font-bold text-ink">Payment Method</h3>
-            <div className="rounded-xl border border-dashed border-white/[0.15] bg-white/[0.02] px-5 py-6 text-center">
-              <p className="text-sm font-semibold text-ink mb-1">No payment method added</p>
-              <p className="text-[12px] text-muted mb-4">Add a card to upgrade your plan.</p>
-              <button className="rounded-xl border border-accent/20 bg-accent/[0.07] px-5 py-2 text-[12px] font-semibold text-accent transition hover:bg-accent/15">Add Payment Method</button>
-            </div>
-            <p className="mt-3 text-[10px] text-center text-muted">Payment processing coming soon. This is a mock interface for MVP.</p>
-          </div>
-
-          {/* Billing settings */}
-          <div className="rounded-2xl border border-white/[0.07] bg-surface p-5">
-            <h3 className="mb-4 font-heading text-base font-bold text-ink">Billing Settings</h3>
-            <div className="space-y-4">
-              {/* Billing email */}
-              <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
-                <div>
-                  <p className="text-sm font-medium text-ink">Billing Email</p>
-                  <p className="text-[12px] text-muted">{billingEmail}</p>
-                </div>
-                <button className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-[11px] font-semibold text-muted transition hover:text-ink">Edit</button>
-              </div>
-              {/* Billing cycle */}
-              <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
-                <div>
-                  <p className="text-sm font-medium text-ink">Billing Cycle</p>
-                  <p className="text-[12px] text-muted">{billingCycle === 'monthly' ? 'Billed monthly' : 'Billed yearly (2 months free)'}</p>
-                </div>
-                <div className="flex gap-1 rounded-lg border border-white/[0.1] p-0.5">
-                  {(['monthly', 'yearly'] as const).map((c) => (
-                    <button key={c} onClick={() => setBillingCycle(c)}
-                      className={`rounded px-3 py-1 text-[11px] font-semibold transition capitalize ${billingCycle === c ? 'bg-white/[0.1] text-ink' : 'text-muted hover:text-ink'}`}>{c}</button>
-                  ))}
-                </div>
-              </div>
-              {/* Auto-renew */}
-              <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
-                <div>
-                  <p className="text-sm font-medium text-ink">Auto-Renew</p>
-                  <p className="text-[12px] text-muted">Automatically renew on {usageState.resetDate}</p>
-                </div>
-                <button onClick={() => setAutoRenew((v) => !v)}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${autoRenew ? 'bg-accent' : 'bg-white/10'}`}>
-                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all ${autoRenew ? 'left-[26px]' : 'left-1'}`} />
-                </button>
-              </div>
-              {/* Cancel plan */}
-              {usageState.currentPlan !== 'free' && (
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-ink">Cancel Plan</p>
-                    <p className="text-[12px] text-muted">Downgrade to Free at end of billing cycle</p>
-                  </div>
-                  <button className="rounded-lg border border-red-500/30 px-3 py-1.5 text-[11px] font-semibold text-red-400 transition hover:bg-red-500/10">Cancel Plan</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Local upgrade modal within BillingPage */}
-      {upgradeModal && (
-        <UpgradeModal
-          modal={upgradeModal}
-          usageState={usageState}
-          setUsageState={setUsageState}
-          onClose={() => setUpgradeModal(null)}
-          onViewPlans={() => { setUpgradeModal(null); setBillingTab('plans'); }}
-          onUpgraded={() => setUpgradeModal(null)}
-        />
-      )}
-    </div>
+    </ModalShell>
   );
 }
-
-
 
 // ── RunHistoryModal ───────────────────────────────────────────────────────────
 function RunHistoryModal({
@@ -18300,7 +13198,7 @@ function RunHistoryModal({
     return 'bg-white/30';
   };
   const costBadge = (cost: number) => {
-    if (cost < 0.05) return { label: 'Low cost', cls: 'text-emerald-300 bg-emerald-400/10' };
+    if (cost < 0.05) return { label: 'Low Cost', cls: 'text-emerald-300 bg-emerald-400/10' };
     if (cost < 0.15) return { label: 'Medium cost', cls: 'text-amber-300 bg-amber-400/10' };
     return { label: 'High cost', cls: 'text-red-400 bg-red-400/10' };
   };
@@ -20588,6 +15486,20 @@ type AntTaskPlan = {
   requiresApproval: boolean;
   status: 'preview' | 'confirmed' | 'executing' | 'complete' | 'cancelled';
 };
+type AiAntBackendResponse = {
+  conversation_id: string;
+  message_id: string;
+  reply: string;
+  intent: string;
+  status: 'completed' | 'approval_required' | 'draft_created';
+  model: string;
+  confidence: number;
+  approval_required: boolean;
+  usage?: { input_tokens: number; output_tokens: number; estimated_cost_usd: number };
+  plan_id?: string | null;
+  plan_name?: string | null;
+  route_source?: string | null;
+};
 
 type AntExecutionMode = 'simple-chat' | 'single-agent' | 'ai-team' | 'workflow' | 'tool-action' | 'approval-sensitive';
 type ExecutionMode = 'simple_chat' | 'operator_task' | 'device_action' | 'single_agent' | 'agent_swarm' | 'one_man_enterprise' | 'workflow' | 'approval_sensitive' | 'deliverable_generation';
@@ -20850,8 +15762,6 @@ const MODEL_ROUTING_OPTIONS: Array<{ value: ModelRoutingPreference; label: strin
   { value: 'fast', label: 'Fast', shortLabel: 'Fast', description: 'Faster response, lower cost.' },
   { value: 'balanced', label: 'Balanced', shortLabel: 'Balanced', description: 'Good quality and speed.' },
   { value: 'best_quality', label: 'Best Quality', shortLabel: 'Best Quality', description: 'Use stronger models for complex reasoning.' },
-  { value: 'low_cost', label: 'Low Cost', shortLabel: 'Low Cost', description: 'Minimize usage cost.' },
-  { value: 'manual', label: 'Manual', shortLabel: 'Manual', description: 'Pick provider/model yourself.' },
 ];
 
 const MANUAL_MODEL_GROUPS: Array<{ capability: AgentCapability; label: string; models: Array<{ provider: ModelProvider | string; modelId: string; label: string }> }> = [
@@ -21236,6 +16146,70 @@ function buildRoutingDecisionWithPreference(
   };
 }
 
+function backendCapabilityForIntent(intent: string): AgentCapability {
+  if (intent.includes('workflow')) return 'workflow_automation';
+  if (intent.includes('file')) return 'file_reading';
+  if (intent.includes('deliverable') || intent.includes('report')) return 'summarization';
+  if (intent.includes('external') || intent.includes('action')) return 'connected_tool_action';
+  return 'text_reasoning';
+}
+
+function buildBackendRoutingDecision(prompt: string, response: AiAntBackendResponse, modelRoutingPreference: ModelRoutingPreference): RoutingDecision {
+  const capability = backendCapabilityForIntent(response.intent);
+  const route: ResolvedModel = {
+    capability,
+    providerMode: response.route_source === 'manual' ? 'manual' : 'auto',
+    provider: 'colony',
+    modelName: response.model,
+    displayName: response.model,
+    costTier: response.usage && response.usage.estimated_cost_usd > 0.01 ? 'standard' : 'low',
+    qualityTier: response.approval_required ? 'high' : 'standard',
+  };
+  const skill = createAgentSkill(capability);
+  return {
+    id: `backend-routing-${response.message_id}`,
+    userPrompt: prompt,
+    selectedMode: 'auto',
+    resolvedMode: response.approval_required ? 'connected_workspace' : response.intent.includes('workflow') ? 'automation' : 'chat',
+    confidence: response.confidence,
+    reason: `Backend selected ${response.intent.replace(/_/g, ' ')} using ${response.route_source ?? 'router'} routing.`,
+    requiredCapabilities: [capability],
+    selectedAgents: [{
+      id: 'backend-ai-ant',
+      name: 'AI Ant',
+      role: 'Backend router and executor',
+      status: response.status,
+      progress: response.status === 'completed' ? 100 : 35,
+      skills: [skill],
+      activeModel: {
+        capability,
+        provider: 'colony',
+        modelName: response.model,
+        mode: response.route_source === 'manual' ? 'manual' : 'auto',
+        costTier: route.costTier,
+        qualityTier: route.qualityTier,
+      },
+    }],
+    modelRoutes: [route],
+    estimatedCredits: response.usage ? Math.max(1, Math.ceil((response.usage.input_tokens + response.usage.output_tokens) / 1000)) : 1,
+    modelRoutingPreference,
+    backend: {
+      intent: response.intent,
+      status: response.status,
+      model: response.model,
+      planId: response.plan_id ?? undefined,
+      planName: response.plan_name ?? undefined,
+      routeSource: response.route_source ?? undefined,
+      approvalRequired: response.approval_required,
+      usage: response.usage ? {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        estimatedCostUsd: response.usage.estimated_cost_usd,
+      } : undefined,
+    },
+  };
+}
+
 function applyRoutingPreferenceToResolvedModel(route: ResolvedModel, preference: ModelRoutingPreference, manualModelSelection: ManualModelSelection | null): ResolvedModel {
   if (preference === 'manual' && manualModelSelection && manualModelSelection.capability === route.capability) {
     return {
@@ -21554,10 +16528,6 @@ type AntWorkflowDef = {
   triggeredBy: AntWorkflowTriggerSource; estimatedDuration: string;
   repairLog?: string[];
 };
-type WorkflowObserverStep = {
-  id: number; label: string; status: 'pending' | 'running' | 'done' | 'failed';
-  device: string; startedAt?: string; duration?: string; output?: string;
-};
 
 // ── Multi-Ant Collaboration Types (88-90) ────────────────────────────────────
 
@@ -21582,25 +16552,6 @@ type TeamMember = {
   id: string; name: string; role: TeamMemberRole; initials: string;
   online: boolean; devicesShared: number; lastActive: string;
   color: string;
-};
-type PolicyType = 'permission' | 'data' | 'safety' | 'compliance' | 'audit';
-type PolicyScope = 'global' | 'team' | 'user';
-type OrgPolicy = {
-  id: string; name: string; description: string; scope: PolicyScope;
-  enabled: boolean; enforced: boolean; type: PolicyType;
-  affectedRoles: TeamMemberRole[];
-};
-type AuditResult = 'allowed' | 'blocked' | 'flagged' | 'escalated';
-type AuditEntry = {
-  id: string; time: string; user: string; action: string;
-  resource: string; result: AuditResult; riskLevel: AntRiskLevel;
-  category: AntNotificationCategory; device: string; sessionId: string;
-};
-type ReplayFrameType = 'action' | 'screenshot' | 'approval' | 'message' | 'tool' | 'memory';
-type SessionReplayFrame = {
-  id: string; time: string; elapsed: string; type: ReplayFrameType;
-  description: string; device: string; icon: string;
-  riskLevel?: AntRiskLevel; approved?: boolean;
 };
 
 // ── State machine helpers ─────────────────────────────────────────────────────
@@ -21829,13 +16780,6 @@ const ANT_WORKFLOWS_INITIAL: AntWorkflowDef[] = [
   { id: 'wf5', name: 'File Organization Sweep', description: 'Scan downloads → classify → move to target folders → save patterns', icon: '📁', stepCount: 5, status: 'complete', progress: 100, origin: 'prompt', lastRun: '1h ago', triggeredBy: 'user', estimatedDuration: '~30s' },
 ];
 
-const WORKFLOW_OBSERVER_STEPS: WorkflowObserverStep[] = [
-  { id: 1, label: 'Capture latest screenshot', status: 'done', device: 'MacBook Pro', startedAt: '09:13:01', duration: '0.3s', output: '1 screenshot captured — 1.2 MB' },
-  { id: 2, label: 'Run Vision OCR engine', status: 'done', device: 'AI Ant', startedAt: '09:13:02', duration: '2.1s', output: '14 data points extracted' },
-  { id: 3, label: 'Classify and validate data', status: 'running', device: 'AI Ant', startedAt: '09:13:05' },
-  { id: 4, label: 'Route metrics to workflow', status: 'pending', device: 'Colony Engine' },
-];
-
 const ANT_COLONY_SESSION: AntColonySession = {
   id: 'colony-1', objective: 'Prepare and deliver Q2 Finance Summary Package',
   status: 'executing', overallProgress: 58, startedAt: '09:10', estimatedComplete: '09:16',
@@ -21853,35 +16797,6 @@ const ANT_TEAM_MEMBERS: TeamMember[] = [
   { id: 'tm2', name: 'Sarah K.', role: 'member', initials: 'SK', online: true, devicesShared: 2, lastActive: '5m ago', color: 'emerald' },
   { id: 'tm3', name: 'Mark T.', role: 'member', initials: 'MT', online: false, devicesShared: 1, lastActive: '2h ago', color: 'amber' },
   { id: 'tm4', name: 'Ji-won P.', role: 'viewer', initials: 'JP', online: true, devicesShared: 0, lastActive: '12m ago', color: 'blue' },
-];
-
-const ORG_POLICIES: OrgPolicy[] = [
-  { id: 'pol1', name: 'Finance data requires approval', description: 'Any action touching finance files must be approved before execution', scope: 'global', enabled: true, enforced: true, type: 'safety', affectedRoles: ['admin', 'member', 'viewer'] },
-  { id: 'pol2', name: 'No external export without sign-off', description: 'Files cannot leave the workspace without at least one admin approval', scope: 'global', enabled: true, enforced: true, type: 'compliance', affectedRoles: ['member', 'viewer'] },
-  { id: 'pol3', name: 'Viewer read-only enforcement', description: 'Users with viewer role cannot trigger any write or export operations', scope: 'team', enabled: true, enforced: true, type: 'permission', affectedRoles: ['viewer'] },
-  { id: 'pol4', name: 'Audit all High Risk actions', description: 'Every High Risk operation is logged with full context and stored for 90 days', scope: 'global', enabled: true, enforced: false, type: 'audit', affectedRoles: ['admin', 'member'] },
-  { id: 'pol5', name: 'Auto-mode restricted to admin', description: 'Full autonomy (Auto mode) is only available to admin-role users', scope: 'team', enabled: false, enforced: false, type: 'permission', affectedRoles: ['member', 'viewer'] },
-];
-
-const AUDIT_ENTRIES: AuditEntry[] = [
-  { id: 'au1', time: '09:18', user: 'AI Ant', action: 'SYNC', resource: 'Analysis_Q1.pdf → Google Drive', result: 'flagged', riskLevel: 'Moderate', category: 'export', device: 'MacBook Pro', sessionId: 'sess-001' },
-  { id: 'au2', time: '09:14', user: 'You', action: 'APPROVE', resource: 'Finance Workflow execution', result: 'allowed', riskLevel: 'Safe', category: 'workflow', device: 'MacBook Pro', sessionId: 'sess-001' },
-  { id: 'au3', time: '09:13', user: 'AI Ant', action: 'READ', resource: 'Q2_Report.pdf', result: 'allowed', riskLevel: 'Safe', category: 'file', device: 'MacBook Pro', sessionId: 'sess-001' },
-  { id: 'au4', time: '09:12', user: 'AI Ant', action: 'OCR_EXTRACT', resource: '4 screenshots', result: 'allowed', riskLevel: 'Safe', category: 'task', device: 'MacBook Pro', sessionId: 'sess-001' },
-  { id: 'au5', time: '09:10', user: 'You', action: 'DELETE_REQUEST', resource: '/Downloads/old-files/', result: 'blocked', riskLevel: 'High Risk', category: 'risk', device: 'MacBook Pro', sessionId: 'sess-001' },
-  { id: 'au6', time: '09:08', user: 'Sarah K.', action: 'READ', resource: 'Budget_Planning_2026.xlsx', result: 'allowed', riskLevel: 'Safe', category: 'file', device: 'Windows Desktop', sessionId: 'sess-002' },
-  { id: 'au7', time: '09:05', user: 'AI Ant', action: 'EXPORT', resource: 'Q1_Summary.pdf → Email', result: 'allowed', riskLevel: 'Moderate', category: 'export', device: 'MacBook Pro', sessionId: 'sess-001' },
-];
-
-const SESSION_REPLAY_FRAMES: SessionReplayFrame[] = [
-  { id: 'rf1', time: '09:10:00', elapsed: '0:00', type: 'message', description: 'Task started: "Summarize Q2 Finance Report and send to team"', device: 'MacBook Pro', icon: '💬' },
-  { id: 'rf2', time: '09:10:02', elapsed: '0:02', type: 'tool', description: 'File System tool selected — scanning /Documents/Reports/', device: 'MacBook Pro', icon: '📁' },
-  { id: 'rf3', time: '09:10:05', elapsed: '0:05', type: 'action', description: 'Q2_Report.pdf located — 2.3 MB, modified today at 09:42', device: 'MacBook Pro', icon: '📄', riskLevel: 'Safe' },
-  { id: 'rf4', time: '09:10:08', elapsed: '0:08', type: 'screenshot', description: 'Vision OCR activated — extracting key metrics from report', device: 'AI Ant', icon: '👁' },
-  { id: 'rf5', time: '09:10:14', elapsed: '0:14', type: 'action', description: 'Summary generated: Revenue $2.4M, 48 enterprise units, 7 pending', device: 'AI Ant', icon: '📋', riskLevel: 'Safe' },
-  { id: 'rf6', time: '09:10:18', elapsed: '0:18', type: 'approval', description: 'Approval requested: Send to Slack #reports channel', device: 'System', icon: '🔐', riskLevel: 'Sensitive', approved: true },
-  { id: 'rf7', time: '09:10:24', elapsed: '0:24', type: 'action', description: 'File delivered to Slack #reports — confirmed receipt', device: 'MacBook Pro', icon: '💬', riskLevel: 'Safe' },
-  { id: 'rf8', time: '09:10:26', elapsed: '0:26', type: 'memory', description: 'Pattern saved: Finance reports → Slack #reports delivery', device: 'AI Ant', icon: '🧠' },
 ];
 
 // ── Mock AI engine ─────────────────────────────────────────────────────────────
@@ -22567,9 +17482,95 @@ const AGENT_MODE_OPTIONS: Array<{ mode: AgentInputMode; description: string; ico
   { mode: 'Chat', description: 'Ask AI Ant directly.', icon: MessageSquare },
   { mode: 'Colony Crew', description: 'Assemble a specialist AI crew for one task.', icon: Users },
   { mode: 'One-man Enterprise', description: 'Create an AI company-style workspace for a bigger project.', icon: Building2 },
-  { mode: 'Workflow', description: 'Create repeatable AI processes for recurring work.', icon: Workflow },
+  { mode: 'Workflow', description: 'Turn repeatable work into an automation.', icon: Workflow },
   { mode: 'Device', description: 'Bridge AI Ant to files, apps, browser, and connected tools after approval.', icon: Laptop },
 ];
+
+const ANT_PROMPT_SUGGESTIONS = [
+  { label: 'Summarize the latest report', mode: 'Chat' as AgentInputMode },
+  { label: 'Build an AI team for this task', mode: 'Colony Crew' as AgentInputMode },
+  { label: 'Research competitors', mode: 'Colony Crew' as AgentInputMode },
+  { label: 'Turn this into a workflow', mode: 'Workflow' as AgentInputMode },
+  { label: 'Draft a weekly sales summary', mode: 'Chat' as AgentInputMode },
+  { label: 'Create a market analysis', mode: 'Colony Crew' as AgentInputMode },
+];
+
+function AntPromptSuggestions({ onPick }: { onPick: (suggestion: { label: string; mode: AgentInputMode }) => void }) {
+  return (
+    <div className="rounded-[22px] border border-white/[0.06] bg-white/[0.018] px-4 py-3.5">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <span className="pr-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/26">Suggestions</span>
+        {ANT_PROMPT_SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion.label}
+            onClick={() => onPick(suggestion)}
+            className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-[12px] font-medium text-white/54 transition hover:border-white/[0.14] hover:bg-white/[0.055] hover:text-white/82"
+          >
+            {suggestion.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AntAssistantMessageActions({
+  feedback,
+  copied,
+  onFeedback,
+  onRegenerate,
+  onCopy,
+}: {
+  feedback?: 'up' | 'down';
+  copied?: boolean;
+  onFeedback: (value: 'up' | 'down') => void;
+  onRegenerate: () => void;
+  onCopy: () => void;
+}) {
+  const actionClass = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition';
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-0.5 text-white/42">
+      <button
+        onClick={() => onFeedback('up')}
+        title="Good response"
+        className={`${actionClass} ${feedback === 'up' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white/72'}`}
+      >
+        <Check className="h-3.5 w-3.5" />
+        Good response
+      </button>
+      <button
+        onClick={() => onFeedback('down')}
+        title="Not helpful"
+        className={`${actionClass} ${feedback === 'down' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white/72'}`}
+      >
+        <X className="h-3.5 w-3.5" />
+        Not helpful
+      </button>
+      <button
+        onClick={onRegenerate}
+        title="Regenerate"
+        className={`${actionClass} border-white/[0.07] bg-white/[0.025] hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white/72`}
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        Regenerate
+      </button>
+      <button
+        onClick={onCopy}
+        title="Copy response"
+        className={`${actionClass} ${copied ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200' : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white/72'}`}
+      >
+        <ClipboardCheck className="h-3.5 w-3.5" />
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      <button
+        title="More"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/[0.07] bg-white/[0.025] transition hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white/72"
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
 
 function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice, large, agentMode, setAgentMode, modelRoutingPreference, setModelRoutingPreference, manualModelSelection, setManualModelSelection }: {
   prompt: string; onChange: (v: string) => void; onSubmit: (v: string) => void;
@@ -22581,8 +17582,39 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
   setManualModelSelection: (selection: ManualModelSelection) => void;
 }) {
   const [modeOpen, setModeOpen] = React.useState(false);
+  const [addMenuOpen, setAddMenuOpen] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const visibleAgentMode = normalizeAgentInputMode(agentMode);
   const SelectedIcon = AGENT_MODE_OPTIONS.find((item) => item.mode === visibleAgentMode)?.icon ?? Sparkles;
+
+  const handleAddFiles = () => {
+    setAddMenuOpen(false);
+    fileInputRef.current?.click();
+  };
+  const handleFilesChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) return;
+    const names = files.map((file) => file.name).join(', ');
+    onChange(prompt ? `${prompt}\nAttached: ${names}` : `Attached: ${names}`);
+    event.target.value = '';
+  };
+  const handleAddLink = () => {
+    setAddMenuOpen(false);
+    if (typeof window === 'undefined') return;
+    const url = window.prompt('Paste a URL to add as context:');
+    if (!url) return;
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    onChange(prompt ? `${prompt}\n${trimmed}` : trimmed);
+  };
+  const handleAddFromProject = () => {
+    setAddMenuOpen(false);
+    onChange(prompt ? `${prompt}\n@project ` : '@project ');
+  };
+  const handleConnectTool = () => {
+    setAddMenuOpen(false);
+    onChange(prompt ? `${prompt}\n@tool ` : '@tool ');
+  };
   const placeholderByMode: Record<AgentInputMode, string> = {
     Auto: 'Tell AI Ant what you want to accomplish...',
     Chat: 'Ask AI Ant anything...',
@@ -22594,49 +17626,98 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
     Device: 'Describe what AI Ant should do across your files, apps, browser, or tools...',
   };
   return (
-    <div className={`relative rounded-[${large ? '22px' : '18px'}] border ${large ? 'border-white/[0.12]' : 'border-white/[0.09]'} bg-[#0b1220] ${large ? 'p-4' : 'p-2.5'} shadow-[0_18px_70px_rgba(0,0,0,0.34)] backdrop-blur-xl transition focus-within:border-[#6f7cff]/45 focus-within:shadow-[0_18px_80px_rgba(79,158,255,0.12)]`}>
-      <div className={`${large ? 'rounded-[16px] px-1 py-0.5' : 'rounded-[13px] px-1 py-0.5'} bg-[#0b1220]`}>
+    <BorderGlow
+      backgroundColor="#0b101c"
+      borderRadius={large ? 26 : 20}
+      edgeSensitivity={22}
+      glowColor="265 95 72"
+      glowRadius={38}
+      glowIntensity={1.4}
+      coneSpread={25}
+      colors={['#a78bfa', '#7c5cfc', '#7db7ff']}
+      // Disable the soft-light mesh fill so the textarea area and the toolbar
+      // share the exact same flat surface (no purple tint bleeding through
+      // the prompt half of the composer).
+      fillOpacity={0}
+      className={`ant-composer relative ${large ? 'p-4' : 'p-3'} shadow-[0_22px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl`}
+    >
+      <div className={large ? 'px-1 pt-1' : 'px-1 pt-0.5'}>
         <textarea
           value={prompt}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(prompt); } }}
           placeholder={placeholderByMode[visibleAgentMode]}
           rows={1}
-          className={`${large ? 'text-[22px] font-medium leading-[1.45] tracking-0' : 'text-sm leading-relaxed'} block w-full resize-none overflow-hidden rounded-[inherit] border-0 bg-transparent text-white/88 caret-violet-200 outline-none placeholder:text-white/30`}
-          style={{ maxHeight: large ? 168 : 140, minHeight: large ? 112 : 42 }}
+          className="ant-composer-textarea block w-full resize-none overflow-hidden border-0 bg-transparent text-[16px] font-normal leading-[1.6] text-white/85 caret-violet-200 outline-none focus:outline-none focus:ring-0"
+          style={{ maxHeight: large ? 168 : 140, minHeight: large ? 96 : 42 }}
           onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, large ? 180 : 140) + 'px'; }}
         />
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button className={`flex ${large ? 'h-9 w-9' : 'h-8 w-8'} shrink-0 items-center justify-center rounded-xl border border-white/[0.08] text-white/35 transition hover:bg-white/[0.08] hover:text-white/70`} title="Add source">
-          <Plus className="h-4 w-4" />
-        </button>
+      <div className="ant-composer-toolbar mt-3 flex flex-wrap items-center gap-2 pt-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip"
+          className="hidden"
+          onChange={handleFilesChosen}
+        />
+        <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className={`ant-ctrl-neutral flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-[12px] ${addMenuOpen ? 'is-active-violet' : ''}`}
+              title="Add to prompt"
+            >
+              <Plus className={`h-4 w-4 transition-transform duration-200 ${addMenuOpen ? 'rotate-45' : ''}`} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side={large ? 'bottom' : 'top'}
+            align="start"
+            sideOffset={6}
+            className="!w-[260px] overflow-hidden !rounded-[14px] !p-1.5"
+          >
+            <p className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/35">Add to prompt</p>
+            <AddMenuItem icon={Upload} label="Upload files or images" onClick={handleAddFiles} />
+            <AddMenuItem icon={FolderOpen} label="Add from project" onClick={handleAddFromProject} />
+            <AddMenuItem icon={Plug} label="Connect a tool" onClick={handleConnectTool} />
+            <AddMenuItem icon={LinkIcon} label="Add a link" onClick={handleAddLink} />
+            <div className="my-1.5 mx-2 h-px bg-white/[0.06]" />
+            <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Generation</p>
+            <AddMenuItem icon={ImageIcon} label="Generate image" comingSoon />
+            <AddMenuItem icon={VideoIcon} label="Create video" comingSoon />
+          </PopoverContent>
+        </Popover>
 
-        <div className="relative">
-          <button onClick={() => setModeOpen((open) => !open)}
-            className="flex h-9 items-center gap-2 rounded-full border border-violet-400/25 bg-violet-500/[0.10] px-3 text-xs font-bold text-violet-100 transition hover:border-violet-300/40 hover:bg-violet-500/[0.16]">
-            <SelectedIcon className="h-3.5 w-3.5" />
-            {AGENT_MODE_LABEL[visibleAgentMode]}
-            <ChevronDown className={`h-3.5 w-3.5 transition ${modeOpen ? 'rotate-180' : ''}`} />
-          </button>
-          {modeOpen && (
-            <>
-              <div className="fixed inset-0 z-[180]" onClick={() => setModeOpen(false)} />
-              <div className={`absolute ${large ? 'top-11' : 'bottom-11'} left-0 z-[181] max-h-[min(520px,calc(100vh-140px))] w-[min(310px,calc(100vw-32px))] overflow-y-auto rounded-[16px] border border-white/[0.10] bg-[#111827] p-1.5 shadow-[0_24px_70px_rgba(0,0,0,0.55)]`}>
-                {AGENT_MODE_OPTIONS.map(({ mode, description, icon: Icon }) => (
-                  <button key={mode} onClick={() => { setAgentMode(mode); setModeOpen(false); }}
-                    className={`flex w-full items-start gap-3 rounded-[12px] px-3 py-2.5 text-left transition ${visibleAgentMode === mode ? 'bg-violet-500/15 text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white'}`}>
-                    <Icon className="mt-0.5 h-4 w-4 shrink-0 text-violet-200/75" />
-                    <span>
-                      <span className="block text-[13px] font-bold">{AGENT_MODE_LABEL[mode]}</span>
-                      <span className="mt-0.5 block text-[11px] leading-snug text-white/38">{description}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <Popover open={modeOpen} onOpenChange={setModeOpen}>
+          <PopoverTrigger asChild>
+            <button className="ant-ctrl-accent flex h-10 items-center gap-2 rounded-full px-3.5 text-xs font-semibold">
+              <SelectedIcon className="h-3.5 w-3.5" />
+              {AGENT_MODE_LABEL[visibleAgentMode]}
+              <ChevronDown className={`h-3.5 w-3.5 transition ${modeOpen ? 'rotate-180' : ''}`} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side={large ? 'bottom' : 'top'}
+            align="start"
+            sideOffset={6}
+            className="!w-[min(310px,calc(100vw-32px))] max-h-[min(520px,calc(100vh-140px))] overflow-y-auto !rounded-[16px] !bg-[#111827] !p-1.5"
+          >
+            {AGENT_MODE_OPTIONS.map(({ mode, description, icon: Icon }) => (
+              <button
+                key={mode}
+                onClick={() => { setAgentMode(mode); setModeOpen(false); }}
+                className={`flex w-full items-start gap-3 rounded-[12px] px-3 py-2.5 text-left transition ${visibleAgentMode === mode ? 'bg-violet-500/15 text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white'}`}
+              >
+                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-violet-200/75" />
+                <span>
+                  <span className="block text-[13px] font-bold">{AGENT_MODE_LABEL[mode]}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-white/38">{description}</span>
+                </span>
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
 
         <ModelRoutingSelector
           value={modelRoutingPreference}
@@ -22646,27 +17727,54 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
           large={large}
         />
 
-        <span className="hidden rounded-full border border-white/[0.07] bg-white/[0.035] px-2.5 py-1 text-[11px] font-semibold text-white/32 sm:inline-flex">39 left</span>
+        <span className="ant-ctrl-chip hidden h-10 items-center rounded-full px-3 text-[11px] font-semibold text-white/40 sm:inline-flex">39 left</span>
         <div className="min-w-[12px] flex-1" />
 
         <button onClick={onToggleVoice}
-          className={`relative flex ${large ? 'h-9 w-9' : 'h-8 w-8'} shrink-0 items-center justify-center rounded-xl transition ${voiceActive ? 'bg-violet-500/20 text-violet-200' : 'border border-white/[0.08] text-white/35 hover:bg-white/[0.08] hover:text-white/70'}`}
+          className={`ant-ctrl-neutral relative flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-[12px] ${voiceActive ? 'is-active-violet' : ''}`}
           title="Voice">
-          {voiceActive && <span className="absolute inset-0 animate-ping rounded-xl bg-violet-500/30" />}
+          {voiceActive && <span className="absolute inset-0 animate-ping rounded-[12px] bg-violet-500/24" />}
           <span className="text-sm">{voiceActive ? '🎙️' : '🎤'}</span>
         </button>
-        <button className={`flex ${large ? 'h-9 w-9' : 'h-8 w-8'} shrink-0 items-center justify-center rounded-xl border border-white/[0.08] text-white/35 transition hover:bg-white/[0.08] hover:text-white/70`} title="Attach file">
+        <button className={`ant-ctrl-neutral flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-[12px]`} title="Attach file">
           <Upload className="h-4 w-4" />
         </button>
-        <button className="hidden h-9 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-3 text-[11px] font-semibold text-white/45 transition hover:text-white/75 sm:flex">
-          Mode: Auto <ChevronDown className="h-3 w-3" />
-        </button>
         <button onClick={() => onSubmit(prompt)} disabled={!prompt.trim()}
-          className={`flex ${large ? 'h-9 px-4' : 'h-8 px-3'} shrink-0 items-center justify-center rounded-[12px] bg-violet-600 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500 disabled:opacity-25`}>
-          Send
+          className={`ant-ctrl-send group flex ${large ? 'h-10 min-w-[88px] px-[18px]' : 'h-9 min-w-[78px] px-4'} shrink-0 items-center justify-center gap-2 rounded-full text-xs font-semibold ${prompt.trim() ? 'is-armed' : 'is-disabled'}`}>
+          <span>Send</span>
+          <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
       </div>
-    </div>
+    </BorderGlow>
+  );
+}
+
+function AddMenuItem({ icon: Icon, label, onClick, comingSoon }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick?: () => void;
+  comingSoon?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={comingSoon}
+      onClick={comingSoon ? undefined : onClick}
+      className={`flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2 text-left text-[13px] transition ${
+        comingSoon
+          ? 'cursor-not-allowed text-white/35'
+          : 'text-white/80 hover:bg-white/[0.06] hover:text-white'
+      }`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 ${comingSoon ? 'text-white/25' : 'text-violet-200/75'}`} />
+      <span className="flex-1 truncate">{label}</span>
+      {comingSoon && (
+        <span className="rounded-full border border-white/[0.10] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-white/40">
+          Coming soon
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -22681,64 +17789,63 @@ function ModelRoutingSelector({ value, onChange, manualSelection, onManualSelect
   const [manualOpen, setManualOpen] = React.useState(value === 'manual');
   const current = MODEL_ROUTING_OPTIONS.find((option) => option.value === value) ?? MODEL_ROUTING_OPTIONS[0];
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((next) => !next)}
-        className="flex h-9 items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.045] px-3 text-xs font-bold text-white/62 transition hover:border-white/[0.16] hover:bg-white/[0.07] hover:text-white"
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="flex h-10 items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.03] px-3.5 text-xs font-semibold text-white/62 transition hover:border-white/[0.16] hover:bg-white/[0.07] hover:text-white">
+          <Brain className="h-3.5 w-3.5 text-cyan-200/75" />
+          <span className="hidden sm:inline">Model:</span> {current.shortLabel}
+          <ChevronDown className={`h-3.5 w-3.5 transition ${open ? 'rotate-180' : ''}`} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={large ? 'bottom' : 'top'}
+        align="start"
+        sideOffset={6}
+        className="!w-[min(380px,calc(100vw-32px))] max-h-[min(560px,calc(100vh-140px))] overflow-y-auto !rounded-[16px] !bg-[#111827] !p-1.5"
       >
-        <Brain className="h-3.5 w-3.5 text-cyan-200/75" />
-        <span className="hidden sm:inline">Model:</span> {current.shortLabel}
-        <ChevronDown className={`h-3.5 w-3.5 transition ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-[180]" onClick={() => setOpen(false)} />
-          <div className={`absolute ${large ? 'top-11' : 'bottom-11'} left-0 z-[181] w-[min(380px,calc(100vw-32px))] overflow-hidden rounded-[16px] border border-white/[0.10] bg-[#111827] p-1.5 shadow-[0_24px_70px_rgba(0,0,0,0.55)]`}>
-            {MODEL_ROUTING_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => {
-                  onChange(option.value);
-                  setManualOpen(option.value === 'manual');
-                  if (option.value !== 'manual') setOpen(false);
-                }}
-                className={`flex w-full items-start gap-3 rounded-[12px] px-3 py-2.5 text-left transition ${value === option.value ? 'bg-cyan-500/12 text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white'}`}
-              >
-                <Brain className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200/75" />
-                <span>
-                  <span className="block text-[13px] font-bold">{option.label}</span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-white/38">{option.description}</span>
-                </span>
-              </button>
-            ))}
-            {(manualOpen || value === 'manual') && (
-              <div className="mt-1 max-h-[300px] overflow-y-auto border-t border-white/[0.07] pt-2">
-                {MANUAL_MODEL_GROUPS.map((group) => (
-                  <div key={group.capability} className="mb-2">
-                    <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/28">{group.label}</p>
-                    {group.models.map((model) => {
-                      const active = manualSelection?.capability === group.capability && manualSelection.modelId === model.modelId;
-                      return (
-                        <button
-                          key={`${group.capability}-${model.modelId}`}
-                          onClick={() => {
-                            onManualSelection({ capability: group.capability, provider: model.provider, modelId: model.modelId });
-                            onChange('manual');
-                          }}
-                          className={`block w-full rounded-[10px] px-3 py-2 text-left text-xs transition ${active ? 'bg-violet-500/15 text-violet-100' : 'text-white/55 hover:bg-white/[0.05] hover:text-white/80'}`}
-                        >
-                          {model.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
+        {MODEL_ROUTING_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            onClick={() => {
+              onChange(option.value);
+              setManualOpen(option.value === 'manual');
+              if (option.value !== 'manual') setOpen(false);
+            }}
+            className={`flex w-full items-start gap-3 rounded-[12px] px-3 py-2.5 text-left transition ${value === option.value ? 'bg-cyan-500/12 text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white'}`}
+          >
+            <Brain className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200/75" />
+            <span>
+              <span className="block text-[13px] font-bold">{option.label}</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-white/38">{option.description}</span>
+            </span>
+          </button>
+        ))}
+        {(manualOpen || value === 'manual') && (
+          <div className="mt-1 max-h-[300px] overflow-y-auto border-t border-white/[0.07] pt-2">
+            {MANUAL_MODEL_GROUPS.map((group) => (
+              <div key={group.capability} className="mb-2">
+                <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/28">{group.label}</p>
+                {group.models.map((model) => {
+                  const active = manualSelection?.capability === group.capability && manualSelection.modelId === model.modelId;
+                  return (
+                    <button
+                      key={`${group.capability}-${model.modelId}`}
+                      onClick={() => {
+                        onManualSelection({ capability: group.capability, provider: model.provider, modelId: model.modelId });
+                        onChange('manual');
+                      }}
+                      className={`block w-full rounded-[10px] px-3 py-2 text-left text-xs transition ${active ? 'bg-violet-500/15 text-violet-100' : 'text-white/55 hover:bg-white/[0.05] hover:text-white/80'}`}
+                    >
+                      {model.label}
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            ))}
           </div>
-        </>
-      )}
-    </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -23832,11 +18939,9 @@ function AIAntSmartSuggestions({ suggestions, onApply, onDismiss }: {
 
 // ── Feature 84-87: Workflow Panel, Observer, Repair ───────────────────────────
 
-function AIAntWorkflowPanel({ workflows, onTrigger, onObserve, onRepair, onCreate }: {
+function AIAntWorkflowPanel({ workflows, onTrigger, onCreate }: {
   workflows: AntWorkflowDef[];
   onTrigger: (id: string) => void;
-  onObserve: (id: string) => void;
-  onRepair: (id: string) => void;
   onCreate: () => void;
 }) {
   const statusDot: Record<AntWorkflowStatus, string> = {
@@ -23897,18 +19002,6 @@ function AIAntWorkflowPanel({ workflows, onTrigger, onObserve, onRepair, onCreat
                 ▶ Run
               </button>
             )}
-            {wf.status === 'running' && (
-              <button onClick={() => onObserve(wf.id)}
-                className="flex-1 rounded-[8px] border border-emerald-500/25 bg-emerald-500/[0.07] py-1 text-[10px] font-semibold text-emerald-300 transition hover:bg-emerald-500/[0.14]">
-                👁 Observe
-              </button>
-            )}
-            {wf.status === 'failed' && (
-              <button onClick={() => onRepair(wf.id)}
-                className="flex-1 rounded-[8px] border border-red-500/25 bg-red-500/[0.07] py-1 text-[10px] font-semibold text-red-300 transition hover:bg-red-500/[0.14]">
-                🔧 Repair
-              </button>
-            )}
             {wf.lastRun && (
               <span className="ml-auto text-[9px] text-white/20 shrink-0">Last: {wf.lastRun}</span>
             )}
@@ -23919,145 +19012,9 @@ function AIAntWorkflowPanel({ workflows, onTrigger, onObserve, onRepair, onCreat
   );
 }
 
-function AIAntWorkflowObserver({ workflow, steps, paused, onTogglePause, onStop, onClose }: {
-  workflow: AntWorkflowDef;
-  steps: WorkflowObserverStep[];
-  paused: boolean;
-  onTogglePause: () => void;
-  onStop: () => void;
-  onClose: () => void;
-}) {
-  const stepColors: Record<WorkflowObserverStep['status'], string> = {
-    done: 'border-emerald-500/30 bg-emerald-500/[0.07]',
-    running: 'border-blue-500/30 bg-blue-500/[0.07]',
-    pending: 'border-white/[0.07] bg-white/[0.02]',
-    failed: 'border-red-500/30 bg-red-500/[0.07]',
-  };
-  const stepIconColor: Record<WorkflowObserverStep['status'], string> = {
-    done: 'border-emerald-400 bg-emerald-500/20 text-emerald-400',
-    running: 'border-blue-400 bg-blue-500/20 text-blue-400 animate-pulse',
-    pending: 'border-white/[0.12] bg-white/[0.04] text-white/25',
-    failed: 'border-red-400 bg-red-500/20 text-red-400',
-  };
-  const stepIcon: Record<WorkflowObserverStep['status'], string> = {
-    done: '✓', running: '●', pending: '○', failed: '✕',
-  };
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-[20px] border border-white/[0.08] bg-[#0B1020] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-base">{workflow.icon}</span>
-            <div>
-              <p className="text-[12px] font-bold text-white/90">{workflow.name}</p>
-              <p className="text-[9px] text-white/30">Observation Mode · {paused ? 'Paused' : 'Live'}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white/70 transition text-lg leading-none">✕</button>
-        </div>
-        <div className="p-4">
-          <div className="mb-4">
-            <div className="flex justify-between mb-1.5">
-              <span className="text-[9px] font-semibold uppercase tracking-widest text-white/25">Overall Progress</span>
-              <span className="text-[9px] text-emerald-400">{workflow.progress}%</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
-              <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-500 transition-all"
-                style={{ width: `${workflow.progress}%` }} />
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 mb-4">
-            {steps.map(step => (
-              <div key={step.id} className={`flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 ${stepColors[step.status]}`}>
-                <span className={`mt-0.5 h-4 w-4 shrink-0 rounded-full flex items-center justify-center text-[9px] font-bold border ${stepIconColor[step.status]}`}>
-                  {stepIcon[step.status]}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-medium leading-tight text-white/80">{step.label}</p>
-                  <p className="text-[9px] text-white/30">{step.device}{step.duration ? ` · ${step.duration}` : ''}</p>
-                  {step.output && step.status === 'done' && (
-                    <p className="mt-1 text-[9px] text-emerald-400/80">{step.output}</p>
-                  )}
-                  {step.status === 'running' && (
-                    <p className="mt-1 text-[9px] text-blue-400/70 animate-pulse">Running…</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={onTogglePause}
-              className={`flex-1 rounded-[10px] border py-2 text-[11px] font-semibold transition ${paused ? 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300 hover:bg-emerald-500/[0.15]' : 'border-amber-500/30 bg-amber-500/[0.08] text-amber-300 hover:bg-amber-500/[0.15]'}`}>
-              {paused ? '▶ Resume' : '⏸ Pause'}
-            </button>
-            <button onClick={onStop}
-              className="flex-1 rounded-[10px] border border-red-500/25 bg-red-500/[0.07] py-2 text-[11px] font-semibold text-red-300 transition hover:bg-red-500/[0.14]">
-              ⏹ Stop
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-function AIAntWorkflowRepair({ workflow, onApplyFix, onClose }: {
-  workflow: AntWorkflowDef;
-  onApplyFix: (fix: string) => void;
-  onClose: () => void;
-}) {
-  const fixes = [
-    { id: 'f1', label: 'Run Vision OCR pre-processor', description: 'Convert scanned PDF to searchable text before parsing', icon: '👁', confidence: 0.91 },
-    { id: 'f2', label: 'Switch to fallback PDF parser', description: 'Use secondary parser with better handling for encrypted files', icon: '🔀', confidence: 0.86 },
-    { id: 'f3', label: 'Request source file replacement', description: 'Ask user to provide an unlocked version of the document', icon: '🙋', confidence: 0.78 },
-  ];
-  return (
-    <div className="flex flex-col gap-2.5">
-      <div className="rounded-[12px] border border-red-500/20 bg-red-500/[0.05] p-3">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-base">{workflow.icon}</span>
-          <div>
-            <p className="text-[11px] font-bold text-red-300">{workflow.name}</p>
-            <p className="text-[9px] text-white/30">Failed at step 3 of {workflow.stepCount}</p>
-          </div>
-        </div>
-        {workflow.repairLog && (
-          <div className="flex flex-col gap-0.5">
-            {workflow.repairLog.map((log, i) => (
-              <div key={i} className="flex items-start gap-1.5 text-[10px]">
-                <span className={`shrink-0 mt-0.5 ${i === 0 ? 'text-red-400' : i === 1 ? 'text-amber-400' : 'text-blue-400'}`}>
-                  {i === 0 ? '✕' : i === 1 ? '⚠' : '→'}
-                </span>
-                <span className="text-white/50">{log}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 px-0.5">AI Repair Suggestions</p>
-      {fixes.map(fix => (
-        <div key={fix.id} className="rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-          <div className="flex items-start justify-between gap-2 mb-1.5">
-            <div className="flex items-center gap-2">
-              <span>{fix.icon}</span>
-              <p className="text-[11px] font-semibold text-white/85">{fix.label}</p>
-            </div>
-            <span className="text-[9px] text-violet-400/70 shrink-0">{Math.round(fix.confidence * 100)}%</span>
-          </div>
-          <p className="mb-2.5 text-[10px] text-white/35 leading-snug">{fix.description}</p>
-          <button onClick={() => onApplyFix(fix.label)}
-            className="w-full rounded-[8px] border border-violet-500/25 bg-violet-500/[0.08] py-1.5 text-[10px] font-semibold text-violet-300 transition hover:bg-violet-500/[0.16]">
-            Apply this fix
-          </button>
-        </div>
-      ))}
-      <button onClick={onClose}
-        className="rounded-[10px] border border-white/[0.08] py-2 text-[11px] text-white/30 transition hover:text-white/60">
-        Dismiss
-      </button>
-    </div>
-  );
-}
+
+
 
 // ── Feature 88-90: Multi-Ant Colony Panel ─────────────────────────────────────
 
@@ -24165,288 +19122,13 @@ function AIAntColonyPanel({ session }: { session: AntColonySession }) {
   );
 }
 
-// ── Feature 91: Team Device Access Panel ──────────────────────────────────────
 
-function AIAntTeamPanel({ members }: { members: TeamMember[] }) {
-  const roleColor: Record<TeamMemberRole, string> = {
-    admin: 'border-violet-500/30 bg-violet-500/[0.08] text-violet-300',
-    member: 'border-blue-500/25 bg-blue-500/[0.06] text-blue-300',
-    viewer: 'border-white/[0.10] bg-white/[0.04] text-white/40',
-  };
-  const colorMap: Record<string, string> = {
-    violet: 'bg-violet-500', emerald: 'bg-emerald-500', amber: 'bg-amber-500', blue: 'bg-blue-500',
-  };
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-1">Team Members</p>
-      {members.map(m => (
-        <div key={m.id} className="flex items-center gap-3 rounded-[12px] border border-white/[0.07] bg-white/[0.03] px-3 py-2.5">
-          <div className="relative shrink-0">
-            <div className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold text-white ${colorMap[m.color] ?? 'bg-white/20'}`}>
-              {m.initials}
-            </div>
-            <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#060810] ${m.online ? 'bg-emerald-500' : 'bg-white/20'}`} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="text-[11px] font-semibold text-white/85">{m.name}</p>
-              <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${roleColor[m.role]}`}>
-                {m.role}
-              </span>
-            </div>
-            <p className="text-[9px] text-white/30">
-              {m.devicesShared} device{m.devicesShared !== 1 ? 's' : ''} shared · {m.lastActive}
-            </p>
-          </div>
-        </div>
-      ))}
-      <div className="mt-0.5 rounded-[10px] border border-dashed border-white/[0.10] px-3 py-2 text-center cursor-pointer hover:border-white/[0.18] transition">
-        <p className="text-[10px] text-white/25">+ Invite team member</p>
-      </div>
-    </div>
-  );
-}
 
-// ── Feature 92: Organization Policy Manager ───────────────────────────────────
 
-function AIAntPolicyManager({ policies, onToggleEnabled, onToggleEnforced }: {
-  policies: OrgPolicy[];
-  onToggleEnabled: (id: string) => void;
-  onToggleEnforced: (id: string) => void;
-}) {
-  const typeIcon: Record<PolicyType, string> = {
-    permission: '🔑', data: '💾', safety: '🛡', compliance: '📋', audit: '📊',
-  };
-  const scopeColor: Record<PolicyScope, string> = {
-    global: 'border-violet-500/25 bg-violet-500/[0.06] text-violet-300',
-    team: 'border-blue-500/25 bg-blue-500/[0.06] text-blue-300',
-    user: 'border-white/[0.10] bg-white/[0.04] text-white/40',
-  };
-  return (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-1">Organization Policies</p>
-      {policies.map(pol => (
-        <div key={pol.id} className={`rounded-[12px] border px-3 py-2.5 transition ${pol.enabled ? 'border-white/[0.08] bg-white/[0.03]' : 'border-white/[0.04] bg-white/[0.01] opacity-55'}`}>
-          <div className="flex items-start gap-2 mb-2">
-            <span className="text-base shrink-0">{typeIcon[pol.type]}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                <p className="text-[11px] font-semibold text-white/85">{pol.name}</p>
-                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase ${scopeColor[pol.scope]}`}>
-                  {pol.scope}
-                </span>
-              </div>
-              <p className="text-[9px] text-white/35 leading-snug">{pol.description}</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 cursor-pointer select-none" onClick={() => onToggleEnabled(pol.id)}>
-                <div className={`relative h-3.5 w-6 rounded-full transition-colors ${pol.enabled ? 'bg-violet-500/60' : 'bg-white/[0.10]'}`}>
-                  <div className={`absolute top-0.5 left-0.5 h-2.5 w-2.5 rounded-full bg-white transition-transform ${pol.enabled ? 'translate-x-2.5' : 'translate-x-0'}`} />
-                </div>
-                <span className="text-[9px] text-white/40">Enabled</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none" onClick={() => onToggleEnforced(pol.id)}>
-                <div className={`relative h-3.5 w-6 rounded-full transition-colors ${pol.enforced ? 'bg-amber-500/60' : 'bg-white/[0.10]'}`}>
-                  <div className={`absolute top-0.5 left-0.5 h-2.5 w-2.5 rounded-full bg-white transition-transform ${pol.enforced ? 'translate-x-2.5' : 'translate-x-0'}`} />
-                </div>
-                <span className="text-[9px] text-white/40">Enforced</span>
-              </label>
-            </div>
-            <div className="flex gap-0.5">
-              {pol.affectedRoles.map(r => (
-                <span key={r} className="rounded px-1 py-0.5 text-[7px] font-bold uppercase bg-white/[0.05] text-white/30">{r}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
-// ── Feature 93: Audit & Compliance Log ────────────────────────────────────────
 
-function AIAntAuditLog({ entries, onExport }: {
-  entries: AuditEntry[];
-  onExport: () => void;
-}) {
-  const [filter, setFilter] = React.useState<'all' | AuditResult>('all');
-  const filtered = filter === 'all' ? entries : entries.filter(e => e.result === filter);
-  const resultBadge: Record<AuditResult, string> = {
-    allowed: 'border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-400',
-    blocked: 'border-red-500/25 bg-red-500/[0.07] text-red-400',
-    flagged: 'border-amber-500/25 bg-amber-500/[0.07] text-amber-400',
-    escalated: 'border-orange-500/25 bg-orange-500/[0.07] text-orange-400',
-  };
-  const riskDot: Record<AntRiskLevel, string> = {
-    Safe: 'bg-emerald-500', Moderate: 'bg-amber-400', Sensitive: 'bg-orange-400', 'High Risk': 'bg-red-400',
-  };
-  const filters: Array<{ key: 'all' | AuditResult; label: string }> = [
-    { key: 'all', label: `All (${entries.length})` },
-    { key: 'allowed', label: 'Allowed' },
-    { key: 'blocked', label: 'Blocked' },
-    { key: 'flagged', label: 'Flagged' },
-    { key: 'escalated', label: 'Escalated' },
-  ];
-  return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between">
-        <p className="text-[9px] font-bold uppercase tracking-widest text-white/20">Audit Log</p>
-        <button onClick={onExport}
-          className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[9px] font-semibold text-white/40 transition hover:text-white/70">
-          <span>↓</span><span>Export</span>
-        </button>
-      </div>
-      <div className="flex gap-1 flex-wrap">
-        {filters.map(f => (
-          <button key={f.key} onClick={() => setFilter(f.key)}
-            className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold transition ${filter === f.key ? 'border-violet-500/40 bg-violet-500/[0.12] text-violet-300' : 'border-white/[0.08] text-white/30 hover:text-white/55'}`}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {filtered.map(entry => (
-          <div key={entry.id} className="rounded-[10px] border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-            <div className="flex items-start justify-between gap-2 mb-1">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${riskDot[entry.riskLevel]}`} />
-                <span className="text-[10px] font-semibold text-white/80">{entry.action}</span>
-                <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold ${resultBadge[entry.result]}`}>
-                  {entry.result}
-                </span>
-              </div>
-              <span className="text-[9px] text-white/25 shrink-0">{entry.time}</span>
-            </div>
-            <p className="text-[9px] text-white/40 truncate">{entry.resource}</p>
-            <div className="mt-1 flex items-center gap-2 text-[8px] text-white/20">
-              <span>{entry.user}</span><span>·</span><span>{entry.device}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
-// ── Feature 94: Session Replay ─────────────────────────────────────────────────
 
-function AIAntSessionReplay({ frames, onClose }: {
-  frames: SessionReplayFrame[];
-  onClose: () => void;
-}) {
-  const [playing, setPlaying] = React.useState(false);
-  const [currentIdx, setCurrentIdx] = React.useState(0);
-
-  React.useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => {
-      setCurrentIdx(prev => {
-        if (prev >= frames.length - 1) { setPlaying(false); return prev; }
-        return prev + 1;
-      });
-    }, 900);
-    return () => window.clearInterval(id);
-  }, [playing, frames.length]);
-
-  const current = frames[currentIdx];
-  const frameTypeColor: Record<ReplayFrameType, string> = {
-    action: 'text-blue-400', screenshot: 'text-cyan-400', approval: 'text-amber-400',
-    message: 'text-white/60', tool: 'text-violet-400', memory: 'text-emerald-400',
-  };
-  const frameTypeBg: Record<ReplayFrameType, string> = {
-    action: 'border-blue-500/20 bg-blue-500/[0.06]',
-    screenshot: 'border-cyan-500/20 bg-cyan-500/[0.06]',
-    approval: 'border-amber-500/20 bg-amber-500/[0.06]',
-    message: 'border-white/[0.08] bg-white/[0.03]',
-    tool: 'border-violet-500/20 bg-violet-500/[0.06]',
-    memory: 'border-emerald-500/20 bg-emerald-500/[0.06]',
-  };
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-[20px] border border-white/[0.08] bg-[#0B1020] shadow-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 shrink-0">
-          <div>
-            <p className="font-heading text-[14px] font-extrabold text-white/90">Session Replay</p>
-            <p className="text-[10px] text-white/30">{frames.length} frames · {frames[frames.length - 1]?.elapsed}s total</p>
-          </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white/70 transition text-lg leading-none">✕</button>
-        </div>
-
-        <div className={`shrink-0 mx-4 mt-4 rounded-[14px] border p-4 ${frameTypeBg[current.type]}`}>
-          <div className="flex items-start gap-3">
-            <span className="text-2xl shrink-0">{current.icon}</span>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className={`text-[9px] font-bold uppercase tracking-widest ${frameTypeColor[current.type]}`}>{current.type}</span>
-                {current.riskLevel && current.riskLevel !== 'Safe' && (
-                  <span className="text-[9px] text-amber-400">· {current.riskLevel}</span>
-                )}
-                {current.approved !== undefined && (
-                  <span className={`text-[9px] font-semibold ${current.approved ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {current.approved ? '✓ Approved' : '✕ Denied'}
-                  </span>
-                )}
-              </div>
-              <p className="text-[12px] font-medium text-white/85 leading-snug">{current.description}</p>
-              <div className="mt-2 flex items-center gap-3 text-[9px] text-white/30 flex-wrap">
-                <span>📍 {current.device}</span>
-                <span>🕐 {current.time}</span>
-                <span>⏱ +{current.elapsed}s</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="shrink-0 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] text-white/25 w-6 shrink-0">{currentIdx + 1}</span>
-            <div className="flex flex-1 gap-0.5">
-              {frames.map((f, i) => (
-                <button key={f.id} onClick={() => { setPlaying(false); setCurrentIdx(i); }}
-                  className={`h-1.5 flex-1 rounded-full transition-all ${i === currentIdx ? 'bg-violet-400' : i < currentIdx ? 'bg-white/20' : 'bg-white/[0.07]'}`} />
-              ))}
-            </div>
-            <span className="text-[9px] text-white/25 w-6 shrink-0 text-right">{frames.length}</span>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-3 min-h-0">
-          <div className="flex flex-col gap-1.5">
-            {frames.map((f, i) => (
-              <button key={f.id} onClick={() => { setPlaying(false); setCurrentIdx(i); }}
-                className={`flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left w-full transition ${i === currentIdx ? 'bg-white/[0.06] ring-1 ring-violet-500/25' : 'hover:bg-white/[0.03]'}`}>
-                <span className="text-sm shrink-0">{f.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[10px] font-medium truncate ${i === currentIdx ? 'text-white/90' : 'text-white/50'}`}>{f.description}</p>
-                  <p className={`text-[8px] ${frameTypeColor[f.type]}`}>{f.type} · {f.device}</p>
-                </div>
-                <span className="text-[8px] text-white/25 shrink-0">+{f.elapsed}s</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="shrink-0 border-t border-white/[0.06] p-4 flex items-center gap-2">
-          <button onClick={() => { setPlaying(false); setCurrentIdx(Math.max(0, currentIdx - 1)); }}
-            className="h-8 w-8 rounded-xl border border-white/[0.08] bg-white/[0.05] text-sm text-white/50 hover:text-white/80 transition flex items-center justify-center">
-            ‹‹
-          </button>
-          <button onClick={() => setPlaying(p => !p)}
-            className={`flex-1 rounded-xl border py-1.5 text-sm font-bold transition ${playing ? 'border-amber-500/30 bg-amber-500/[0.08] text-amber-300' : 'border-violet-500/30 bg-violet-500/[0.10] text-violet-300 hover:bg-violet-500/[0.18]'}`}>
-            {playing ? '⏸ Pause' : '▶ Play'}
-          </button>
-          <button onClick={() => { setPlaying(false); setCurrentIdx(Math.min(frames.length - 1, currentIdx + 1)); }}
-            className="h-8 w-8 rounded-xl border border-white/[0.08] bg-white/[0.05] text-sm text-white/50 hover:text-white/80 transition flex items-center justify-center">
-            ››
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Orchestration types ───────────────────────────────────────────────────────
 
@@ -24957,33 +19639,6 @@ function workspaceMemberAvatar(member: WorkspaceMember) {
 function workspaceMemberInitials(member: WorkspaceMember) {
   return member.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'M';
 }
-
-/*
-function buildEnterpriseSetupAgentsLegacy(): EnterpriseSetupAgent[] {
-  return [
-    { id: 'es-director', code: 'DR', name: 'AI Ant Director', role: 'Operator / Executive director', avatar: ENTERPRISE_AGENT_AVATARS.director },
-    { id: 'es-pm', code: 'PM', name: 'Project Manager', role: 'Plans work and coordinates agents', avatar: ENTERPRISE_AGENT_AVATARS.manager },
-    { id: 'es-research', code: 'RA', name: 'Research Agent', role: 'Collects market and source context', avatar: ENTERPRISE_AGENT_AVATARS.research },
-    { id: 'es-analyst', code: 'AN', name: 'Analyst Agent', role: 'Synthesizes findings into decisions', avatar: ENTERPRISE_AGENT_AVATARS.analyst },
-    { id: 'es-writer', code: 'WR', name: 'Writer Agent', role: 'Creates the final deliverable', avatar: ENTERPRISE_AGENT_AVATARS.writer },
-    { id: 'es-quality', code: 'QC', name: 'Quality Checker', role: 'Reviews output and approval risk', avatar: ENTERPRISE_AGENT_AVATARS.quality },
-  ];
-}
-
-function buildEnterpriseSetup(goal: string): OneManEnterpriseSetup {
-  return {
-    goal,
-    projectTitle: titleFromGoal(goal),
-    overallProgress: 0,
-    status: 'initializing',
-    steps: ENTERPRISE_SETUP_BLUEPRINT.map((s, i) => ({
-      id: `ess-${i}`, label: s.label, description: s.description, status: i === 0 ? 'active' : 'pending',
-    })),
-    agents: buildEnterpriseSetupAgents(),
-    revealCount: 0,
-  };
-}
-*/
 
 function EnterpriseSetupPanel({ setup, onOpenWorkspace, onCancel }: {
   setup: OneManEnterpriseSetup;
@@ -25571,10 +20226,25 @@ function EnterpriseWorkspace({ project, onBack }: { project: EnterpriseWorkspace
   const agentName = React.useCallback((id?: string) => agents.find((agent) => agent.id === id)?.name ?? 'AI Ant', [agents]);
   const AgentAvatar = ({ agent, size = 'md', selected = false }: { agent: EnterpriseWorkspaceAgent; size?: 'sm' | 'md' | 'lg' | 'xl'; selected?: boolean }) => {
     const sizeClass = size === 'xl' ? 'h-[76px] w-[76px] rounded-[20px]' : size === 'lg' ? 'h-14 w-14 rounded-[17px]' : size === 'sm' ? 'h-10 w-10 rounded-[12px]' : 'h-11 w-11 rounded-[14px]';
+    const fallbackTextSize = size === 'xl' ? 'text-2xl' : size === 'lg' ? 'text-lg' : size === 'sm' ? 'text-xs' : 'text-sm';
+    const initials = (agent.name || 'AI').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || 'AI';
     return (
       <span className={`relative grid shrink-0 place-items-center overflow-hidden border bg-[#f4f4f8] ${sizeClass} ${selected ? 'border-violet-300/70 shadow-[0_0_20px_rgba(124,92,252,0.30)]' : 'border-white/[0.12]'}`}>
-        <img src={agent.avatar} alt={agent.name} draggable={false} className="h-full w-full object-cover" />
-        <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0a101d] ${statusDot[agent.status]}`} />
+        {/* Fallback initials painted behind the image — visible if the
+            avatar asset fails to load (we hide the broken <img>). */}
+        <span className={`col-start-1 row-start-1 flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-500/85 to-indigo-600/85 font-bold tracking-tight text-white ${fallbackTextSize}`} aria-hidden>
+          {initials}
+        </span>
+        {agent.avatar && (
+          <img
+            src={agent.avatar}
+            alt={agent.name}
+            draggable={false}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            className="relative col-start-1 row-start-1 h-full w-full object-cover"
+          />
+        )}
+        <span className={`absolute -bottom-0.5 -right-0.5 z-10 h-3 w-3 rounded-full border-2 border-[#0a101d] ${statusDot[agent.status]}`} />
       </span>
     );
   };
@@ -25891,6 +20561,33 @@ function EnterpriseWorkspace({ project, onBack }: { project: EnterpriseWorkspace
   };
   const autoLayoutGraph = autoLayoutAgents;
   const resetView = fitCanvas;
+
+  // Keep a live ref to the latest fitCanvas closure so deferred callers
+  // (RAF / Layout button) always pick up the newest positions.
+  const fitCanvasRef = React.useRef(fitCanvas);
+  React.useEffect(() => { fitCanvasRef.current = fitCanvas; }, [fitCanvas]);
+
+  // Fit the organization into the viewport once on mount so the user
+  // never opens the workspace to an empty canvas with nodes off-screen.
+  const didInitialFitRef = React.useRef(false);
+  React.useEffect(() => {
+    if (didInitialFitRef.current) return;
+    if (!canvasStageRef.current || agents.length === 0) return;
+    const id = requestAnimationFrame(() => {
+      fitCanvasRef.current();
+      didInitialFitRef.current = true;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [agents.length]);
+
+  const layoutAndFit = React.useCallback(() => {
+    autoLayoutAgents();
+    // Two RAFs let React paint with the new node positions before
+    // fitCanvas measures the bounding box.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => fitCanvasRef.current());
+    });
+  }, [autoLayoutAgents]);
   const highlightConnectedNodes = (nodeId: string) => {
     setSelectedAgentId(nodeId);
     setSelectedConnectionId('');
@@ -26002,8 +20699,14 @@ function EnterpriseWorkspace({ project, onBack }: { project: EnterpriseWorkspace
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
       }}
-      className={`absolute h-[92px] w-[204px] rounded-[18px] border p-3 text-left transition ${draggingAgentId === agent.id ? 'cursor-grabbing' : 'cursor-grab'} ${selectedAgent?.id === agent.id ? 'border-violet-300/55 bg-violet-500/18 shadow-[0_0_34px_rgba(124,92,252,0.28)]' : 'border-white/[0.10] bg-[#101827]/92 hover:border-white/[0.18]'}`}
-      style={{ left: agent.position.x, top: agent.position.y }}
+      className={`absolute min-h-[92px] w-[204px] rounded-[18px] border p-3 text-left transition ${draggingAgentId === agent.id ? 'cursor-grabbing' : 'cursor-grab'} ${selectedAgent?.id === agent.id ? 'border-violet-300/55 bg-violet-500/18 shadow-[0_0_34px_rgba(124,92,252,0.28)]' : 'border-white/[0.10] bg-[#101827]/92 hover:border-white/[0.18]'}`}
+      style={{
+        left: agent.position.x,
+        top: agent.position.y,
+        // Elevate the dragging or selected node so it always paints
+        // above sibling nodes (and above the SVG edge layer).
+        zIndex: draggingAgentId === agent.id ? 50 : selectedAgent?.id === agent.id ? 30 : 10,
+      }}
       data-agent-id={agent.id}
     >
       <span
@@ -26052,9 +20755,13 @@ function EnterpriseWorkspace({ project, onBack }: { project: EnterpriseWorkspace
         data-add-agent-menu
         onClick={(event) => {
           event.stopPropagation();
-          setAgentAddMenu({ x: event.clientX, y: event.clientY, parentId: agent.id });
+          // Open the proper Add agent modal with this node as the parent.
+          // The modal prompts for role / name / responsibility and creates
+          // the parent → child edge on save.
+          addChildNode(agent.id, true);
         }}
-        className="absolute bottom-[-34px] left-1/2 z-10 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#0b101d]/95 px-3 py-1.5 text-[10px] font-extrabold text-white/62 shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition hover:border-violet-300/35 hover:bg-violet-500/20 hover:text-white"
+        title={`Add agent under ${agent.name}`}
+        className="absolute bottom-[-34px] left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#0b101d]/95 px-3 py-1.5 text-[10px] font-extrabold text-white/62 shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition hover:border-violet-300/35 hover:bg-violet-500/20 hover:text-white"
       >
         + Add
       </button>
@@ -26077,7 +20784,7 @@ function EnterpriseWorkspace({ project, onBack }: { project: EnterpriseWorkspace
           <span className="mx-0.5 h-3.5 w-px shrink-0 bg-white/[0.10]" />
           <button onClick={resetView} title="Fit all nodes in view" className="rounded-[7px] px-2 py-1 text-[10px] font-bold text-white/55 transition hover:bg-white/[0.07] hover:text-white/85">Fit</button>
           <button onClick={() => setIsLocked((l) => !l)} title={isLocked ? 'Unlock panning' : 'Lock panning'} className={`rounded-[7px] px-2 py-1 text-[10px] font-bold transition ${isLocked ? 'bg-amber-400/12 text-amber-200 hover:bg-amber-400/20' : 'text-white/55 hover:bg-white/[0.07] hover:text-white/85'}`}>{isLocked ? 'Unlock' : 'Lock'}</button>
-          <button onClick={autoLayoutGraph} title="Reset node layout" className="rounded-[7px] px-2 py-1 text-[10px] font-bold text-white/55 transition hover:bg-white/[0.07] hover:text-white/85">Layout</button>
+          <button onClick={layoutAndFit} title="Reset node layout and fit" className="rounded-[7px] px-2 py-1 text-[10px] font-bold text-white/55 transition hover:bg-white/[0.07] hover:text-white/85">Layout</button>
           <span className="mx-0.5 h-3.5 w-px shrink-0 bg-white/[0.10]" />
           <button onClick={() => setIsLive((l) => !l)} title="Toggle live updates" className={`flex items-center gap-1.5 rounded-[7px] px-2 py-1 text-[10px] font-bold transition ${isLive ? 'text-emerald-200 hover:bg-emerald-400/10' : 'text-white/35 hover:bg-white/[0.07] hover:text-white/60'}`}>
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isLive ? 'animate-pulse bg-emerald-300' : 'bg-white/25'}`} />
@@ -27085,92 +21792,7 @@ const CREW_PHASE_BADGE: Record<CrewPhase, { label: string; cls: string }> = {
   stopped: { label: 'stopped', cls: 'border-white/20 bg-white/10 text-white/60' },
 };
 
-// ── ProviderLogo (model-routing UI) ───────────────────────────────────────────
-// Real SVGs live in public/assets/Ai logo/. Mapping is keyed by lowercase
-// provider id; the component falls back to the provider initial when the file
-// is missing or fails to load. Drop new SVGs into the folder and the UI picks
-// them up automatically.
-// Path is pre-encoded (the folder name contains a space) so browsers/Vite
-// resolve it reliably without relying on automatic URL encoding.
-const PROVIDER_LOGO_DIR = '/assets/Ai%20logo';
-// Filenames match the actual SVGs in public/assets/Ai logo/ — they use PascalCase
-// and some contain spaces (encoded as %20). Vite serves these case-sensitively.
-const logoFile = (name: string) => `${PROVIDER_LOGO_DIR}/${name.replace(/ /g, '%20')}`;
-const PROVIDER_LOGO_PATHS: Record<string, string> = {
-  openai:           logoFile('OpenAI.svg'),
-  chatgpt:          logoFile('ChatGPT.svg'),
-  google:           logoFile('Google.svg'),
-  gemini:           logoFile('Gemini.svg'),
-  deepseek:         logoFile('DeepSeek.svg'),
-  perplexity:       logoFile('Perplexity.svg'),
-  anthropic:        logoFile('ANTHROPIC.svg'),
-  claude:           logoFile('Claude.svg'),
-  xai:              logoFile('xAI.svg'),
-  grok:             logoFile('Grok.svg'),
-  mistral:          logoFile('Mistral AI.svg'),
-  cohere:           logoFile('Cohere.svg'),
-  stability:        logoFile('stability.ai.svg'),
-  zapier:           logoFile('Zapier.svg'),
-  cursor:           logoFile('Cursor.svg'),
-  codex:            logoFile('Codex.svg'),
-  huggingface:      logoFile('Hugging Face.svg'),
-  fireworks:        logoFile('Fireworks AI.svg'),
-  manus:            logoFile('manus.svg'),
-  copilot:          logoFile('Microsoft Copilot.svg'),
-  microsoft:        logoFile('Microsoft Copilot.svg'),
-  kimi:             logoFile('Kimi.svg'),
-  qwen:             logoFile('Qwen.svg'),
-  minimax:          logoFile('MiniMax.svg'),
-  antigravity:      logoFile('Antigravity.svg'),
-  'google-antigravity': logoFile('Google Antigravity.svg'),
-  glean:            logoFile('Glean.svg'),
-  jasper:           logoFile('Jasper.svg'),
-  notion:           logoFile('Notion.svg'),
-  apple:            logoFile('Apple.svg'),
-  'apple-intelligence': logoFile('Apple Intelligence.svg'),
-  meta:             logoFile('Meta.svg'),
-  nvidia:           logoFile('Nvidia.svg'),
-  tesla:            logoFile('Tesla.svg'),
-  poe:              logoFile('Poe.svg'),
-};
 
-// Single source of truth for the provider logo badge. White rounded tile,
-// subtle border, soft drop shadow, with inner breathing space so logos sit
-// cleanly centered. Used by ModelChip, ModelCard, the One-Man Enterprise
-// setup matching modal, and any future provider/model surface.
-function ProviderLogo({ provider, size = 'sm' }: { provider?: string; size?: 'xs' | 'sm' | 'md' | 'lg' }) {
-  const px = size === 'xs' ? 18 : size === 'sm' ? 24 : size === 'md' ? 32 : 40;
-  const radius = size === 'lg' ? 10 : size === 'md' ? 9 : 7;
-  const key = (provider ?? '').toLowerCase();
-  const src = PROVIDER_LOGO_PATHS[key];
-  const initial = (provider?.trim()?.[0] ?? '?').toUpperCase();
-  const [errored, setErrored] = React.useState(false);
-  // All visual properties pinned via inline style so the badge stays a clean
-  // white tile regardless of Tailwind cascade or parent classes (a `bg-white`
-  // class can be defeated by composite/gradient parents).
-  return (
-    <span
-      title={provider}
-      className="grid shrink-0 place-items-center overflow-hidden text-[10px] font-bold"
-      style={{
-        width: px,
-        height: px,
-        borderRadius: radius,
-        padding: Math.max(1, Math.round(px * 0.08)),
-        backgroundColor: '#ffffff',
-        border: '1px solid rgba(15, 23, 42, 0.08)',
-        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.04)',
-        color: '#0a101d',
-      }}>
-      {src && !errored ? (
-        <img src={src} alt={provider} draggable={false}
-          onError={() => { setErrored(true); if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) console.warn(`[ProviderLogo] missing asset: ${src}`); }}
-          className="object-contain"
-          style={{ width: '100%', height: '100%' }} />
-      ) : initial}
-    </span>
-  );
-}
 
 function CrewAgentAvatar({ src, size = 40 }: { src: string; size?: number }) {
   return (
@@ -28066,35 +22688,7 @@ function DeviceActionFlowCard({ req, onApproveOnce, onApproveProject, onReject, 
   );
 }
 
-function DeviceActionCard({ action, onApprove, onReject }: { action: DeviceAction; onApprove: () => void; onReject: () => void }) {
-  const riskTone: Record<DeviceActionRisk, string> = {
-    low: 'text-emerald-300 bg-emerald-400/10 border-emerald-400/20',
-    medium: 'text-amber-300 bg-amber-400/10 border-amber-400/20',
-    high: 'text-orange-300 bg-orange-400/10 border-orange-400/20',
-    critical: 'text-red-300 bg-red-400/10 border-red-400/20',
-  };
-  return (
-    <div className="w-full max-w-3xl rounded-[18px] border border-amber-300/15 bg-amber-400/[0.045] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/65">Device action</p>
-          <h3 className="mt-1 text-base font-bold text-white/88">{action.description}</h3>
-          <p className="mt-1 text-sm text-white/45">{action.preview}</p>
-        </div>
-        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${riskTone[action.riskLevel]}`}>{action.riskLevel}</span>
-      </div>
-      <div className="mt-3 rounded-[12px] bg-black/15 p-3 text-sm text-white/58">
-        Tool/device: <span className="text-white/80">{action.deviceId}</span> · Target: <span className="text-white/80">{action.target}</span>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button onClick={onApprove} className="rounded-[12px] bg-violet-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-violet-500">Approve once</button>
-        <button className="rounded-[12px] border border-white/[0.10] bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/55 transition hover:text-white">Approve for project</button>
-        <button className="rounded-[12px] border border-white/[0.10] bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/55 transition hover:text-white">Edit</button>
-        <button onClick={onReject} className="rounded-[12px] border border-red-400/20 bg-red-400/[0.07] px-4 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-400/[0.12]">Reject</button>
-      </div>
-    </div>
-  );
-}
+
 
 function DeliverablePreviewCard({ deliverable, onApprove }: { deliverable: ColonyDeliverable; onApprove: () => void }) {
   return (
@@ -28130,104 +22724,254 @@ function DeliverablePreviewCard({ deliverable, onApprove }: { deliverable: Colon
   );
 }
 
-function AIRoutingCard({ routing, onStart, onCustomize, onCheaper, onQuality }: {
+const MODE_DELIVERABLE: Record<string, string> = {
+  chat: 'Chat response',
+  simple_chat: 'Chat response',
+  agent: 'Task result',
+  crew: 'Team deliverable',
+  colony_crew: 'Team deliverable',
+  workflow: 'Automation run',
+  deep_research: 'Research report',
+  device: 'Device action',
+  one_man_enterprise: 'Operational plan',
+};
+const MODE_NEXT_STEP: Record<string, string> = {
+  chat: 'Answer directly',
+  simple_chat: 'Answer directly',
+  agent: 'Run agent task',
+  crew: 'Assemble crew',
+  colony_crew: 'Assemble crew',
+  workflow: 'Build automation',
+  deep_research: 'Plan research',
+  device: 'Plan device actions',
+  one_man_enterprise: 'Plan operations',
+};
+const MODE_DISPLAY: Record<string, string> = {
+  chat: 'Simple Chat',
+  simple_chat: 'Simple Chat',
+  agent: 'Agent',
+  crew: 'Colony Crew',
+  colony_crew: 'Colony Crew',
+  workflow: 'Workflow',
+  deep_research: 'Deep Research',
+  device: 'Device',
+  one_man_enterprise: 'One-man Enterprise',
+};
+const MODE_HINT: Record<string, string> = {
+  chat: 'This looks like a normal question or explanation.',
+  simple_chat: 'This looks like a normal question or explanation.',
+  agent: 'A single agent can handle this task end-to-end.',
+  crew: 'A specialist team is the best fit for this goal.',
+  colony_crew: 'A specialist team is the best fit for this goal.',
+  workflow: 'This is a repeatable process worth automating.',
+  deep_research: 'This needs structured research with sources.',
+  device: 'This involves actions across your apps or files.',
+  one_man_enterprise: 'This operates like a small business or org.',
+};
+
+function AIRoutingCard({ routing, onStart, onCustomize, onCheaper, onQuality, onChangeMode }: {
   routing: RoutingDecision;
   onStart: () => void;
   onCustomize: () => void;
   onCheaper: () => void;
   onQuality: () => void;
+  onChangeMode?: () => void;
 }) {
-  const modeLabel = routing.resolvedMode.replace(/_/g, ' ');
-  const selectedLabel = routing.selectedMode === 'auto' ? 'Auto' : routing.selectedMode.replace(/_/g, ' ');
+  const [expanded, setExpanded] = React.useState(false);
   const expensiveRoutes = routing.modelRoutes.filter((route) => route.costTier === 'high' || EXPENSIVE_CAPABILITIES.includes(route.capability));
+  const backend = routing.backend;
+
+  const modeKey = routing.resolvedMode.toLowerCase();
+  const modeName = MODE_DISPLAY[modeKey] ?? routing.resolvedMode.replace(/_/g, ' ');
+  const modeHint = MODE_HINT[modeKey] ?? `AI Ant will handle this as ${modeName}.`;
+  const nextStep = MODE_NEXT_STEP[modeKey] ?? 'Continue';
+  const deliverable = MODE_DELIVERABLE[modeKey] ?? 'AI Ant response';
+
+  const primaryModel = routing.manualModelSelection?.modelId
+    ?? routing.modelRoutes[0]?.displayName
+    ?? 'Auto';
+  const routingStyle = routing.modelRoutingPreference
+    ? modelRoutingLabel(routing.modelRoutingPreference as ModelRoutingPreference)
+    : 'Auto';
+  const confidencePct = Math.round(routing.confidence * 100);
+  const approval = expensiveRoutes.length > 0 ? 'Required' : 'None';
+  const primaryAgent = routing.selectedAgents[0];
+  const primaryCapability = routing.requiredCapabilities[0]
+    ? CAPABILITY_LABELS[routing.requiredCapabilities[0]]
+    : 'Text reasoning';
+
   return (
-    <div className="w-full max-w-4xl overflow-hidden rounded-[22px] border border-cyan-300/15 bg-[#09111d]/95 shadow-[0_24px_80px_rgba(0,0,0,0.38)]">
-      <div className="border-b border-white/[0.07] bg-cyan-400/[0.055] px-5 py-4">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-cyan-200/70">AI Ant Routing</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <h3 className="font-heading text-xl font-extrabold capitalize text-white">How AI Ant is handling this</h3>
-          {routing.selectedMode === 'auto' && <span className="rounded-full border border-emerald-300/20 bg-emerald-400/[0.08] px-2.5 py-1 text-[10px] font-bold capitalize text-emerald-100">Auto selected: {modeLabel}</span>}
+    <motion.div
+      initial={{ opacity: 0, y: 14, filter: 'blur(8px)' }}
+      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-white/[0.09] bg-[#0a0f1a]/95 shadow-[0_28px_90px_rgba(0,0,0,0.45)]"
+    >
+      <div className="px-6 pb-5 pt-5">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-200/65">AI Ant Decision</p>
+        <h3 className="mt-2 font-heading text-[26px] font-extrabold leading-tight text-white">{modeName}</h3>
+        <p className="mt-1.5 text-[13.5px] leading-relaxed text-white/52">{modeHint}</p>
+
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05, delayChildren: 0.15 } } }}
+          className="mt-5 flex flex-wrap gap-1.5"
+        >
+          <MetaPill label="Model" value={primaryModel} />
+          <MetaPill label="Routing" value={routingStyle} />
+          <MetaPill label="Confidence" value={`${confidencePct}%`} tone={confidencePct >= 80 ? 'good' : confidencePct >= 60 ? 'neutral' : 'warn'} />
+          <MetaPill label="Approval" value={approval} tone={approval === 'None' ? 'good' : 'warn'} />
+        </motion.div>
+
+        <div className="mt-5 grid gap-2 rounded-[14px] border border-white/[0.06] bg-white/[0.02] p-4 sm:grid-cols-2">
+          <NextLine label="Next step" value={nextStep} />
+          <NextLine label="Deliverable" value={deliverable} />
         </div>
-        <p className="mt-2 text-sm leading-relaxed text-white/48">Prompt understood: "{routing.userPrompt.slice(0, 120)}{routing.userPrompt.length > 120 ? '...' : ''}"</p>
       </div>
-      <div className="grid gap-4 p-5 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="space-y-3">
-          <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Mode decision</p>
-            <div className="mt-3 grid gap-2 text-sm text-white/62">
-              <p>Selected: <span className="capitalize text-white/86">{selectedLabel}</span></p>
-              <p>Resolved: <span className="capitalize text-white/86">{modeLabel}</span></p>
-              {routing.modelRoutingPreference && <p>Model routing: <span className="text-white/86">{modelRoutingLabel(routing.modelRoutingPreference as ModelRoutingPreference)}</span></p>}
-              {routing.manualModelSelection && <p>Selected model: <span className="text-white/86">{routing.manualModelSelection.modelId}</span></p>}
-              <p>Confidence: <span className="text-white/86">{Math.round(routing.confidence * 100)}%</span></p>
-              <p className="leading-relaxed text-white/48">Reason: {routing.reason}</p>
-            </div>
-          </div>
-          <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Required capabilities</p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {routing.requiredCapabilities.map((capability) => (
-                <span key={capability} className="rounded-full border border-cyan-300/18 bg-cyan-400/[0.08] px-2 py-1 text-[10px] font-bold text-cyan-100">{CAPABILITY_LABELS[capability]}</span>
-              ))}
-            </div>
-          </div>
-          {expensiveRoutes.length > 0 && (
-            <div className="rounded-[16px] border border-amber-400/18 bg-amber-400/[0.055] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-200/75">Cost preview</p>
-              <p className="mt-2 text-sm text-white/58">Generation may use more credits.</p>
-              <p className="mt-1 text-xs font-bold text-amber-200">Estimated credits: {routing.estimatedCredits}</p>
-            </div>
-          )}
-        </div>
-        <div className="space-y-3">
-          <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Agents and resolved models</p>
-            <div className="mt-3 space-y-2">
-              {routing.selectedAgents.map((agent) => (
-                <div key={agent.id} className="rounded-[13px] border border-white/[0.06] bg-black/15 p-3">
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] bg-white/[0.015] px-6 py-3.5">
+        <motion.button
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={onStart}
+          style={{ backgroundColor: '#F5F6F8', color: '#0A0D14' }}
+          className="rounded-full px-4 py-2 text-[13px] font-bold transition hover:!bg-white hover:shadow-[0_6px_22px_rgba(245,246,248,0.22)]"
+        >
+          Continue
+        </motion.button>
+        {onChangeMode && (
+          <button
+            onClick={onChangeMode}
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(148,163,184,0.20)', color: 'rgba(241,245,249,0.88)' }}
+            className="rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition hover:!bg-white/[0.06] hover:!border-[rgba(148,163,184,0.32)]"
+          >
+            Change mode
+          </button>
+        )}
+        <button
+          onClick={onCustomize}
+          style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(148,163,184,0.20)', color: 'rgba(241,245,249,0.88)' }}
+          className="rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition hover:!bg-white/[0.06] hover:!border-[rgba(148,163,184,0.32)]"
+        >
+          Change model
+        </button>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{ color: 'rgba(226,232,240,0.78)' }}
+          className="ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-2 text-[12px] font-semibold transition hover:!text-white"
+          aria-expanded={expanded}
+        >
+          <span>{expanded ? 'Hide routing details' : 'View routing details'}</span>
+          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }} className="grid place-items-center">
+            <ChevronDown className="h-3.5 w-3.5" />
+          </motion.span>
+        </button>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="advanced"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden border-t border-white/[0.06]"
+          >
+            <div className="space-y-5 px-6 pb-6 pt-5">
+              <section>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Advanced details</p>
+                <dl className="mt-3 grid gap-y-2 gap-x-4 text-[12.5px] sm:grid-cols-[auto_1fr]">
+                  <DetailRow label="Agent" value={primaryAgent?.name ?? 'AI Ant'} />
+                  <DetailRow label="Capability" value={primaryCapability} />
+                  <DetailRow label="Auto routing" value={`${routing.selectedMode === 'auto' ? 'Auto' : routing.selectedMode.replace(/_/g, ' ')} → ${primaryModel}`} />
+                  <DetailRow label="Required capability" value={routing.requiredCapabilities.map((c) => CAPABILITY_LABELS[c]).join(', ') || primaryCapability} />
+                  <DetailRow label="Detailed reason" value={routing.reason} multiline />
+                </dl>
+              </section>
+
+              {routing.modelRoutes.length > 1 && (
+                <section>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Model routing</p>
+                  <div className="mt-2 space-y-1">
+                    {routing.modelRoutes.map((route) => (
+                      <div key={route.capability} className="flex items-center justify-between gap-3 text-[12px]">
+                        <span className="text-white/52">{CAPABILITY_LABELS[route.capability]}</span>
+                        <span className="font-semibold text-white/82">{route.providerMode === 'auto' ? 'Auto' : 'Manual'} → {route.displayName}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {expensiveRoutes.length > 0 && (
+                <section className="rounded-[12px] border border-amber-300/15 bg-amber-400/[0.04] px-3.5 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-bold text-white/84">{agent.name}</p>
-                      <p className="text-[11px] text-violet-200/58">{agent.role}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-200/75">Cost preview</p>
+                      <p className="mt-1 text-[12px] text-white/55">Generation may use more credits.</p>
                     </div>
-                    <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[9px] font-bold text-white/38">{agent.status}</span>
+                    <p className="text-[12px] font-bold text-amber-200">~{routing.estimatedCredits} credits</p>
                   </div>
-                  <div className="mt-2 space-y-1.5">
-                    {agent.skills.map((skill) => {
-                      const resolved = resolveSkillModel(skill, agent.activeModel);
-                      return (
-                        <div key={skill.id} className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                          <span className="rounded-full border border-cyan-300/18 bg-cyan-400/[0.08] px-2 py-0.5 font-bold text-cyan-100">{skill.label}</span>
-                          <span className={`rounded-full border px-2 py-0.5 font-bold ${resolved.providerMode === 'auto' ? 'border-emerald-300/18 bg-emerald-400/[0.08] text-emerald-100' : 'border-amber-300/20 bg-amber-400/[0.08] text-amber-100'}`}>{resolved.providerMode === 'auto' ? 'Auto' : 'Manual'} {'->'} {resolved.displayName}</span>
-                          {resolved.costTier === 'high' && <span className="rounded-full border border-red-300/20 bg-red-400/[0.08] px-2 py-0.5 font-bold text-red-100">High cost</span>}
-                        </div>
-                      );
-                    })}
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <button onClick={onCheaper} className="rounded-full border border-emerald-300/18 bg-emerald-400/[0.07] px-3 py-1.5 text-[11.5px] font-semibold text-emerald-100/90 transition hover:bg-emerald-400/[0.12]">Use cheaper models</button>
+                    <button onClick={onQuality} className="rounded-full border border-amber-300/18 bg-amber-400/[0.07] px-3 py-1.5 text-[11.5px] font-semibold text-amber-100/90 transition hover:bg-amber-400/[0.12]">Use highest quality</button>
                   </div>
-                </div>
-              ))}
+                </section>
+              )}
+
+              {backend?.usage && (
+                <section>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Backend usage</p>
+                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-white/65">
+                    <span>Input <span className="font-semibold text-white/85">{backend.usage.inputTokens}</span></span>
+                    <span>Output <span className="font-semibold text-white/85">{backend.usage.outputTokens}</span></span>
+                    <span>Est. cost <span className="font-semibold text-white/85">${backend.usage.estimatedCostUsd.toFixed(6)}</span></span>
+                  </div>
+                </section>
+              )}
             </div>
-          </div>
-          <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Model routing</p>
-            <div className="mt-3 space-y-2">
-              {routing.modelRoutes.map((route) => (
-                <div key={route.capability} className="flex items-center justify-between gap-2 rounded-[10px] bg-black/15 px-3 py-2 text-xs">
-                  <span className="text-white/58">{CAPABILITY_LABELS[route.capability]}</span>
-                  <span className="font-bold text-white/82">{route.providerMode === 'auto' ? 'Auto' : 'Manual'} {'->'} {route.displayName}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2 border-t border-white/[0.07] px-5 py-4">
-        <button onClick={onStart} className="rounded-[12px] bg-[#ffffff] px-4 py-2.5 text-sm font-bold text-[#070B14] transition hover:bg-[#f0f2ff]">Start with this plan</button>
-        <button onClick={onCustomize} className="rounded-[12px] border border-white/[0.10] bg-white/[0.05] px-4 py-2.5 text-sm font-semibold text-white/65 transition hover:text-white">Customize models</button>
-        <button onClick={onCheaper} className="rounded-[12px] border border-emerald-300/15 bg-emerald-400/[0.06] px-4 py-2.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/[0.10]">Use cheaper models</button>
-        <button onClick={onQuality} className="rounded-[12px] border border-amber-300/15 bg-amber-400/[0.06] px-4 py-2.5 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/[0.10]">Use highest quality</button>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function MetaPill({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'good' | 'warn' }) {
+  const toneCls = tone === 'good'
+    ? 'border-emerald-300/18 bg-emerald-400/[0.06] text-emerald-100/90'
+    : tone === 'warn'
+    ? 'border-amber-300/20 bg-amber-400/[0.06] text-amber-100/90'
+    : 'border-white/[0.10] bg-white/[0.035] text-white/72';
+  return (
+    <motion.span
+      variants={{ hidden: { opacity: 0, y: 6 }, visible: { opacity: 1, y: 0 } }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold ${toneCls}`}
+    >
+      <span className="text-white/40">{label}</span>
+      <span>{value}</span>
+    </motion.span>
+  );
+}
+
+function NextLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-white/35">{label}</span>
+      <span className="text-[13.5px] font-semibold text-white/85">{value}</span>
     </div>
+  );
+}
+
+function DetailRow({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }) {
+  return (
+    <>
+      <dt className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-white/38">{label}</dt>
+      <dd className={`text-[12.5px] text-white/78 ${multiline ? 'leading-relaxed' : ''}`}>{value}</dd>
+    </>
   );
 }
 
@@ -29565,8 +24309,10 @@ function AIAntPage({
   const [memories, setMemories] = React.useState<AntMemoryEntry[]>(ANT_INITIAL_MEMORIES);
   const [approval, setApproval] = React.useState<AntApproval | null>(null);
   const [thinking, setThinking] = React.useState(false);
-  const [rightPanel, setRightPanel] = React.useState<'tasks' | 'activity' | 'devices' | 'workspace' | 'memory' | 'tools' | 'permissions' | 'delivery' | 'patterns' | 'suggestions' | 'knowledge' | 'workflows' | 'colony' | 'team' | 'audit'>('tasks');
+  const [rightPanel, setRightPanel] = React.useState<'tasks' | 'activity' | 'devices' | 'workspace' | 'memory' | 'tools' | 'permissions' | 'delivery' | 'patterns' | 'suggestions' | 'knowledge'>('tasks');
   const [correctionMsgId, setCorrectionMsgId] = React.useState<string | null>(null);
+  const [messageFeedback, setMessageFeedback] = React.useState<Record<string, 'up' | 'down'>>({});
+  const [copiedMessageId, setCopiedMessageId] = React.useState<string | null>(null);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
   // Extended state — features 61-75
   const [liveConsoleOpen, setLiveConsoleOpen] = React.useState(false);
@@ -29606,12 +24352,6 @@ function AIAntPage({
   });
   const [memberModal, setMemberModal] = React.useState<WorkspaceMemberModalState | null>(null);
   const [workspaceToast, setWorkspaceToast] = React.useState('');
-  const [policies, setPolicies] = React.useState<OrgPolicy[]>(ORG_POLICIES);
-  const [auditEntries] = React.useState<AuditEntry[]>(AUDIT_ENTRIES);
-  const [replayOpen, setReplayOpen] = React.useState(false);
-  const [observingWorkflowId, setObservingWorkflowId] = React.useState<string | null>(null);
-  const [repairingWorkflowId, setRepairingWorkflowId] = React.useState<string | null>(null);
-  const [observerPaused, setObserverPaused] = React.useState(false);
 
   // ── Orchestration state ──────────────────────────────────────────────────
   const [enterpriseOpen, setEnterpriseOpen] = React.useState(false);
@@ -30554,6 +25294,32 @@ function AIAntPage({
     });
   }, [currentUserId]);
 
+  const requestBackendAIAntResponse = React.useCallback(async (conversationId: string, text: string): Promise<AiAntBackendResponse | null> => {
+    const apiBaseUrl = getApiBaseUrl();
+    if (!apiBaseUrl) return null;
+    try {
+      const response = await fetch(`${apiBaseUrl}/ai-ant/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          user_id: currentUserId,
+          message: text,
+          mode: modelRoutingPreference,
+          context: {
+            surface: 'ai_ant',
+            safety_mode: safetyMode,
+            local_messages_count: messages.length,
+          },
+        }),
+      });
+      if (!response.ok) return null;
+      return await response.json() as AiAntBackendResponse;
+    } catch {
+      return null;
+    }
+  }, [currentUserId, messages.length, modelRoutingPreference, safetyMode]);
+
   const usageFeatureForDecision = React.useCallback((inputMode: AgentInputMode, decision: ExecutionDecision): UsageFeature => {
     if (inputMode === 'Colony Crew' || decision.mode === 'agent_swarm') return 'colony_crew';
     if (inputMode === 'One-man Enterprise' || decision.mode === 'one_man_enterprise') return 'one_man_enterprise';
@@ -30602,6 +25368,29 @@ function AIAntPage({
     clearDeviceTimers();
     setDeviceReq(null);
     setActivitySummaries((prev) => [...prev, `AI Ant chose ${decision.mode.replace(/_/g, ' ')}: ${decision.reason}`]);
+
+    const shouldUseBackendChat = inputMode === 'Chat' || decision.mode === 'simple_chat' || decision.mode === 'operator_task';
+    if (shouldUseBackendChat) {
+      setThinking(true);
+      const backendResponse = await requestBackendAIAntResponse(currentChatId, trimmed);
+      setThinking(false);
+      if (backendResponse) {
+        setRoutingDecision(buildBackendRoutingDecision(trimmed, backendResponse, modelRoutingPreference));
+        setMessages((prev) => [...prev, {
+          id: backendResponse.message_id,
+          role: 'ant',
+          text: backendResponse.reply,
+          timestamp: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+          confidence: backendResponse.confidence,
+          confidenceLevel: getConfidenceLevel(backendResponse.confidence),
+          riskLevel: backendResponse.approval_required ? 'Sensitive' : 'Safe',
+          domain: backendResponse.intent === 'external_action' ? 'external-export' : 'general',
+          systemNote: `Backend AI Ant · ${backendResponse.intent} · ${backendResponse.model}`,
+        }]);
+        setActivitySummaries((prev) => [...prev, `Backend AI Ant responded with intent: ${backendResponse.intent}`]);
+        return;
+      }
+    }
 
     // Device mode is an action/permission flow — never a project/team flow.
     // It runs when the user selected Device mode, or the task clearly needs a
@@ -30878,7 +25667,31 @@ function AIAntPage({
 
       if (riskLevel === 'High Risk') setFailedTask(text.trim().slice(0, 50));
     }, 1600);
-  }, [activeChatId, agentInputMode, mode, devices, onEnsureChat, onAutoTitleChat, startAutoMatch, launchColonyCrew, launchEnterpriseSetup, startDeviceAction, clearDeviceTimers, recordMockAIRequest, usageFeatureForDecision, modelRoutingPreference, manualModelSelection]);
+	  }, [activeChatId, agentInputMode, mode, devices, onEnsureChat, onAutoTitleChat, startAutoMatch, launchColonyCrew, launchEnterpriseSetup, startDeviceAction, clearDeviceTimers, recordMockAIRequest, requestBackendAIAntResponse, usageFeatureForDecision, modelRoutingPreference, manualModelSelection]);
+
+  const handlePromptSuggestionPick = React.useCallback((suggestion: { label: string; mode: AgentInputMode }) => {
+    setAgentInputMode(suggestion.mode);
+    setAntPrompt(suggestion.label);
+  }, []);
+
+  const handleAssistantFeedback = React.useCallback((messageId: string, value: 'up' | 'down') => {
+    setMessageFeedback((prev) => ({ ...prev, [messageId]: value }));
+    setActivitySummaries((prev) => [...prev, value === 'up' ? 'You marked an AI Ant response as helpful.' : 'You marked an AI Ant response as not helpful.']);
+  }, []);
+
+  const handleAssistantCopy = React.useCallback((messageId: string, text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedMessageId(messageId);
+    window.setTimeout(() => setCopiedMessageId((prev) => prev === messageId ? null : prev), 1800);
+  }, []);
+
+  const handleAssistantRegenerate = React.useCallback((messageId: string) => {
+    const targetIndex = messages.findIndex((message) => message.id === messageId);
+    if (targetIndex <= 0) return;
+    const sourcePrompt = [...messages.slice(0, targetIndex)].reverse().find((message) => message.role === 'user')?.text;
+    if (!sourcePrompt) return;
+    void submitPrompt(sourcePrompt);
+  }, [messages, submitPrompt]);
 
   const handleAction = React.useCallback((label: string) => {
     if (label.toLowerCase().includes('workflow builder') || label === 'Open Workflow Builder') {
@@ -31551,35 +26364,12 @@ function AIAntPage({
             ))}
           </div>
 
-          <div className="mx-auto mb-10 max-w-5xl px-4">
+          <div className="mx-auto mb-10 w-full max-w-[800px] px-4">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-[12px] font-bold text-white/58">Featured AI Ant cases</p>
+              <p className="text-[12px] font-bold text-white/58">Quick starts</p>
               <button onClick={() => setPage('Templates')} className="text-xs font-semibold text-violet-300/70 transition hover:text-violet-200">Template Community</button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                ['Startup Market Research', 'Research competitors, users, and positioning.', 'Colony Crew', 'Report'],
-                ['Weekly Sales Report', 'Turn sales data into a reviewed business report.', 'Workflow', '5 agents'],
-                ['Build AI Team', 'Create roles, responsibilities, and deliverables.', 'Colony Crew', 'Crew'],
-                ['Global Bar Survey', 'Compare venues, pricing, and customer patterns.', 'Colony Crew', 'Report'],
-                ['Job Matching System', 'Design a matching assistant and workflow.', 'Colony Crew', 'Crew'],
-                ['One-man Enterprise', 'Generate an editable AI company org grid.', 'One-man Enterprise', 'Org'],
-                ['Competitor Landscape', 'Map competitors and market gaps.', 'Colony Crew', 'Research'],
-                ['Content Calendar', 'Plan topics, scripts, captions, and approvals.', 'Colony Crew', 'Crew'],
-              ].map(([title, desc, type, badge]) => (
-                <button key={title} onClick={() => { setAgentInputMode(type as AgentInputMode); setAntPrompt(`Use the ${title} case for my project`); }}
-                  className="group rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-4 text-left transition hover:border-violet-400/30 hover:bg-violet-400/[0.06]">
-                  <div className="mb-3 h-16 rounded-[14px] border border-white/[0.06] bg-[radial-gradient(circle_at_30%_20%,rgba(124,92,252,0.26),transparent_42%),linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]" />
-                  <p className="font-heading text-sm font-bold text-white/82">{title}</p>
-                  <p className="mt-2 min-h-[42px] text-xs leading-relaxed text-white/42">{desc}</p>
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold text-violet-200/65">{type}</span>
-                    <span className="rounded-full bg-white/[0.06] px-2 py-1 text-[10px] font-bold text-white/40">{badge}</span>
-                  </div>
-                  <p className="mt-3 text-xs font-bold text-violet-300/70 opacity-0 transition group-hover:opacity-100">Use case</p>
-                </button>
-              ))}
-            </div>
+            <AntPromptSuggestions onPick={handlePromptSuggestionPick} />
           </div>
 
           {/* Example prompts */}
@@ -31719,8 +26509,6 @@ function AIAntPage({
   };
   const rightTabs: Array<{ id: typeof rightPanel; label: string; badge?: number }> = [
     { id: 'tasks', label: 'Tasks' },
-    { id: 'workflows', label: 'Flows', badge: workflows.filter(w => w.status === 'running').length },
-    { id: 'colony', label: 'Colony' },
     { id: 'suggestions', label: 'Tips', badge: suggestions.filter(s => !s.dismissed && !s.applied).length },
     { id: 'patterns', label: 'Patterns' },
     { id: 'knowledge', label: 'Knowledge' },
@@ -31731,8 +26519,6 @@ function AIAntPage({
     { id: 'devices', label: 'Devices' },
     { id: 'workspace', label: 'Apps' },
     { id: 'memory', label: 'Memory' },
-    { id: 'team', label: 'Team' },
-    { id: 'audit', label: 'Audit' },
   ];
 
   return (
@@ -31856,10 +26642,10 @@ function AIAntPage({
                       <Zap size={10} className="shrink-0 text-amber-400" /><span>{msg.systemNote}</span>
                     </div>
                   )}
-                  <div className={`rounded-[18px] px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${msg.role === 'user'
-                    ? 'bg-violet-600/25 border border-violet-500/20 text-white/90'
-                    : 'border border-white/[0.08] bg-white/[0.04] text-white/80'}`}>
-                    {msg.text}
+                  <div className={`rounded-[20px] px-4 py-3.5 text-sm leading-7 whitespace-pre-line shadow-[0_8px_30px_rgba(0,0,0,0.12)] ${msg.role === 'user'
+                    ? 'border border-violet-400/20 bg-[linear-gradient(180deg,rgba(124,58,237,0.24),rgba(88,28,135,0.18))] text-white/92'
+                    : 'border border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.025))] text-white/82'}`}>
+                    {msg.role === 'ant' && msg.text ? <BlurText text={msg.text} delay={30} animateBy="words" direction="top" /> : msg.text}
                   </div>
                   {msg.workflowProposal && (
                     <WorkflowProposalCard
@@ -31921,6 +26707,15 @@ function AIAntPage({
                       ))}
                     </div>
                   )}
+                  {msg.role === 'ant' && (
+                    <AntAssistantMessageActions
+                      feedback={messageFeedback[msg.id]}
+                      copied={copiedMessageId === msg.id}
+                      onFeedback={(value) => handleAssistantFeedback(msg.id, value)}
+                      onRegenerate={() => handleAssistantRegenerate(msg.id)}
+                      onCopy={() => handleAssistantCopy(msg.id, msg.text)}
+                    />
+                  )}
                   <span className="text-[10px] text-white/20">{msg.timestamp}</span>
                 </div>
               </div>
@@ -31941,12 +26736,8 @@ function AIAntPage({
                   onCustomize={() => setRoutingModelSettingsOpen(true)}
                   onCheaper={() => setRoutingDecision((prev) => prev ? { ...prev, modelRoutes: prev.modelRoutes.map((route) => ({ ...route, costTier: 'low', qualityTier: route.qualityTier === 'high' ? 'standard' : route.qualityTier })) } : prev)}
                   onQuality={() => setRoutingDecision((prev) => prev ? { ...prev, modelRoutes: prev.modelRoutes.map((route) => ({ ...route, qualityTier: 'high', costTier: route.costTier === 'low' ? 'standard' : route.costTier })) } : prev)}
+                  onChangeMode={() => setRoutingDecision(null)}
                 />
-              </div>
-            )}
-            {!(orchMode === 'agent-running' && (matchedAgents.length > 0 || orchAgents.length > 0)) && executionDecision && (
-              <div className="flex justify-start">
-                <ExecutionDecisionCard decision={executionDecision} />
               </div>
             )}
             {!(orchMode === 'agent-running' && (matchedAgents.length > 0 || orchAgents.length > 0)) && projectIntent && (
@@ -32052,8 +26843,8 @@ function AIAntPage({
             <div ref={chatEndRef} />
             </div>
           </div>
-          <div className="shrink-0 border-t border-white/[0.07] bg-[#07070f]/95 p-4">
-            <div className="mx-auto w-full max-w-[960px]">
+          <div className="shrink-0 bg-transparent px-4 pb-5 pt-3">
+            <div className="mx-auto w-full max-w-3xl">
               <AntPromptInput prompt={prompt} onChange={setAntPrompt} onSubmit={submitPrompt} voiceActive={voiceActive} onToggleVoice={toggleVoice} agentMode={agentInputMode} setAgentMode={setAgentInputMode} modelRoutingPreference={modelRoutingPreference} setModelRoutingPreference={setModelRoutingPreference} manualModelSelection={manualModelSelection} setManualModelSelection={setManualModelSelection} />
             </div>
             {voiceActive && (
@@ -32366,8 +27157,6 @@ function AIAntPage({
               {moreSheetTab === 'workflows' && (
                 <AIAntWorkflowPanel workflows={workflows}
                   onTrigger={id => setWorkflows(prev => prev.map(w => w.id === id ? { ...w, status: 'running', progress: Math.max(w.progress, 8), lastRun: 'Now' } : w))}
-                  onObserve={id => { setObservingWorkflowId(id); setMoreSheetOpen(false); }}
-                  onRepair={id => { setRepairingWorkflowId(id); setMoreSheetOpen(false); }}
                   onCreate={() => { setMoreSheetOpen(false); setView('chat'); }} />
               )}
               {moreSheetTab === 'colony' && <AIAntColonyPanel session={colonySession} />}
@@ -32441,449 +27230,7 @@ function AIAntPage({
 }
 // ── ConnectorsPage ───────────────────────────────────────────────────────────
 
-function ConnectorsPage({ connectors, setConnectors }: {
-  connectors: AppConnector[];
-  setConnectors: React.Dispatch<React.SetStateAction<AppConnector[]>>;
-}) {
-  const [setupModalId, setSetupModalId] = useState<string | null>(null);
-  const [manageModalId, setManageModalId] = useState<string | null>(null);
-  const [disconnectConfirmId, setDisconnectConfirmId] = useState<string | null>(null);
-  const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
-  // Per-connector form drafts
-  const [customApiDraft, setCustomApiDraft] = useState({ connectorName: 'My Custom API', baseUrl: 'https://', authType: 'none', apiKey: '', headerName: 'X-API-Key', method: 'GET', testEndpoint: '/health', accessLevel: 'Read only' as ConnectorAccessLevel });
-  const [sheetsDraft, setSheetsDraft] = useState({ spreadsheetUrl: '', sheetName: 'Daily Sales', range: 'A1:H500', headerRow: true, accessLevel: 'Read only' as ConnectorAccessLevel, agents: [] as string[] });
-  const [gmailDraft, setGmailDraft] = useState({ readEmails: true, createDrafts: true, sendWithApproval: true, accessLevel: 'Approval required' as ConnectorAccessLevel, agents: [] as string[] });
-  const [driveDraft, setDriveDraft] = useState({ folderUrl: '', fileTypes: ['pdf', 'excel', 'csv'] as string[], accessLevel: 'Read only' as ConnectorAccessLevel, agents: [] as string[] });
-
-  const showToast = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 3200); };
-
-  const mockTestResults: Record<string, string> = {
-    'custom-api':    'Connection test successful — API responded in 112 ms.',
-    'google-sheets': 'Connected to Daily Sales sheet. 126 rows detected.',
-    'gmail':         'Gmail connected. Draft-only mode is active.',
-    'google-drive':  'Google Drive connected. 12 supported files found.',
-    'file-upload':   'File Upload is working correctly.',
-    'screenshot-upload': 'Screenshot Upload is working correctly.',
-  };
-
-  const runTest = (connId: string) => {
-    setTestingId(connId);
-    setTestResult(null);
-    window.setTimeout(() => {
-      setTestingId(null);
-      setTestResult({ success: true, message: mockTestResults[connId] ?? 'Connection test successful.' });
-    }, 1400);
-  };
-
-  const saveConnector = (connId: string, updates: Partial<AppConnector>) => {
-    setConnectors((prev) => prev.map((c) => c.id === connId ? { ...c, ...updates, status: 'connected', lastSynced: 'Just now' } : c));
-    setSetupModalId(null);
-    setTestResult(null);
-    showToast(`${connectors.find((c) => c.id === connId)?.name ?? 'Connector'} connected`);
-  };
-
-  const disconnectConnector = (connId: string) => {
-    const name = connectors.find((c) => c.id === connId)?.name ?? 'Connector';
-    setConnectors((prev) => prev.map((c) => c.id === connId ? { ...c, status: 'not-connected', lastSynced: undefined, agentsWithAccess: [] } : c));
-    setDisconnectConfirmId(null);
-    setManageModalId(null);
-    showToast(`${name} disconnected`);
-  };
-
-  const connectedList   = connectors.filter((c) => c.status === 'connected');
-  const availableList   = connectors.filter((c) => c.status !== 'connected' && c.status !== 'coming-soon');
-
-  const StatusBadge = ({ s }: { s: ConnectorStatus }) => {
-    const cfg = s === 'connected'     ? { cls: 'bg-green-500/12 text-green-400 border-green-500/20',   label: '● Connected' }
-              : s === 'not-connected' ? { cls: 'bg-white/[0.06] text-muted border-white/[0.08]',       label: '○ Not connected' }
-              : s === 'needs-setup'   ? { cls: 'bg-amber-400/10 text-amber-400 border-amber-400/20',   label: '◐ Needs setup' }
-              : s === 'error'         ? { cls: 'bg-red-500/10 text-red-400 border-red-500/20',         label: '✕ Error' }
-              :                        { cls: 'bg-white/[0.05] text-subtle border-white/[0.06]',       label: '… Coming soon' };
-    return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${cfg.cls}`}>{cfg.label}</span>;
-  };
-
-  const AccessBadge = ({ level }: { level: ConnectorAccessLevel }) => {
-    const cls = level === 'Approval required' ? 'bg-amber-400/10 text-amber-400 border-amber-400/20'
-              : level === 'Read & write'       ? 'bg-accent/10 text-accent border-accent/20'
-              :                                  'bg-green-500/10 text-green-400 border-green-500/20';
-    return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${cls}`}>{level}</span>;
-  };
-
-  const ConnectorCard = ({ conn }: { conn: AppConnector }) => (
-    <div className="card-hover flex flex-col rounded-[18px] border border-white-07 bg-surface/80 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.06)] backdrop-blur-sm">
-      <div className="mb-3 flex items-start justify-between">
-        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white/[0.06] text-2xl">{conn.icon}</div>
-        <StatusBadge s={conn.status} />
-      </div>
-      <p className="mb-0.5 text-[14px] font-bold text-ink">{conn.name}</p>
-      <AccessBadge level={conn.accessLevel} />
-      <div className="mt-2 rounded-[10px] border border-white/[0.06] bg-white/[0.03] px-2.5 py-2 text-[10px] text-muted">
-        <p><span className="font-bold text-ink/80">Capability:</span> {conn.id === 'browser' ? 'Browser Action' : 'Connected Tool Action'}</p>
-        <p className="mt-0.5"><span className="font-bold text-ink/80">Tool:</span> {conn.id === 'browser' ? 'Browser Connector' : 'Colony Bridge Tool'}</p>
-        <p className="mt-0.5"><span className="font-bold text-ink/80">Approval:</span> {conn.accessLevel === 'Read only' ? 'Required for writes' : 'Required'}</p>
-        <p className="mt-0.5"><span className="font-bold text-ink/80">Reasoning:</span> Auto {'->'} DeepSeek V3</p>
-      </div>
-      {conn.lastSynced && <p className="mt-2 text-[10px] text-muted">Last synced: {conn.lastSynced}</p>}
-      {conn.agentsWithAccess.length > 0 && (
-        <p className="mt-1 text-[10px] text-muted">{conn.agentsWithAccess.length} agent{conn.agentsWithAccess.length > 1 ? 's' : ''} with access</p>
-      )}
-      <div className="mt-4 flex gap-2">
-        {conn.status === 'connected' ? (
-          <>
-            <button onClick={() => { setManageModalId(conn.id); setTestResult(null); }} className="flex-1 rounded-xl border border-accent/20 bg-accent/[0.07] px-3 py-2 text-[11px] font-bold text-accent transition hover:bg-accent/12">Manage</button>
-            <button onClick={() => runTest(conn.id)} disabled={testingId === conn.id} className="rounded-xl border border-white-07 px-3 py-2 text-[11px] font-semibold text-muted transition hover:border-white-10 hover:text-ink disabled:opacity-50">
-              {testingId === conn.id ? '…' : 'Test'}
-            </button>
-          </>
-        ) : (
-          <button onClick={() => { setSetupModalId(conn.id); setTestResult(null); }} className="flex-1 rounded-xl bg-ink px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#1a1a2e]">Connect</button>
-        )}
-      </div>
-    </div>
-  );
-
-  const ModalWrap = ({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) => (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="flex w-full max-w-[500px] flex-col rounded-[20px] border border-white/[0.1] bg-[#0c0c14]/98 text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)]" style={{ maxHeight: 'min(90vh, calc(100vh - 32px))' }} onClick={(e) => e.stopPropagation()}>
-        <div className="shrink-0 border-b border-white/[0.08] px-5 py-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-heading text-[17px] font-extrabold text-white">{title}</h3>
-              {subtitle && <p className="mt-0.5 text-[12px] text-white/45">{subtitle}</p>}
-            </div>
-            <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.06] text-white/50 transition hover:bg-white/[0.1] hover:text-white">×</button>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
-      </div>
-    </div>
-  );
-
-  const FieldRow = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div>
-      <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.1em] text-white/40">{label}</label>
-      {children}
-    </div>
-  );
-
-  const TextInput = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
-    <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-      className="w-full rounded-xl border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-[13px] text-white placeholder-white/25 outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10" />
-  );
-
-  const TestResultBar = () => testResult ? (
-    <div className={`rounded-xl border px-3 py-2.5 text-[12px] font-semibold ${testResult.success ? 'border-green-500/25 bg-green-500/[0.07] text-green-300' : 'border-red-500/25 bg-red-500/[0.07] text-red-300'}`}>
-      {testResult.success ? '✓ ' : '✕ '}{testResult.message}
-    </div>
-  ) : null;
-
-  const AgentAccessChecklist = ({ label, agents, selected, onChange }: { label: string; agents: string[]; selected: string[]; onChange: (v: string[]) => void }) => (
-    <div>
-      <label className="mb-2 block text-[10px] font-bold uppercase tracking-[0.1em] text-white/40">{label}</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {agents.map((a) => {
-          const on = selected.includes(a);
-          return (
-            <button key={a} onClick={() => onChange(on ? selected.filter((x) => x !== a) : [...selected, a])}
-              className={`rounded-xl border px-2.5 py-2 text-left text-[11px] font-semibold transition ${on ? 'border-accent/30 bg-accent/[0.08] text-accent' : 'border-white/[0.07] text-white/50 hover:border-white/[0.15] hover:text-white/75'}`}>
-              {a}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const AccessLevelSelect = ({ value, onChange }: { value: ConnectorAccessLevel; onChange: (v: ConnectorAccessLevel) => void }) => (
-    <div className="flex gap-1.5">
-      {(['Read only', 'Read & write', 'Approval required'] as ConnectorAccessLevel[]).map((opt) => (
-        <button key={opt} onClick={() => onChange(opt)}
-          className={`flex-1 rounded-xl border py-2 text-center text-[10px] font-bold transition ${value === opt ? 'border-accent/40 bg-accent/12 text-accent' : 'border-white/[0.08] text-white/40 hover:border-white/[0.18] hover:text-white/70'}`}>
-          {opt}
-        </button>
-      ))}
-    </div>
-  );
-
-  const MockGoogleBtn = ({ label }: { label: string }) => (
-    <button className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-white/[0.12] bg-white/[0.06] px-4 py-3 text-[13px] font-semibold text-white/80 transition hover:bg-white/[0.1] hover:text-white">
-      <span className="text-lg">G</span>{label}<span className="ml-auto text-[10px] text-white/30">Mock — no real OAuth</span>
-    </button>
-  );
-
-  const SafetyNote = ({ text }: { text: string }) => (
-    <div className="flex items-start gap-2 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2.5">
-      <span className="shrink-0 text-amber-400">🛡</span>
-      <p className="text-[11px] leading-snug text-amber-300/90">{text}</p>
-    </div>
-  );
-
-  const ModalFooter = ({ connId, onTest, onSave, onCancel }: { connId: string; onTest: () => void; onSave: () => void; onCancel: () => void }) => (
-    <div className="shrink-0 flex items-center justify-end gap-2 border-t border-white/[0.08] px-5 py-4">
-      <button onClick={onCancel} className="rounded-[10px] border border-white/[0.1] px-4 py-2 text-sm font-semibold text-white/60 transition hover:bg-white/[0.05] hover:text-white">Cancel</button>
-      <button onClick={onTest} disabled={testingId === connId} className="rounded-[10px] border border-accent/25 bg-accent/[0.08] px-4 py-2 text-sm font-semibold text-accent transition hover:bg-accent/15 disabled:opacity-50">
-        {testingId === connId ? 'Testing…' : 'Test Connection'}
-      </button>
-      <button onClick={onSave} className="rounded-[10px] bg-accent px-5 py-2 text-sm font-bold text-white transition hover:bg-accent/80">Save Connector</button>
-    </div>
-  );
-
-  return (
-    <div className="min-h-full p-6 md:p-10">
-      {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
-        <div>
-          <h2 className="font-heading text-[28px] font-extrabold text-ink">Connectors</h2>
-          <p className="mt-1 text-sm text-muted">Connect external tools and choose which agents can access them.</p>
-        </div>
-        <button onClick={() => { setSetupModalId('custom-api'); setTestResult(null); }}
-          className="rounded-xl border border-accent/25 bg-accent/[0.08] px-4 py-2.5 text-sm font-bold text-accent transition hover:bg-accent/15">
-          + Add Connector
-        </button>
-      </div>
-
-      {/* Connected tools */}
-      {connectedList.length > 0 && (
-        <section className="mb-10">
-          <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.14em] text-subtle">Connected ({connectedList.length})</p>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {connectedList.map((c) => <ConnectorCard key={c.id} conn={c} />)}
-          </div>
-        </section>
-      )}
-
-      {/* Available to connect */}
-      <section className="mb-10">
-        <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.14em] text-subtle">Available to connect ({availableList.length})</p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {availableList.map((c) => <ConnectorCard key={c.id} conn={c} />)}
-        </div>
-      </section>
-
-      {/* Coming soon */}
-      <section>
-        <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.14em] text-subtle">Coming soon</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-          {COMING_SOON_CONNECTORS.map((c) => (
-            <div key={c.id} className="flex flex-col items-center gap-2 rounded-[16px] border border-white-07 bg-surface/50 p-4 opacity-55">
-              <span className="text-2xl">{c.icon}</span>
-              <p className="text-[11px] font-semibold text-subtle">{c.name}</p>
-              <span className="rounded-full border border-white/[0.06] px-2 py-0.5 text-[8px] font-bold text-subtle">Soon</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Setup Modals ── */}
-
-      {/* Custom API Modal */}
-      {setupModalId === 'custom-api' && (
-        <ModalWrap title="Connect Custom API" subtitle="Connect any external API to your workflow" onClose={() => { setSetupModalId(null); setTestResult(null); }}>
-          <div className="space-y-4 px-5 py-5">
-            <FieldRow label="Connector name"><TextInput value={customApiDraft.connectorName} onChange={(v) => setCustomApiDraft((d) => ({ ...d, connectorName: v }))} placeholder="My Custom API" /></FieldRow>
-            <FieldRow label="Base URL"><TextInput value={customApiDraft.baseUrl} onChange={(v) => setCustomApiDraft((d) => ({ ...d, baseUrl: v }))} placeholder="https://api.example.com" /></FieldRow>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldRow label="Auth type">
-                <select value={customApiDraft.authType} onChange={(e) => setCustomApiDraft((d) => ({ ...d, authType: e.target.value }))}
-                  className="w-full rounded-xl border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-[13px] text-white outline-none focus:border-accent/50">
-                  <option value="none">None</option><option value="api-key">API Key</option><option value="bearer">Bearer Token</option><option value="basic">Basic Auth</option>
-                </select>
-              </FieldRow>
-              <FieldRow label="Method">
-                <select value={customApiDraft.method} onChange={(e) => setCustomApiDraft((d) => ({ ...d, method: e.target.value }))}
-                  className="w-full rounded-xl border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-[13px] text-white outline-none focus:border-accent/50">
-                  <option>GET</option><option>POST</option>
-                </select>
-              </FieldRow>
-            </div>
-            {customApiDraft.authType !== 'none' && (
-              <div className="grid grid-cols-2 gap-3">
-                <FieldRow label="Header name"><TextInput value={customApiDraft.headerName} onChange={(v) => setCustomApiDraft((d) => ({ ...d, headerName: v }))} placeholder="X-API-Key" /></FieldRow>
-                <FieldRow label="API key / Token"><TextInput value={customApiDraft.apiKey} onChange={(v) => setCustomApiDraft((d) => ({ ...d, apiKey: v }))} placeholder="••••••••" /></FieldRow>
-              </div>
-            )}
-            <FieldRow label="Test endpoint"><TextInput value={customApiDraft.testEndpoint} onChange={(v) => setCustomApiDraft((d) => ({ ...d, testEndpoint: v }))} placeholder="/health" /></FieldRow>
-            <FieldRow label="Access level"><AccessLevelSelect value={customApiDraft.accessLevel} onChange={(v) => setCustomApiDraft((d) => ({ ...d, accessLevel: v }))} /></FieldRow>
-            {customApiDraft.accessLevel === 'Approval required' && <SafetyNote text="External write actions require human approval before execution." />}
-            <TestResultBar />
-          </div>
-          <ModalFooter connId="custom-api"
-            onTest={() => runTest('custom-api')}
-            onSave={() => saveConnector('custom-api', { accessLevel: customApiDraft.accessLevel, config: { connectorName: customApiDraft.connectorName, baseUrl: customApiDraft.baseUrl, authType: customApiDraft.authType, method: customApiDraft.method, testEndpoint: customApiDraft.testEndpoint } })}
-            onCancel={() => { setSetupModalId(null); setTestResult(null); }} />
-        </ModalWrap>
-      )}
-
-      {/* Google Sheets Modal */}
-      {setupModalId === 'google-sheets' && (
-        <ModalWrap title="Connect Google Sheets" subtitle="Read or write spreadsheet data with your agents" onClose={() => { setSetupModalId(null); setTestResult(null); }}>
-          <div className="space-y-4 px-5 py-5">
-            <MockGoogleBtn label="Connect Google Account" />
-            <FieldRow label="Spreadsheet URL"><TextInput value={sheetsDraft.spreadsheetUrl} onChange={(v) => setSheetsDraft((d) => ({ ...d, spreadsheetUrl: v }))} placeholder="https://docs.google.com/spreadsheets/d/…" /></FieldRow>
-            <div className="grid grid-cols-2 gap-3">
-              <FieldRow label="Sheet tab name"><TextInput value={sheetsDraft.sheetName} onChange={(v) => setSheetsDraft((d) => ({ ...d, sheetName: v }))} placeholder="Daily Sales" /></FieldRow>
-              <FieldRow label="Row range"><TextInput value={sheetsDraft.range} onChange={(v) => setSheetsDraft((d) => ({ ...d, range: v }))} placeholder="A1:H500" /></FieldRow>
-            </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSheetsDraft((d) => ({ ...d, headerRow: !d.headerRow }))}
-                className={`flex h-5 w-9 items-center rounded-full transition ${sheetsDraft.headerRow ? 'bg-accent' : 'bg-white/[0.12]'}`}>
-                <span className={`ml-0.5 h-4 w-4 rounded-full bg-white transition-transform ${sheetsDraft.headerRow ? 'translate-x-4' : ''}`} />
-              </button>
-              <span className="text-[12px] text-white/60">First row is header</span>
-            </div>
-            <FieldRow label="Access level"><AccessLevelSelect value={sheetsDraft.accessLevel} onChange={(v) => setSheetsDraft((d) => ({ ...d, accessLevel: v }))} /></FieldRow>
-            {sheetsDraft.accessLevel !== 'Read only' && <SafetyNote text="Write and append actions require human approval before any data is changed." />}
-            <AgentAccessChecklist label="Agents with access" agents={['Data Collector', 'Data Cleaner', 'Sales Analyst', 'Report Writer']} selected={sheetsDraft.agents} onChange={(v) => setSheetsDraft((d) => ({ ...d, agents: v }))} />
-            <TestResultBar />
-          </div>
-          <ModalFooter connId="google-sheets"
-            onTest={() => runTest('google-sheets')}
-            onSave={() => saveConnector('google-sheets', { accessLevel: sheetsDraft.accessLevel, agentsWithAccess: sheetsDraft.agents, config: { spreadsheetUrl: sheetsDraft.spreadsheetUrl, sheetName: sheetsDraft.sheetName, range: sheetsDraft.range } })}
-            onCancel={() => { setSetupModalId(null); setTestResult(null); }} />
-        </ModalWrap>
-      )}
-
-      {/* Gmail Modal */}
-      {setupModalId === 'gmail' && (
-        <ModalWrap title="Connect Gmail" subtitle="Let agents read emails and send with your approval" onClose={() => { setSetupModalId(null); setTestResult(null); }}>
-          <div className="space-y-4 px-5 py-5">
-            <MockGoogleBtn label="Connect Google Account" />
-            <SafetyNote text="Gmail actions that send or notify anyone require human approval. Drafts are safe." />
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/40">Permissions</p>
-              {([
-                ['readEmails', 'Read emails', 'Read incoming messages and summaries'],
-                ['createDrafts', 'Create drafts', 'Compose emails without sending'],
-                ['sendWithApproval', 'Send with approval', 'Requires human approval before sending'],
-              ] as [keyof typeof gmailDraft, string, string][]).map(([key, label, desc]) => (
-                <div key={key} className="flex items-start gap-3 rounded-xl border border-white/[0.07] px-3 py-2.5">
-                  <button onClick={() => setGmailDraft((d) => ({ ...d, [key]: !d[key as keyof typeof gmailDraft] }))}
-                    className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full transition ${gmailDraft[key as keyof typeof gmailDraft] ? 'bg-accent' : 'bg-white/[0.12]'}`}>
-                    <span className={`ml-0.5 h-4 w-4 rounded-full bg-white transition-transform ${gmailDraft[key as keyof typeof gmailDraft] ? 'translate-x-4' : ''}`} />
-                  </button>
-                  <div><p className="text-[12px] font-semibold text-white">{label}</p><p className="text-[10px] text-white/45">{desc}</p></div>
-                </div>
-              ))}
-            </div>
-            <FieldRow label="Access level"><AccessLevelSelect value={gmailDraft.accessLevel} onChange={(v) => setGmailDraft((d) => ({ ...d, accessLevel: v }))} /></FieldRow>
-            <AgentAccessChecklist label="Agents with access" agents={['Report Writer', 'Approval Guard']} selected={gmailDraft.agents} onChange={(v) => setGmailDraft((d) => ({ ...d, agents: v }))} />
-            <TestResultBar />
-          </div>
-          <ModalFooter connId="gmail"
-            onTest={() => runTest('gmail')}
-            onSave={() => saveConnector('gmail', { accessLevel: gmailDraft.accessLevel, agentsWithAccess: gmailDraft.agents, permissions: [gmailDraft.readEmails && 'read_emails', gmailDraft.createDrafts && 'create_drafts', gmailDraft.sendWithApproval && 'send_with_approval'].filter(Boolean) as string[] })}
-            onCancel={() => { setSetupModalId(null); setTestResult(null); }} />
-        </ModalWrap>
-      )}
-
-      {/* Google Drive Modal */}
-      {setupModalId === 'google-drive' && (
-        <ModalWrap title="Connect Google Drive" subtitle="Read files and save reports to Drive" onClose={() => { setSetupModalId(null); setTestResult(null); }}>
-          <div className="space-y-4 px-5 py-5">
-            <MockGoogleBtn label="Connect Google Account" />
-            <FieldRow label="Folder URL (optional)"><TextInput value={driveDraft.folderUrl} onChange={(v) => setDriveDraft((d) => ({ ...d, folderUrl: v }))} placeholder="https://drive.google.com/drive/folders/…" /></FieldRow>
-            <div>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.1em] text-white/40">Allowed file types</p>
-              <div className="flex flex-wrap gap-2">
-                {['pdf', 'excel', 'csv', 'images', 'docs'].map((ft) => {
-                  const on = driveDraft.fileTypes.includes(ft);
-                  return (
-                    <button key={ft} onClick={() => setDriveDraft((d) => ({ ...d, fileTypes: on ? d.fileTypes.filter((x) => x !== ft) : [...d.fileTypes, ft] }))}
-                      className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${on ? 'border-accent/40 bg-accent/12 text-accent' : 'border-white/[0.08] text-white/45 hover:border-white/[0.18]'}`}>
-                      {ft.toUpperCase()}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <FieldRow label="Access level"><AccessLevelSelect value={driveDraft.accessLevel} onChange={(v) => setDriveDraft((d) => ({ ...d, accessLevel: v }))} /></FieldRow>
-            {driveDraft.accessLevel !== 'Read only' && <SafetyNote text="Upload and export actions require human approval before any file is written." />}
-            <AgentAccessChecklist label="Agents with access" agents={['AI Ant Scout', 'Data Collector', 'Report Writer']} selected={driveDraft.agents} onChange={(v) => setDriveDraft((d) => ({ ...d, agents: v }))} />
-            <TestResultBar />
-          </div>
-          <ModalFooter connId="google-drive"
-            onTest={() => runTest('google-drive')}
-            onSave={() => saveConnector('google-drive', { accessLevel: driveDraft.accessLevel, agentsWithAccess: driveDraft.agents, config: { folderUrl: driveDraft.folderUrl, fileTypes: driveDraft.fileTypes.join(',') } })}
-            onCancel={() => { setSetupModalId(null); setTestResult(null); }} />
-        </ModalWrap>
-      )}
-
-      {/* Manage / Detail Modal */}
-      {manageModalId && (() => {
-        const conn = connectors.find((c) => c.id === manageModalId);
-        if (!conn) return null;
-        return (
-          <ModalWrap title={`Manage: ${conn.name}`} subtitle={conn.lastSynced ? `Last synced: ${conn.lastSynced}` : undefined} onClose={() => { setManageModalId(null); setTestResult(null); }}>
-            <div className="space-y-4 px-5 py-5">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-3">
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-white/35">Status</p>
-                  <div className="mt-1"><StatusBadge s={conn.status} /></div>
-                </div>
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-3">
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-white/35">Access level</p>
-                  <div className="mt-1"><AccessBadge level={conn.accessLevel} /></div>
-                </div>
-              </div>
-              {conn.accessLevel === 'Approval required' && <SafetyNote text="External actions require human approval before execution." />}
-              {conn.agentsWithAccess.length > 0 && (
-                <div>
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.1em] text-white/40">Agents with access</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {conn.agentsWithAccess.map((a) => (
-                      <span key={a} className="rounded-full border border-accent/20 bg-accent/[0.07] px-2.5 py-1 text-[10px] font-semibold text-accent">{a}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {testResult && (
-                <div className={`rounded-xl border px-3 py-2.5 text-[12px] font-semibold ${testResult.success ? 'border-green-500/25 bg-green-500/[0.07] text-green-300' : 'border-red-500/25 bg-red-500/[0.07] text-red-300'}`}>
-                  {testResult.success ? '✓ ' : '✕ '}{testResult.message}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <button onClick={() => runTest(conn.id)} disabled={testingId === conn.id}
-                  className="flex-1 rounded-xl border border-accent/20 bg-accent/[0.07] px-4 py-2.5 text-[12px] font-bold text-accent transition hover:bg-accent/12 disabled:opacity-50">
-                  {testingId === conn.id ? 'Testing…' : '⚡ Test Connection'}
-                </button>
-                <button onClick={() => setDisconnectConfirmId(conn.id)}
-                  className="rounded-xl border border-red-500/20 bg-red-500/[0.04] px-4 py-2.5 text-[12px] font-bold text-red-400 transition hover:bg-red-500/10">
-                  Disconnect
-                </button>
-              </div>
-            </div>
-          </ModalWrap>
-        );
-      })()}
-
-      {/* Disconnect confirmation */}
-      {disconnectConfirmId && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm" onClick={() => setDisconnectConfirmId(null)}>
-          <div className="w-full max-w-[380px] rounded-[20px] border border-white/[0.1] bg-[#0e0e1a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.55)]" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-2 font-heading text-[16px] font-extrabold text-white">Disconnect {connectors.find((c) => c.id === disconnectConfirmId)?.name}?</p>
-            <p className="mb-5 text-[12px] text-white/50">Agents will lose access to this tool. You can reconnect at any time.</p>
-            <div className="flex gap-2">
-              <button onClick={() => setDisconnectConfirmId(null)} className="flex-1 rounded-xl border border-white/[0.1] py-2.5 text-sm font-semibold text-white/60 transition hover:bg-white/[0.05]">Cancel</button>
-              <button onClick={() => disconnectConnector(disconnectConfirmId)} className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-bold text-white transition hover:bg-red-400">Disconnect</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 z-[500] -translate-x-1/2 rounded-full border border-white/[0.1] bg-[#0c0c14]/95 px-5 py-3 text-[13px] font-semibold text-white shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur">
-          {toast}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
 
 type OSCard = {
   title: string;
@@ -32976,7 +27323,6 @@ function OSGridCards({ cards }: { cards: OSCard[] }) {
 }
 
 const PROJ_TYPE_META: Record<string, { label: string; tone: string }> = {
-  general:    { label: 'General',     tone: 'border-white/15 bg-white/[0.05] text-white/65' },
   crew:       { label: 'Colony Crew', tone: 'border-blue-400/30 bg-blue-400/[0.08] text-blue-300' },
   enterprise: { label: 'Enterprise',  tone: 'border-violet-400/30 bg-violet-400/[0.08] text-violet-300' },
   workflow:   { label: 'Workflow',    tone: 'border-cyan-400/30 bg-cyan-400/[0.08] text-cyan-300' },
@@ -32985,733 +27331,12 @@ const PROJ_TYPE_META: Record<string, { label: string; tone: string }> = {
 
 const PROJ_STATUS_META: Record<string, { label: string; tone: string }> = {
   draft:          { label: 'Draft',          tone: 'border-white/12 bg-white/[0.04] text-white/38' },
-  planning:       { label: 'Planning',       tone: 'border-white/15 bg-white/[0.04] text-white/45' },
-  active:         { label: 'Active',         tone: 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300' },
   running:        { label: 'Running',        tone: 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300' },
   waiting:        { label: 'Waiting',        tone: 'border-amber-400/30 bg-amber-400/[0.08] text-amber-300' },
   completed:      { label: 'Completed',      tone: 'border-sky-400/30 bg-sky-400/[0.08] text-sky-300' },
   paused:         { label: 'Paused',         tone: 'border-white/15 bg-white/[0.05] text-white/42' },
   needs_approval: { label: 'Needs approval', tone: 'border-rose-400/30 bg-rose-400/[0.08] text-rose-300' },
-  archived:       { label: 'Archived',       tone: 'border-white/10 bg-white/[0.03] text-white/30' },
 };
-
-// ── Project Workspace Page (Claude-Projects style) ─────────────────────────────
-type ProjectTab = 'chats' | 'instructions' | 'files' | 'knowledge' | 'deliverables' | 'workflows' | 'team';
-
-function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`;
-  return new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-}
-
-function ProjectEmptyState({ title, message, action }: { title: string; message: string; action?: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-[20px] border border-dashed border-white/[0.08] bg-white/[0.02] px-6 py-12 text-center">
-      <h4 className="font-heading text-base font-bold text-white/55">{title}</h4>
-      <p className="mt-2 max-w-md text-sm leading-relaxed text-white/35">{message}</p>
-      {action && <div className="mt-5">{action}</div>}
-    </div>
-  );
-}
-
-function ProjectWorkspacePage({
-  project,
-  chats,
-  deliverables,
-  setPage,
-  onBack,
-  onOpenChat,
-  onNewChat,
-  onRename,
-  onArchive,
-  onDelete,
-  onUpdateProject,
-  onAddInstruction,
-  onUpdateInstruction,
-  onDeleteInstruction,
-  onAddFile,
-  onRemoveFile,
-  onAddKnowledge,
-  onRemoveKnowledge,
-}: {
-  project: WorkspaceProject;
-  chats: WorkspaceChat[];
-  deliverables: AppDeliverable[];
-  setPage: (page: Page) => void;
-  onBack: () => void;
-  onOpenChat: (id: string) => void;
-  onNewChat: () => void;
-  onRename: (name: string) => void;
-  onArchive: () => void;
-  onDelete: () => void;
-  onUpdateProject: (patch: Partial<WorkspaceProject>) => void;
-  onAddInstruction: (content: string, title?: string) => void;
-  onUpdateInstruction: (id: string, patch: Partial<ProjectInstruction>) => void;
-  onDeleteInstruction: (id: string) => void;
-  onAddFile: (file: Omit<ProjectFile, 'id' | 'uploadedAt' | 'status'> & Partial<Pick<ProjectFile, 'status'>>) => void;
-  onRemoveFile: (id: string) => void;
-  onAddKnowledge: (item: Omit<ProjectKnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  onRemoveKnowledge: (id: string) => void;
-}) {
-  const [tab, setTab] = useState<ProjectTab>('chats');
-  const [composer, setComposer] = useState('');
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [renameValue, setRenameValue] = useState(project.name);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  // Instructions form
-  const [newInstrTitle, setNewInstrTitle] = useState('');
-  const [newInstrContent, setNewInstrContent] = useState('');
-
-  // Knowledge form
-  const [newKnowTitle, setNewKnowTitle] = useState('');
-  const [newKnowContent, setNewKnowContent] = useState('');
-  const [newKnowType, setNewKnowType] = useState<ProjectKnowledgeItem['type']>('note');
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const instructions = project.instructions ?? [];
-  const files = project.files ?? [];
-  const knowledge = project.knowledgeItems ?? [];
-
-  const typeMeta = PROJ_TYPE_META[project.type ?? 'mixed'];
-  const statusMeta = PROJ_STATUS_META[project.status ?? 'draft'];
-
-  const stats = {
-    chats: chats.length,
-    files: files.length,
-    deliverables: deliverables.length,
-    workflows: project.workflowCount ?? 0,
-    instructions: instructions.filter((i) => i.enabled).length,
-    knowledge: knowledge.length,
-  };
-
-  const handleStartChat = () => {
-    onNewChat();
-    // composer text travels with chat in future; for now creating chat is enough
-    setComposer('');
-  };
-
-  const handleAddInstruction = () => {
-    if (!newInstrContent.trim()) return;
-    onAddInstruction(newInstrContent, newInstrTitle || undefined);
-    setNewInstrTitle('');
-    setNewInstrContent('');
-  };
-
-  const handleAddKnowledge = () => {
-    if (!newKnowContent.trim() || !newKnowTitle.trim()) return;
-    onAddKnowledge({ title: newKnowTitle.trim(), content: newKnowContent.trim(), type: newKnowType });
-    setNewKnowTitle('');
-    setNewKnowContent('');
-    setNewKnowType('note');
-  };
-
-  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
-    if (!list) return;
-    Array.from(list).forEach((f) => {
-      onAddFile({
-        name: f.name,
-        type: f.type || f.name.split('.').pop() || 'file',
-        size: f.size,
-        source: 'upload',
-        note: 'File uploaded and ready for future parsing',
-      });
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const tabs: Array<{ id: ProjectTab; label: string; icon: React.ElementType; count?: number }> = [
-    { id: 'chats',         label: 'Chats',         icon: MessageSquare, count: stats.chats },
-    { id: 'instructions',  label: 'Instructions',  icon: ClipboardCheck, count: instructions.length },
-    { id: 'files',         label: 'Files',         icon: FolderOpen, count: stats.files },
-    { id: 'knowledge',     label: 'Knowledge',     icon: StickyNote, count: stats.knowledge },
-    { id: 'deliverables',  label: 'Deliverables',  icon: FileText, count: stats.deliverables },
-    { id: 'workflows',     label: 'Workflows',     icon: Workflow, count: stats.workflows },
-    { id: 'team',          label: 'Team',          icon: Users, count: project.agentCount ?? 0 },
-  ];
-
-  return (
-    <div className="relative min-h-full bg-[#070B14] text-white" onClick={() => setMenuOpen(false)}>
-      <div className="mx-auto max-w-7xl px-6 py-6 md:px-8">
-
-        {/* Back + breadcrumb */}
-        <div className="mb-4 flex items-center gap-2 text-xs text-white/35">
-          <button onClick={onBack} className="flex items-center gap-1 rounded-[8px] px-2 py-1 transition hover:bg-white/[0.05] hover:text-white/70">
-            <ChevronLeft className="h-3.5 w-3.5" /> All projects
-          </button>
-        </div>
-
-        {/* Header */}
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${typeMeta.tone}`}>{typeMeta.label}</span>
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusMeta.tone}`}>{statusMeta.label}</span>
-              {project.progress !== undefined && (
-                <span className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2 py-0.5 text-[10px] font-bold text-white/55">{project.progress}% progress</span>
-              )}
-            </div>
-            <h1 className="font-heading text-3xl font-extrabold tracking-tight text-white">{project.name}</h1>
-            {project.goal && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/45">{project.goal}</p>}
-            {project.description && <p className="mt-1 max-w-2xl text-xs leading-relaxed text-white/30">{project.description}</p>}
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <button
-              onClick={onNewChat}
-              className="flex items-center gap-1.5 rounded-[12px] !bg-white px-4 py-2.5 text-sm font-bold !text-[#070B14] transition hover:!bg-white/90"
-            >
-              <MessageSquarePlus className="h-4 w-4" /> New chat
-            </button>
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-                className="grid h-10 w-10 place-items-center rounded-[12px] border border-white/[0.10] text-white/55 transition hover:border-white/20 hover:text-white/85"
-                title="More"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
-              {menuOpen && (
-                <div onClick={(e) => e.stopPropagation()} className="absolute right-0 top-12 z-30 min-w-[200px] overflow-hidden rounded-[14px] border border-white/[0.10] bg-[#0E1420] shadow-2xl">
-                  {[
-                    { label: 'Rename project', onClick: () => { setRenameOpen(true); setRenameValue(project.name); setMenuOpen(false); } },
-                    { label: 'Mark as active', onClick: () => { onUpdateProject({ status: 'active' }); setMenuOpen(false); } },
-                    { label: 'Mark as completed', onClick: () => { onUpdateProject({ status: 'completed', progress: 100 }); setMenuOpen(false); } },
-                    { label: 'Archive project', onClick: () => { onArchive(); setMenuOpen(false); } },
-                    { label: 'Delete project', onClick: () => { setConfirmDelete(true); setMenuOpen(false); }, danger: true },
-                  ].map((a) => (
-                    <button
-                      key={a.label}
-                      onClick={a.onClick}
-                      className={`flex w-full items-center px-4 py-2.5 text-sm transition hover:bg-white/[0.05] ${a.danger ? 'text-rose-300/80 hover:text-rose-200' : 'text-white/65 hover:text-white/90'}`}
-                    >
-                      {a.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Stats bar */}
-        <div className="mb-5 grid gap-2 sm:grid-cols-3 md:grid-cols-6">
-          {[
-            { label: 'Chats', value: stats.chats },
-            { label: 'Files', value: stats.files },
-            { label: 'Instructions', value: stats.instructions },
-            { label: 'Knowledge', value: stats.knowledge },
-            { label: 'Deliverables', value: stats.deliverables },
-            { label: 'Workflows', value: stats.workflows },
-          ].map((s) => (
-            <div key={s.label} className="rounded-[14px] border border-white/[0.07] bg-white/[0.03] px-4 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">{s.label}</p>
-              <p className="mt-1 text-lg font-bold text-white">{s.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Tab bar */}
-        <div className="mb-5 flex flex-wrap gap-1 border-b border-white/[0.07]">
-          {tabs.map(({ id, label, icon: Icon, count }) => {
-            const active = tab === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className={`flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-xs font-semibold transition ${
-                  active
-                    ? 'border-violet-400 text-white'
-                    : 'border-transparent text-white/45 hover:text-white/75'
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-                {count !== undefined && count > 0 && (
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${active ? 'bg-violet-500/20 text-violet-200' : 'bg-white/[0.06] text-white/45'}`}>{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Two-column layout */}
-        <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-          {/* Main column */}
-          <div className="min-w-0 space-y-5">
-
-            {tab === 'chats' && (
-              <>
-                {/* Composer */}
-                <div className="rounded-[20px] border border-white/[0.09] bg-white/[0.03] p-4">
-                  <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-white/30">
-                    <Sparkles className="h-3 w-3 text-violet-300/70" />
-                    Start a chat in this project
-                  </div>
-                  <textarea
-                    value={composer}
-                    onChange={(e) => setComposer(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleStartChat(); }}
-                    placeholder="Describe what you want to do. Project instructions and files will be included as context…"
-                    rows={3}
-                    className="w-full resize-none rounded-[12px] border border-white/[0.08] bg-[#070B14] px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/40"
-                  />
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap gap-1.5 text-[10px] text-white/30">
-                      <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5">{stats.instructions} instructions active</span>
-                      <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5">{stats.files} files in context</span>
-                    </div>
-                    <button
-                      onClick={handleStartChat}
-                      className="flex items-center gap-1.5 rounded-[10px] !bg-white px-3.5 py-2 text-xs font-bold !text-[#070B14] transition hover:!bg-white/90"
-                    >
-                      Start chat <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Chats list */}
-                {chats.length === 0 ? (
-                  <ProjectEmptyState
-                    title="No chats yet"
-                    message="Start a chat to keep conversations organized and reuse project knowledge."
-                    action={<button onClick={onNewChat} className="rounded-[10px] bg-violet-600 px-4 py-2 text-xs font-bold text-white hover:bg-violet-500">New chat</button>}
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    {chats.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => onOpenChat(c.id)}
-                        className="flex w-full items-start gap-3 rounded-[16px] border border-white/[0.07] bg-white/[0.03] px-4 py-3 text-left transition hover:border-white/[0.14] hover:bg-white/[0.05]"
-                      >
-                        <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-violet-300/60" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="truncate text-sm font-semibold text-white/85">{c.title}</p>
-                            <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white/40">
-                              {c.mode.replace(/_/g, ' ')}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-white/35">
-                            {c.messages.length} message{c.messages.length === 1 ? '' : 's'} · updated {formatRelativeTime(c.updatedAt)}
-                          </p>
-                        </div>
-                        <ArrowRight className="mt-1 h-3.5 w-3.5 shrink-0 text-white/25" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {tab === 'instructions' && (
-              <>
-                <div className="rounded-[20px] border border-white/[0.09] bg-white/[0.03] p-4">
-                  <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/30">Add instruction</p>
-                  <input
-                    value={newInstrTitle}
-                    onChange={(e) => setNewInstrTitle(e.target.value)}
-                    placeholder="Title (optional)"
-                    className="mb-2 w-full rounded-[10px] border border-white/[0.08] bg-[#070B14] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/40"
-                  />
-                  <textarea
-                    value={newInstrContent}
-                    onChange={(e) => setNewInstrContent(e.target.value)}
-                    placeholder="e.g. Always write reports in business English. Do not send external messages without approval."
-                    rows={3}
-                    className="w-full resize-none rounded-[10px] border border-white/[0.08] bg-[#070B14] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/40"
-                  />
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      onClick={handleAddInstruction}
-                      disabled={!newInstrContent.trim()}
-                      className="rounded-[10px] bg-violet-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-500 disabled:opacity-40"
-                    >
-                      Add instruction
-                    </button>
-                  </div>
-                </div>
-
-                {instructions.length === 0 ? (
-                  <ProjectEmptyState title="No instructions yet" message="Add instructions to guide AI Ant inside this project." />
-                ) : (
-                  <div className="space-y-2">
-                    {instructions.map((i) => (
-                      <div key={i.id} className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex-1 min-w-0">
-                            {i.title && <p className="mb-1 text-sm font-semibold text-white/85">{i.title}</p>}
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/65">{i.content}</p>
-                            <p className="mt-2 text-[10px] text-white/30">Updated {formatRelativeTime(i.updatedAt)}</p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              onClick={() => onUpdateInstruction(i.id, { enabled: !i.enabled })}
-                              className={`rounded-full border px-2 py-0.5 text-[10px] font-bold transition ${
-                                i.enabled
-                                  ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
-                                  : 'border-white/[0.10] bg-white/[0.04] text-white/40'
-                              }`}
-                              title={i.enabled ? 'Disable' : 'Enable'}
-                            >
-                              {i.enabled ? 'Enabled' : 'Disabled'}
-                            </button>
-                            <button
-                              onClick={() => onDeleteInstruction(i.id)}
-                              className="grid h-7 w-7 place-items-center rounded-[8px] text-white/30 transition hover:bg-white/[0.06] hover:text-rose-300"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {tab === 'files' && (
-              <>
-                <div className="rounded-[20px] border border-white/[0.09] bg-white/[0.03] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold text-white/85">Upload files</p>
-                      <p className="mt-0.5 text-xs text-white/35">PDF, CSV, Excel, images, docs. Files become context for project chats and workflows.</p>
-                    </div>
-                    <input ref={fileInputRef} type="file" multiple onChange={handleFilePick} className="hidden" />
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-1.5 rounded-[10px] bg-violet-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-500"
-                    >
-                      <Upload className="h-3.5 w-3.5" /> Upload
-                    </button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-white/35">
-                    <button onClick={() => setPage('Connectors')} className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 transition hover:border-white/20 hover:text-white/65">Connect Google Drive</button>
-                    <button onClick={() => setPage('Connectors')} className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 transition hover:border-white/20 hover:text-white/65">Connect Notion</button>
-                    <button onClick={() => setPage('Connectors')} className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 transition hover:border-white/20 hover:text-white/65">Connect Gmail</button>
-                  </div>
-                </div>
-
-                {files.length === 0 ? (
-                  <ProjectEmptyState title="No files yet" message="Add PDFs, documents, spreadsheets, or images to reference in this project." />
-                ) : (
-                  <div className="space-y-2">
-                    {files.map((f) => (
-                      <div key={f.id} className="flex items-start gap-3 rounded-[16px] border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-sky-300/60" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white/85">{f.name}</p>
-                          <p className="mt-0.5 text-xs text-white/35">
-                            <span className="uppercase tracking-wider">{f.type}</span>
-                            {f.size ? <> · {(f.size / 1024).toFixed(1)} KB</> : null}
-                            {' · '}{f.source.replace('_', ' ')}
-                            {' · '}uploaded {formatRelativeTime(f.uploadedAt)}
-                          </p>
-                          {f.note && <p className="mt-1 text-[10px] text-white/30">{f.note}</p>}
-                        </div>
-                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                          f.status === 'ready' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' :
-                          f.status === 'failed' ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' :
-                          'border-amber-400/30 bg-amber-400/10 text-amber-300'
-                        }`}>
-                          {f.status}
-                        </span>
-                        <button
-                          onClick={() => onRemoveFile(f.id)}
-                          className="grid h-7 w-7 place-items-center rounded-[8px] text-white/30 transition hover:bg-white/[0.06] hover:text-rose-300"
-                          title="Remove"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {tab === 'knowledge' && (
-              <>
-                <div className="rounded-[20px] border border-white/[0.09] bg-white/[0.03] p-4">
-                  <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/30">Add knowledge item</p>
-                  <div className="mb-2 grid gap-2 md:grid-cols-[1fr_180px]">
-                    <input
-                      value={newKnowTitle}
-                      onChange={(e) => setNewKnowTitle(e.target.value)}
-                      placeholder="Title"
-                      className="w-full rounded-[10px] border border-white/[0.08] bg-[#070B14] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/40"
-                    />
-                    <select
-                      value={newKnowType}
-                      onChange={(e) => setNewKnowType(e.target.value as ProjectKnowledgeItem['type'])}
-                      className="rounded-[10px] border border-white/[0.08] bg-[#070B14] px-3.5 py-2.5 text-sm text-white outline-none focus:border-violet-500/40"
-                    >
-                      <option value="note">Note</option>
-                      <option value="decision">Decision</option>
-                      <option value="source">Source</option>
-                      <option value="learning">Learning</option>
-                      <option value="summary">Summary</option>
-                    </select>
-                  </div>
-                  <textarea
-                    value={newKnowContent}
-                    onChange={(e) => setNewKnowContent(e.target.value)}
-                    placeholder="Content"
-                    rows={3}
-                    className="w-full resize-none rounded-[10px] border border-white/[0.08] bg-[#070B14] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/40"
-                  />
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      onClick={handleAddKnowledge}
-                      disabled={!newKnowTitle.trim() || !newKnowContent.trim()}
-                      className="rounded-[10px] bg-violet-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-500 disabled:opacity-40"
-                    >
-                      Save to knowledge
-                    </button>
-                  </div>
-                </div>
-
-                {knowledge.length === 0 ? (
-                  <ProjectEmptyState title="No knowledge items yet" message="Notes, decisions, sources, and agent learnings will live here for the whole project." />
-                ) : (
-                  <div className="space-y-2">
-                    {knowledge.map((k) => (
-                      <div key={k.id} className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <p className="text-sm font-semibold text-white/85">{k.title}</p>
-                              <span className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white/45">{k.type}</span>
-                            </div>
-                            <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-white/55">{k.content}</p>
-                            <p className="mt-2 text-[10px] text-white/30">Added {formatRelativeTime(k.createdAt)}</p>
-                          </div>
-                          <button
-                            onClick={() => onRemoveKnowledge(k.id)}
-                            className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] text-white/30 transition hover:bg-white/[0.06] hover:text-rose-300"
-                            title="Remove"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {tab === 'deliverables' && (
-              deliverables.length === 0 ? (
-                <ProjectEmptyState
-                  title="No deliverables yet"
-                  message="Deliverables created from this project will appear here."
-                  action={<button onClick={() => setPage('Deliverables')} className="rounded-[10px] border border-white/[0.10] bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/65 hover:border-white/20 hover:text-white/85">View all deliverables</button>}
-                />
-              ) : (
-                <div className="space-y-2">
-                  {deliverables.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => setPage('Deliverables')}
-                      className="flex w-full items-start gap-3 rounded-[16px] border border-white/[0.07] bg-white/[0.03] px-4 py-3 text-left transition hover:border-white/[0.14] hover:bg-white/[0.05]"
-                    >
-                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-sky-300/60" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-white/85">{d.title}</p>
-                          <span className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white/45">{d.type}</span>
-                        </div>
-                        <p className="mt-0.5 truncate text-xs text-white/35">{d.description}</p>
-                      </div>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                        d.status === 'approved' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' :
-                        d.status === 'needs_review' ? 'border-amber-400/30 bg-amber-400/10 text-amber-300' :
-                        d.status === 'export_ready' ? 'border-sky-400/30 bg-sky-400/10 text-sky-300' :
-                        'border-white/[0.10] bg-white/[0.04] text-white/45'
-                      }`}>
-                        {d.status.replace('_', ' ')}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )
-            )}
-
-            {tab === 'workflows' && (
-              (project.workflowCount ?? 0) === 0 ? (
-                <ProjectEmptyState
-                  title="No workflows attached"
-                  message="Workflows created from this project will appear here. Build one with AI Ant."
-                  action={<button onClick={() => setPage('AI Ant')} className="rounded-[10px] bg-violet-600 px-4 py-2 text-xs font-bold text-white hover:bg-violet-500">Create with AI Ant</button>}
-                />
-              ) : (
-                <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                  <div className="flex items-center gap-2 text-sm text-white/65">
-                    <Workflow className="h-4 w-4 text-cyan-300/60" />
-                    <span>{project.workflowCount} workflow{(project.workflowCount ?? 0) > 1 ? 's' : ''} attached to this project</span>
-                  </div>
-                  <button onClick={() => setPage('Workflows')} className="mt-3 rounded-[10px] border border-white/[0.10] bg-white/[0.04] px-3.5 py-2 text-xs font-semibold text-white/65 hover:border-white/20 hover:text-white/85">
-                    Manage workflows
-                  </button>
-                </div>
-              )
-            )}
-
-            {tab === 'team' && (
-              (project.agentCount ?? 0) === 0 ? (
-                <ProjectEmptyState
-                  title="No agents assigned"
-                  message="Add a Colony Crew or One-man Enterprise to this project."
-                  action={<button onClick={() => setPage('AI Ant')} className="rounded-[10px] bg-violet-600 px-4 py-2 text-xs font-bold text-white hover:bg-violet-500">Build AI Team with AI Ant</button>}
-                />
-              ) : (
-                <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                  <div className="flex items-center gap-2 text-sm text-white/65">
-                    <Users className="h-4 w-4 text-blue-300/60" />
-                    <span>{project.agentCount} agent{(project.agentCount ?? 0) > 1 ? 's' : ''} working in this project</span>
-                  </div>
-                  <button onClick={() => setPage('AI Teams')} className="mt-3 rounded-[10px] border border-white/[0.10] bg-white/[0.04] px-3.5 py-2 text-xs font-semibold text-white/65 hover:border-white/20 hover:text-white/85">
-                    Manage AI Team
-                  </button>
-                </div>
-              )
-            )}
-          </div>
-
-          {/* Right side panel */}
-          <aside className="hidden space-y-4 lg:block">
-            <section className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">Instructions</p>
-                <button onClick={() => setTab('instructions')} className="text-[10px] font-bold text-violet-300/70 hover:text-violet-200">Manage</button>
-              </div>
-              {instructions.length === 0 ? (
-                <p className="text-xs text-white/30">No instructions yet. Add some to guide AI inside this project.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {instructions.slice(0, 3).map((i) => (
-                    <li key={i.id} className="flex items-start gap-2 text-xs text-white/55">
-                      <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${i.enabled ? 'bg-emerald-400' : 'bg-white/20'}`} />
-                      <span className="line-clamp-2">{i.title ? `${i.title}: ` : ''}{i.content}</span>
-                    </li>
-                  ))}
-                  {instructions.length > 3 && (
-                    <li className="pl-3.5 text-[10px] text-white/30">+ {instructions.length - 3} more</li>
-                  )}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">Files</p>
-                <button onClick={() => setTab('files')} className="text-[10px] font-bold text-violet-300/70 hover:text-violet-200">Manage</button>
-              </div>
-              {files.length === 0 ? (
-                <p className="text-xs text-white/30">No files attached yet.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {files.slice(0, 4).map((f) => (
-                    <li key={f.id} className="flex items-center gap-2 text-xs text-white/55">
-                      <FileText className="h-3 w-3 shrink-0 text-sky-300/60" />
-                      <span className="truncate">{f.name}</span>
-                    </li>
-                  ))}
-                  {files.length > 4 && (
-                    <li className="pl-5 text-[10px] text-white/30">+ {files.length - 4} more</li>
-                  )}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">Knowledge</p>
-                <button onClick={() => setTab('knowledge')} className="text-[10px] font-bold text-violet-300/70 hover:text-violet-200">Manage</button>
-              </div>
-              {knowledge.length === 0 ? (
-                <p className="text-xs text-white/30">No knowledge items yet.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {knowledge.slice(0, 4).map((k) => (
-                    <li key={k.id} className="flex items-start gap-2 text-xs text-white/55">
-                      <StickyNote className="mt-0.5 h-3 w-3 shrink-0 text-amber-300/60" />
-                      <span className="truncate">{k.title}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-white/30">Connected sources</p>
-              <div className="flex flex-wrap gap-1.5">
-                <button onClick={() => setPage('Connectors')} className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/55 hover:border-white/20 hover:text-white/85">Google Drive</button>
-                <button onClick={() => setPage('Connectors')} className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/55 hover:border-white/20 hover:text-white/85">Notion</button>
-                <button onClick={() => setPage('Connectors')} className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/55 hover:border-white/20 hover:text-white/85">Gmail</button>
-              </div>
-            </section>
-
-            <section className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-white/30">Activity</p>
-              <ul className="space-y-1.5 text-xs text-white/45">
-                {project.lastActivity && <li><span className="font-bold text-white/55">Latest:</span> {project.lastActivity}</li>}
-                {project.nextAction && <li><span className="font-bold text-white/55">Next:</span> {project.nextAction}</li>}
-                <li className="text-[10px] text-white/30">Created {new Date(project.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</li>
-              </ul>
-            </section>
-          </aside>
-        </div>
-      </div>
-
-      {/* Rename modal */}
-      {renameOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setRenameOpen(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div onClick={(e) => e.stopPropagation()} className="relative z-10 w-full max-w-sm rounded-[20px] border border-white/[0.10] bg-[#0A0F1B] p-6 shadow-2xl">
-            <h2 className="mb-4 font-heading text-base font-bold text-white">Rename project</h2>
-            <input
-              autoFocus
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { onRename(renameValue); setRenameOpen(false); } if (e.key === 'Escape') setRenameOpen(false); }}
-              className="w-full rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none focus:border-violet-500/50"
-            />
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => { onRename(renameValue); setRenameOpen(false); }} className="flex-1 rounded-[12px] bg-violet-600 py-2 text-sm font-bold text-white hover:bg-violet-500">Save</button>
-              <button onClick={() => setRenameOpen(false)} className="flex-1 rounded-[12px] border border-white/[0.10] py-2 text-sm font-semibold text-white/50 hover:text-white/75">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete confirm */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setConfirmDelete(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div onClick={(e) => e.stopPropagation()} className="relative z-10 w-full max-w-sm rounded-[20px] border border-white/[0.10] bg-[#0A0F1B] p-6 shadow-2xl">
-            <h2 className="mb-2 font-heading text-base font-bold text-white">Delete project?</h2>
-            <p className="mb-5 text-sm text-white/45">This will permanently remove the project. Chats will stay in history. This cannot be undone.</p>
-            <div className="flex gap-2">
-              <button onClick={onDelete} className="flex-1 rounded-[12px] bg-rose-500 py-2 text-sm font-bold text-white hover:bg-rose-400">Delete</button>
-              <button onClick={() => setConfirmDelete(false)} className="flex-1 rounded-[12px] border border-white/[0.10] py-2 text-sm font-semibold text-white/50 hover:text-white/75">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ProjectsOSPage({
   setPage,
@@ -33720,15 +27345,13 @@ function ProjectsOSPage({
   renameWsProject,
   archiveWsProject,
   deleteWsProject,
-  onOpenProject,
 }: {
   setPage: (page: Page) => void;
   wsProjects: WorkspaceProject[];
-  createWsProject: (name: string, goal: string, description?: string, projectType?: WorkspaceProject['type'], initialInstructions?: string) => string;
+  createWsProject: (name: string, goal: string, description?: string, projectType?: WorkspaceProject['type']) => string;
   renameWsProject: (id: string, name: string) => void;
   archiveWsProject: (id: string) => void;
   deleteWsProject: (id: string) => void;
-  onOpenProject: (id: string) => void;
 }) {
   type ProjectFilter = 'all' | 'running' | 'needs_approval' | 'workflow' | 'enterprise' | 'crew' | 'completed' | 'draft';
   type ProjectSort = 'updated' | 'created' | 'status' | 'progress';
@@ -33744,8 +27367,6 @@ function ProjectsOSPage({
   const [renameValue, setRenameValue] = useState('');
   const [newName, setNewName] = useState('');
   const [newGoal, setNewGoal] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [newInstructions, setNewInstructions] = useState('');
   const [newType, setNewType] = useState<WorkspaceProject['type']>('mixed');
 
   const activeProjects = wsProjects.filter(p => !p.isArchived && p.status !== 'completed');
@@ -33791,16 +27412,9 @@ function ProjectsOSPage({
 
   const handleCreate = () => {
     if (!newName.trim()) return;
-    const id = createWsProject(
-      newName.trim(),
-      newGoal.trim() || 'Define your goal.',
-      newDescription.trim() || undefined,
-      newType,
-      newInstructions.trim() || undefined,
-    );
+    createWsProject(newName.trim(), newGoal.trim() || 'Define your goal.', undefined, newType);
     setShowNewModal(false);
-    setNewName(''); setNewGoal(''); setNewDescription(''); setNewInstructions(''); setNewType('mixed');
-    onOpenProject(id);
+    setNewName(''); setNewGoal(''); setNewType('mixed');
   };
 
   const handleRename = () => {
@@ -33960,13 +27574,11 @@ function ProjectsOSPage({
               return (
                 <div
                   key={p.id}
-                  onClick={() => onOpenProject(p.id)}
-                  className="relative cursor-pointer rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition hover:border-white/[0.11]"
+                  className="relative rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition hover:border-white/[0.11]"
                 >
                   {/* Three-dot menu */}
                   <button
                     onClick={e => { e.stopPropagation(); setMenuId(isMenuOpen ? null : p.id); }}
-                    onMouseDown={e => e.stopPropagation()}
                     className="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-[8px] text-white/25 transition hover:bg-white/[0.07] hover:text-white/60"
                   >
                     <MoreHorizontal className="h-4 w-4" />
@@ -34059,7 +27671,7 @@ function ProjectsOSPage({
                   {/* Action buttons */}
                   <div className="mt-4 flex gap-2">
                     <button
-                      onClick={e => { e.stopPropagation(); onOpenProject(p.id); }}
+                      onClick={() => setDetailsId(p.id === detailsId ? null : p.id)}
                       className={`rounded-[10px] px-3.5 py-2 text-xs font-bold transition ${
                         p.status === 'needs_approval'
                           ? 'bg-rose-500 text-white hover:bg-rose-400'
@@ -34069,7 +27681,7 @@ function ProjectsOSPage({
                       {primaryLabel}
                     </button>
                     <button
-                      onClick={e => { e.stopPropagation(); setDetailsId(p.id === detailsId ? null : p.id); }}
+                      onClick={() => setDetailsId(p.id === detailsId ? null : p.id)}
                       className="rounded-[10px] border border-white/[0.18] bg-white/[0.06] px-3.5 py-2 text-xs font-semibold text-white/65 transition hover:border-white/28 hover:bg-white/[0.09] hover:text-white/85"
                     >
                       Details
@@ -34300,34 +27912,14 @@ function ProjectsOSPage({
                   value={newGoal}
                   onChange={e => setNewGoal(e.target.value)}
                   placeholder="Describe what this project should accomplish…"
-                  rows={2}
+                  rows={3}
                   className="w-full resize-none rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/50"
                 />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-white/35">Description <span className="text-white/25">(optional)</span></label>
-                <input
-                  value={newDescription}
-                  onChange={e => setNewDescription(e.target.value)}
-                  placeholder="Short summary of the workspace"
-                  className="w-full rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-2.5 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/50"
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-white/35">Instructions <span className="text-white/25">(optional)</span></label>
-                <textarea
-                  value={newInstructions}
-                  onChange={e => setNewInstructions(e.target.value)}
-                  placeholder="e.g. Always answer in business English. Do not send external emails without approval."
-                  rows={2}
-                  className="w-full resize-none rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/50"
-                />
-                <p className="mt-1.5 text-[10px] text-white/30">These guide every chat, crew run, and workflow inside this project.</p>
               </div>
               <div>
                 <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-white/35">Type</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {(['general', 'crew', 'workflow', 'enterprise', 'mixed'] as const).map(t => (
+                  {(['enterprise', 'crew', 'workflow', 'mixed'] as const).map(t => (
                     <button
                       key={t}
                       onClick={() => setNewType(t)}
@@ -35726,29 +29318,7 @@ function ConnectorsMarketplacePage() {
   );
 }
 
-function BillingPlansPage() {
-  const plans = [
-    ['Free', '$0', 'Basic AI Ant chat, limited projects, community templates'],
-    ['Basic', '$19', 'More projects, AI team runs, basic connectors, template remix'],
-    ['Pro', '$49', 'Advanced AI teams, workflows, project memory, deliverable exports'],
-    ['Max', '$149', 'High usage, device actions, collaboration, priority support'],
-  ];
-  return (
-    <OSPageShell eyebrow="Plan and usage" title="Billing" subtitle="Premium plan cards, usage visibility, and clear upgrade paths for an AI workforce OS.">
-      <div className="mb-6 grid gap-4 lg:grid-cols-4">
-        {plans.map(([name, price, desc], index) => (
-          <div key={name} className={`rounded-[24px] border p-5 ${index === 2 ? 'border-violet-400/35 bg-violet-400/[0.08]' : 'border-white/[0.08] bg-white/[0.03]'}`}>
-            <p className="font-heading text-lg font-bold text-white">{name}</p>
-            <p className="mt-3 text-3xl font-extrabold text-white">{price}<span className="text-sm font-medium text-white/35">/mo</span></p>
-            <p className="mt-3 min-h-[54px] text-sm leading-relaxed text-white/45">{desc}</p>
-            <button className={`mt-5 w-full rounded-[12px] py-2.5 text-sm font-bold ${index === 2 ? 'bg-violet-600 text-white hover:bg-violet-500' : 'bg-[#ffffff] text-[#070B14] hover:bg-[#f0f2ff]'}`}>{index === 0 ? 'Current plan' : 'Select plan'}</button>
-          </div>
-        ))}
-      </div>
-      <StatStrip items={[{ label: 'AI team runs', value: '38/100', detail: 'This month' }, { label: 'Workflow runs', value: '12/50', detail: 'Repeating processes' }, { label: 'Connector actions', value: '420', detail: 'Safe tool calls' }, { label: 'Storage', value: '4.2 GB', detail: 'Project files' }]} />
-    </OSPageShell>
-  );
-}
+
 
 const SETTINGS_NAV: { group: string; items: { id: string; icon: React.ElementType }[] }[] = [
   { group: 'General', items: [
@@ -35782,7 +29352,7 @@ function SettingsToggle({ on, onToggle }: { on: boolean; onToggle: () => void })
   );
 }
 
-function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, setTheme, goBilling }: {
+function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, setTheme, goBilling, onSignOut, onSwitchAccount, onChangePassword }: {
   onBack: () => void;
   profile: UserProfile;
   safetyMode: boolean;
@@ -35790,8 +29360,52 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
   theme: 'light' | 'dark' | 'system';
   setTheme: (t: 'light' | 'dark' | 'system') => void;
   goBilling: () => void;
+  onSignOut: () => void | Promise<void>;
+  onSwitchAccount: () => void | Promise<void>;
+  onChangePassword: () => void;
 }) {
   const [active, setActive] = useState('Account');
+  const [confirm, setConfirm] = useState<null | 'logout' | 'switch' | 'delete'>(null);
+  const [deleteText, setDeleteText] = useState('');
+
+  // Resolve the auth provider from the active mock session so we know whether
+  // to show "Change password" (only meaningful for email/password accounts).
+  const currentAuth = getCurrentUser();
+  const authProvider: AuthProvider = currentAuth?.provider ?? 'email';
+
+  const filteredNav = SETTINGS_NAV
+    .map((group) => {
+      if (group.group === 'Developer' && !canSeeDeveloperSettings(profile)) return null;
+      return group;
+    })
+    .filter((group): group is (typeof SETTINGS_NAV)[number] => Boolean(group));
+
+  // If a non-developer landed on a Developer-only setting (e.g. via a stale URL),
+  // pop back to Account so the page doesn't render a developer-only screen.
+  useEffect(() => {
+    const developerOnly = new Set(['API Keys', 'Logs']);
+    if (developerOnly.has(active) && !canSeeDeveloperSettings(profile)) setActive('Account');
+  }, [active, profile]);
+
+  const handleConfirm = async () => {
+    const action = confirm;
+    setConfirm(null);
+    setDeleteText('');
+    if (action === 'logout') await onSignOut();
+    if (action === 'switch') await onSwitchAccount();
+    if (action === 'delete') {
+      // Mock-mode local deletion: wipe local profile + workspace caches and
+      // sign out. Backend account deletion must happen server-side.
+      try {
+        localStorage.removeItem('colony.profile.v1');
+        localStorage.removeItem('colony_current_user');
+        localStorage.removeItem('colony_users');
+        localStorage.removeItem(WS_CHATS_KEY);
+        localStorage.removeItem(WS_PROJECTS_KEY);
+      } catch { /* ignore */ }
+      await onSignOut();
+    }
+  };
 
   return (
     <div className="flex h-screen flex-col bg-[#07070f] text-white">
@@ -35820,7 +29434,7 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
           </div>
           <div className="mb-5 h-px bg-white/[0.06] mx-4" />
 
-          {SETTINGS_NAV.map(({ group, items }) => (
+          {filteredNav.map(({ group, items }) => (
             <div key={group} className="mb-4 px-2">
               <p className="mb-1 px-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white/25">{group}</p>
               {items.map(({ id, icon: Icon }) => (
@@ -35844,6 +29458,7 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
 
           {active === 'Account' && (
             <div className="space-y-4 max-w-xl">
+              {/* Card 1 — Profile */}
               <div className="rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-5">
                 <div className="flex items-center gap-4">
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-blue-500 text-xl font-bold text-white">
@@ -35856,6 +29471,41 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
                   </div>
                 </div>
               </div>
+
+              {/* Card 2 — Session & account */}
+              <div className="rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-5">
+                <p className="text-sm font-bold text-white/90">Session &amp; account</p>
+                <p className="mt-1 text-[12.5px] text-white/45">{profile.email || 'No email on file'}</p>
+                <div className="mt-3 flex items-center gap-2 text-[11.5px] text-white/55">
+                  <RoleBadge role={profile.role} />
+                  <span className="text-white/22">·</span>
+                  <span>Signed in with {authMethodLabel(authProvider)}</span>
+                </div>
+                <div className="mt-5 flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setConfirm('switch')}
+                    className="rounded-[10px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-2 text-[12.5px] font-semibold text-white/85 transition hover:border-white/[0.16] hover:bg-white/[0.08] hover:text-white"
+                  >
+                    Switch account
+                  </button>
+                  <button
+                    onClick={() => setConfirm('logout')}
+                    className="rounded-[10px] border border-white/[0.14] bg-transparent px-3.5 py-2 text-[12.5px] font-semibold text-white/75 transition hover:border-white/[0.28] hover:bg-white/[0.04] hover:text-white"
+                  >
+                    Log out
+                  </button>
+                  {authProvider === 'email' && (
+                    <button
+                      onClick={onChangePassword}
+                      className="ml-auto rounded-[10px] px-3 py-2 text-[12px] font-semibold text-violet-300 transition hover:bg-violet-500/[0.08] hover:text-violet-200"
+                    >
+                      Change password
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Card 3 — Current plan */}
               <div className="rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -35867,10 +29517,24 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
                     Upgrade
                   </button>
                 </div>
+                <button onClick={goBilling}
+                  className="mt-3 text-[12px] font-semibold text-violet-300 transition hover:text-violet-200">
+                  Manage Billing &amp; Plans →
+                </button>
               </div>
-              <div className="rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-5">
-                <p className="mb-3 text-sm font-bold text-white/90">Danger zone</p>
-                <button className="text-[13px] font-semibold text-rose-400 hover:text-rose-300 transition">Delete account</button>
+
+              {/* Card 4 — Danger zone */}
+              <div className="rounded-[18px] border border-rose-500/15 bg-rose-500/[0.04] p-5">
+                <p className="text-sm font-bold text-white/90">Danger zone</p>
+                <p className="mt-1 text-[12px] text-white/45">
+                  Delete your account and clear local app data on this device. Project data stored independently is not affected.
+                </p>
+                <button
+                  onClick={() => { setDeleteText(''); setConfirm('delete'); }}
+                  className="mt-4 rounded-[10px] border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-[12.5px] font-semibold text-rose-300 transition hover:border-rose-400/45 hover:bg-rose-500/15 hover:text-rose-200"
+                >
+                  Delete account
+                </button>
               </div>
             </div>
           )}
@@ -35936,6 +29600,128 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
             </div>
           )}
         </main>
+      </div>
+
+      {confirm === 'switch' && (
+        <ConfirmModal
+          title="Switch account?"
+          body="You will be signed out of this account and returned to the sign-in page."
+          confirmLabel="Continue"
+          onCancel={() => setConfirm(null)}
+          onConfirm={handleConfirm}
+        />
+      )}
+      {confirm === 'logout' && (
+        <ConfirmModal
+          title="Log out of Colony?"
+          body="You can sign back in at any time."
+          confirmLabel="Log out"
+          onCancel={() => setConfirm(null)}
+          onConfirm={handleConfirm}
+        />
+      )}
+      {confirm === 'delete' && (
+        <DeleteAccountModal
+          deleteText={deleteText}
+          setDeleteText={setDeleteText}
+          onCancel={() => { setConfirm(null); setDeleteText(''); }}
+          onConfirm={handleConfirm}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Settings helpers ─────────────────────────────────────────────────────────
+function RoleBadge({ role }: { role?: UserRole }) {
+  const label = roleBadgeLabel(role);
+  const tone =
+    label === 'Admin'
+      ? 'border-violet-400/30 bg-violet-500/12 text-violet-100'
+      : label === 'Developer'
+      ? 'border-sky-400/30 bg-sky-500/12 text-sky-100'
+      : 'border-white/[0.12] bg-white/[0.05] text-white/70';
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+function authMethodLabel(provider: AuthProvider): string {
+  if (provider === 'google') return 'Google';
+  if (provider === 'development') return 'Development account';
+  return 'Email';
+}
+
+function ConfirmModal({ title, body, confirmLabel, onCancel, onConfirm }: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-5">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-full max-w-[420px] rounded-[18px] border border-white/[0.09] bg-[#0b0e16] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+        <p className="text-base font-bold text-white/95">{title}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-white/55">{body}</p>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-[10px] border border-white/[0.10] bg-transparent px-4 py-2 text-[13px] font-semibold text-white/80 transition hover:border-white/[0.22] hover:bg-white/[0.04] hover:text-white">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="rounded-[10px] bg-white px-4 py-2 text-[13px] font-semibold text-[#0b0e16] transition hover:bg-white/95">
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteAccountModal({ deleteText, setDeleteText, onCancel, onConfirm }: {
+  deleteText: string;
+  setDeleteText: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const armed = deleteText === 'DELETE';
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-5">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-full max-w-[460px] rounded-[18px] border border-rose-500/25 bg-[#0b0e16] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+        <div className="flex items-center gap-2 text-rose-300">
+          <AlertTriangle size={16} />
+          <p className="text-base font-bold">Delete account</p>
+        </div>
+        <p className="mt-2 text-[13px] leading-relaxed text-white/55">
+          This will clear your local Colony data on this device and sign you out. {' '}
+          <span className="text-white/40">Server-side account deletion requires a backend endpoint and is not implemented in mock mode.</span>
+        </p>
+        <label className="mt-5 block text-[12px] font-semibold text-white/55">
+          Type <span className="font-mono text-rose-300">DELETE</span> to confirm
+          <input
+            value={deleteText}
+            onChange={(e) => setDeleteText(e.target.value)}
+            autoFocus
+            className="mt-2 w-full rounded-[10px] border border-white/[0.10] bg-white/[0.04] px-3 py-2 text-[13px] text-white outline-none transition focus:border-rose-400/45 focus:bg-white/[0.05] focus:ring-2 focus:ring-rose-400/15"
+          />
+        </label>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-[10px] border border-white/[0.10] bg-transparent px-4 py-2 text-[13px] font-semibold text-white/80 transition hover:border-white/[0.22] hover:bg-white/[0.04] hover:text-white">
+            Cancel
+          </button>
+          <button
+            disabled={!armed}
+            onClick={armed ? onConfirm : undefined}
+            className={`rounded-[10px] px-4 py-2 text-[13px] font-semibold transition ${
+              armed ? 'bg-rose-500 text-white hover:bg-rose-400' : 'cursor-not-allowed bg-rose-500/30 text-white/55'
+            }`}
+          >
+            Delete local data
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -36803,7 +30589,13 @@ function BillingScreen({
   );
 }
 
-function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page) => void; profile: UserProfile }) {
+function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
+  page: Page;
+  setPage: (page: Page) => void;
+  profile: UserProfile;
+  onSignOut: () => void | Promise<void>;
+  onSwitchAccount: () => void | Promise<void>;
+}) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [drawerView, setDrawerView] = useState<AppDrawerView | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -36906,110 +30698,15 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
     setWsChats((prev) => prev.map((chat) => chat.projectId === id ? { ...chat, projectId: null } : chat));
   };
 
-  const createWsProject = (
-    name: string,
-    goal: string,
-    description?: string,
-    projectType?: WorkspaceProject['type'],
-    initialInstructions?: string,
-  ): string => {
+  const createWsProject = (name: string, goal: string, description?: string, projectType?: WorkspaceProject['type']): string => {
     const id = `wsp-${Date.now()}`;
     const now = Date.now();
-    const instructions: ProjectInstruction[] = initialInstructions && initialInstructions.trim()
-      ? [{ id: `ins-${now}`, title: 'Project instruction', content: initialInstructions.trim(), enabled: true, createdAt: now, updatedAt: now }]
-      : [];
     setWsProjects((prev) => [
-      {
-        id, name, goal, description,
-        type: projectType ?? 'mixed', status: 'draft' as const,
-        progress: 0, agentCount: 0, workflowCount: 0, taskCount: 0, deliverableCount: 0, approvalCount: 0,
-        instructions, files: [], knowledgeItems: [],
-        createdAt: now, updatedAt: now,
-      },
+      { id, name, goal, description, type: projectType ?? 'mixed', status: 'draft' as const, progress: 0, agentCount: 0, workflowCount: 0, taskCount: 0, deliverableCount: 0, approvalCount: 0, createdAt: now, updatedAt: now },
       ...prev,
     ]);
     return id;
   };
-
-  // ── Project workspace helpers (Claude-Projects style) ────────────────────────
-  const [selectedWsProjectId, setSelectedWsProjectId] = useState<string | null>(null);
-
-  const updateWsProject = useCallback((id: string, patch: Partial<WorkspaceProject>) => {
-    setWsProjects((prev) => prev.map((p) => p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p));
-  }, []);
-
-  const addProjectInstruction = useCallback((projectId: string, content: string, title?: string) => {
-    const text = content.trim();
-    if (!text) return;
-    const now = Date.now();
-    const next: ProjectInstruction = { id: `ins-${now}`, title: title?.trim() || undefined, content: text, enabled: true, createdAt: now, updatedAt: now };
-    setWsProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, instructions: [...(p.instructions ?? []), next], updatedAt: now } : p));
-  }, []);
-
-  const updateProjectInstruction = useCallback((projectId: string, instructionId: string, patch: Partial<ProjectInstruction>) => {
-    const now = Date.now();
-    setWsProjects((prev) => prev.map((p) => p.id !== projectId ? p : {
-      ...p,
-      instructions: (p.instructions ?? []).map((i) => i.id === instructionId ? { ...i, ...patch, updatedAt: now } : i),
-      updatedAt: now,
-    }));
-  }, []);
-
-  const deleteProjectInstruction = useCallback((projectId: string, instructionId: string) => {
-    const now = Date.now();
-    setWsProjects((prev) => prev.map((p) => p.id !== projectId ? p : {
-      ...p,
-      instructions: (p.instructions ?? []).filter((i) => i.id !== instructionId),
-      updatedAt: now,
-    }));
-  }, []);
-
-  const addProjectFile = useCallback((projectId: string, file: Omit<ProjectFile, 'id' | 'uploadedAt' | 'status'> & Partial<Pick<ProjectFile, 'status'>>) => {
-    const now = Date.now();
-    const next: ProjectFile = { id: `pf-${now}`, uploadedAt: now, status: file.status ?? 'ready', ...file };
-    setWsProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, files: [next, ...(p.files ?? [])], updatedAt: now } : p));
-  }, []);
-
-  const removeProjectFile = useCallback((projectId: string, fileId: string) => {
-    const now = Date.now();
-    setWsProjects((prev) => prev.map((p) => p.id !== projectId ? p : {
-      ...p,
-      files: (p.files ?? []).filter((f) => f.id !== fileId),
-      updatedAt: now,
-    }));
-  }, []);
-
-  const addProjectKnowledge = useCallback((projectId: string, item: Omit<ProjectKnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const now = Date.now();
-    const next: ProjectKnowledgeItem = { id: `pk-${now}`, createdAt: now, updatedAt: now, ...item };
-    setWsProjects((prev) => prev.map((p) => p.id === projectId ? { ...p, knowledgeItems: [next, ...(p.knowledgeItems ?? [])], updatedAt: now } : p));
-  }, []);
-
-  const removeProjectKnowledge = useCallback((projectId: string, itemId: string) => {
-    const now = Date.now();
-    setWsProjects((prev) => prev.map((p) => p.id !== projectId ? p : {
-      ...p,
-      knowledgeItems: (p.knowledgeItems ?? []).filter((i) => i.id !== itemId),
-      updatedAt: now,
-    }));
-  }, []);
-
-  const openWsProject = useCallback((id: string) => {
-    setSelectedWsProjectId(id);
-    setPage('Projects');
-  }, [setPage]);
-
-  const createProjectChat = useCallback((projectId: string): string => {
-    const id = `wsc-${Date.now()}`;
-    const now = Date.now();
-    setWsChats((prev) => [
-      { id, projectId, title: 'New chat', mode: 'simple_chat', messages: [], createdAt: now, updatedAt: now },
-      ...prev,
-    ]);
-    setActiveWsChatId(id);
-    setPage('AI Ant');
-    return id;
-  }, [setPage]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -37122,6 +30819,9 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
         safetyMode={safetyMode} setSafetyMode={setSafetyMode}
         theme={theme} setTheme={setTheme}
         goBilling={() => setPage('Billing')}
+        onSignOut={onSignOut}
+        onSwitchAccount={onSwitchAccount}
+        onChangePassword={() => setPage('ForgotPassword')}
       />
     );
   }
@@ -37138,13 +30838,11 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
         wsChats={wsChats}
         wsProjects={wsProjects}
         activeWsChatId={activeWsChatId}
-        selectedWsProjectId={selectedWsProjectId}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
-        onNavigate={(target) => { setSelectedWsProjectId(null); setPage(target); setDrawerView(null); }}
+        onNavigate={(target) => { setPage(target); setDrawerView(null); }}
         onNewChat={() => { createWsChat(null); setDrawerView(null); }}
         onOpenWsChat={(id) => { setActiveWsChatId(id); setPage('AI Ant'); }}
-        onOpenWsProject={(id) => { setSelectedWsProjectId(id); setPage('Projects'); setDrawerView(null); }}
         onRenameChat={renameWsChat}
         onTogglePinChat={togglePinWsChat}
         onArchiveChat={archiveWsChat}
@@ -37199,7 +30897,6 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
         </div>
 
         <main className="relative flex-1 overflow-y-auto">
-          {page === 'Dashboard' && <Dashboard usageState={usageState} setPage={setPage} />}
           {page === 'AI Ant' && (
             <AIAntPage
               setPage={setPage}
@@ -37212,29 +30909,7 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
               onPublishDeliverable={publishDeliverable}
             />
           )}
-          {page === 'Projects' && selectedWsProjectId && wsProjects.some((p) => p.id === selectedWsProjectId) && (
-            <ProjectWorkspacePage
-              project={wsProjects.find((p) => p.id === selectedWsProjectId)!}
-              chats={wsChats.filter((c) => c.projectId === selectedWsProjectId && !c.isArchived)}
-              deliverables={appDeliverables.filter((d) => d.projectId === selectedWsProjectId)}
-              setPage={setPage}
-              onBack={() => setSelectedWsProjectId(null)}
-              onOpenChat={(id) => { setActiveWsChatId(id); setPage('AI Ant'); }}
-              onNewChat={() => createProjectChat(selectedWsProjectId)}
-              onRename={(name) => renameWsProject(selectedWsProjectId, name)}
-              onArchive={() => { archiveWsProject(selectedWsProjectId); setSelectedWsProjectId(null); }}
-              onDelete={() => { deleteWsProjectRaw(selectedWsProjectId); setSelectedWsProjectId(null); }}
-              onUpdateProject={(patch) => updateWsProject(selectedWsProjectId, patch)}
-              onAddInstruction={(content, title) => addProjectInstruction(selectedWsProjectId, content, title)}
-              onUpdateInstruction={(insId, patch) => updateProjectInstruction(selectedWsProjectId, insId, patch)}
-              onDeleteInstruction={(insId) => deleteProjectInstruction(selectedWsProjectId, insId)}
-              onAddFile={(file) => addProjectFile(selectedWsProjectId, file)}
-              onRemoveFile={(fileId) => removeProjectFile(selectedWsProjectId, fileId)}
-              onAddKnowledge={(item) => addProjectKnowledge(selectedWsProjectId, item)}
-              onRemoveKnowledge={(itemId) => removeProjectKnowledge(selectedWsProjectId, itemId)}
-            />
-          )}
-          {page === 'Projects' && !selectedWsProjectId && (
+          {page === 'Projects' && (
             <ProjectsOSPage
               setPage={setPage}
               wsProjects={wsProjects}
@@ -37242,7 +30917,6 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
               renameWsProject={renameWsProject}
               archiveWsProject={archiveWsProject}
               deleteWsProject={deleteWsProjectRaw}
-              onOpenProject={(id) => setSelectedWsProjectId(id)}
             />
           )}
           {page === 'AI Teams' && <TeamsOSPage setPage={setPage} />}
@@ -37261,7 +30935,7 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
           {page === 'Knowledge' && <KnowledgeOSPage />}
           {page === 'Templates' && <TemplatesCommunityPage setPage={setPage} />}
           {page === 'Admin' && (
-            isAdminRole(profile.role)
+            canAccessAdminDashboard(profile)
               ? <AdminDashboard currentUserEmail={profile.email} onBack={() => setPage('AI Ant')} />
               : <AdminForbidden onBack={() => setPage('AI Ant')} />
           )}
@@ -37280,7 +30954,7 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
             />
           )}
           {page === 'Connectors' && <ConnectorsMarketplacePage />}
-          {!['Dashboard', 'AI Ant', 'Projects', 'AI Teams', 'Workflows', 'Deliverables', 'Approvals', 'Knowledge', 'Templates', 'Admin', 'Create Agent Team', 'Connectors', 'Billing', 'Settings'].includes(page) && (
+          {!['AI Ant', 'Projects', 'AI Teams', 'Workflows', 'Deliverables', 'Approvals', 'Knowledge', 'Templates', 'Admin', 'Create Agent Team', 'Connectors', 'Billing', 'Settings'].includes(page) && (
             <div className="h-full p-6 md:p-12">
               <h2 className="mb-6 font-heading text-3xl font-extrabold">{page}</h2>
               <EmptyState
@@ -37297,6 +30971,7 @@ function AppShell({ page, setPage, profile }: { page: Page; setPage: (page: Page
 
 export default function App() {
   const [page, setPageState] = useState<Page>(() => pageFromPath(window.location.pathname));
+  const [authChecked, setAuthChecked] = useState(false);
   const [profile, setProfile] = useState<UserProfile>(() => {
     const savedProfile = loadProfile();
     ensureMockAdminUser();
@@ -37327,28 +31002,84 @@ export default function App() {
   };
 
   // After auth: first-time users go to onboarding, returning users to AI Ant.
-  const handleAuthed = (user: AuthUser) => {
+  const handleAuthed = async (user: AuthUser) => {
     const isSameProfile = profile.email === user.email;
+    const keepExistingOnboarding = isSameProfile && profile.onboarded;
     const next = {
       ...profile,
       email: user.email,
       name: user.name || (isSameProfile ? profile.name : '') || user.email.split('@')[0] || 'You',
       role: user.role ?? 'user',
       emailVerified: user.emailVerified,
-      onboarded: user.isNewUser ? false : isSameProfile ? profile.onboarded : false,
-      answers: user.isNewUser || !isSameProfile ? {} : profile.answers,
+      onboarded: keepExistingOnboarding || (!user.isNewUser && isSameProfile ? profile.onboarded : false),
+      answers: keepExistingOnboarding || (!user.isNewUser && isSameProfile) ? profile.answers : {},
     };
+    const hasSavedSurvey = next.onboarded ? false : await hasSurveySubmission(resolveSurveyUserId(next));
+    if (hasSavedSurvey) next.onboarded = true;
     updateProfile(next);
     setPage(next.onboarded ? 'AI Ant' : 'Onboarding');
   };
 
-  const completeOnboarding = (answers: Record<string, string>) => {
-    updateProfile({ ...profile, onboarded: true, answers });
+  const completeOnboarding = async (answers: Record<string, string>) => {
+    const next = { ...profile, onboarded: true, answers };
+    updateProfile(next);
+    await saveSurveySubmission(resolveSurveyUserId(next), answers);
     setPage('AI Ant');
   };
 
-  const publicPages: Page[] = ['Landing', 'Login', 'CreateAccount', 'ForgotPassword'];
+  // ── Sign-out / Switch-account ──────────────────────────────────────────────
+  // Clears Firebase session, mock local session, and resets the in-memory
+  // profile so protected routes can't be re-entered from stale state. The
+  // saved onboarding profile in localStorage is also wiped — refreshing the
+  // tab after a logout returns to the sign-in page.
+  const handleSignOut = useCallback(async () => {
+    try { await signOutFirebase(firebaseAuth); } catch { /* ignore */ }
+    signOutMock();
+    const cleared: UserProfile = { name: 'You', email: '', role: 'user', emailVerified: false, onboarded: false, answers: {} };
+    setProfile(cleared);
+    saveProfile(cleared);
+    setPage('Login');
+  }, [setPage]);
+
+  // Switch account == sign out + land on Login so another account can sign in.
+  // Project data lives independently of the user session (workspace storage),
+  // so it's not wiped here.
+  const handleSwitchAccount = handleSignOut;
+
+  const publicPages: Page[] = ['Landing', 'Login', 'CreateAccount', 'VerifyEmail', 'ForgotPassword'];
   const needsAuth = !publicPages.includes(page) && (!profile.email || !profile.emailVerified);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        if (!cancelled) setAuthChecked(true);
+        return;
+      }
+      await firebaseUser.reload();
+      if (!firebaseUser.emailVerified) {
+        if (!cancelled) setAuthChecked(true);
+        return;
+      }
+      const restoredUser = authUserFromFirebase(firebaseUser, false);
+      if (!cancelled) {
+        await handleAuthed(restoredUser);
+        setAuthChecked(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  if (!authChecked) {
+    return (
+      <div className="relative min-h-screen overflow-x-hidden bg-background text-ink">
+        <GlobalBackgroundVideo />
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-background text-ink">
@@ -37358,6 +31089,7 @@ export default function App() {
         {page === 'Landing' && <LandingPage goTo={setPage} />}
         {page === 'Login' && <LoginPage goTo={setPage} onAuthed={handleAuthed} />}
         {page === 'CreateAccount' && <LoginPage goTo={setPage} onAuthed={handleAuthed} initialMode="signup" />}
+        {page === 'VerifyEmail' && <VerifyEmailPage goTo={setPage} onAuthed={handleAuthed} />}
         {page === 'ForgotPassword' && <ForgotPasswordPage goTo={setPage} />}
         {!needsAuth && page === 'Onboarding' && (
           <OnboardingPage
@@ -37365,8 +31097,8 @@ export default function App() {
             onSkip={() => completeOnboarding(profile.answers)}
           />
         )}
-        {!needsAuth && page !== 'Landing' && page !== 'Login' && page !== 'CreateAccount' && page !== 'ForgotPassword' && page !== 'Onboarding' && (
-          <AppShell page={page} setPage={setPage} profile={profile} />
+        {!needsAuth && page !== 'Landing' && page !== 'Login' && page !== 'CreateAccount' && page !== 'VerifyEmail' && page !== 'ForgotPassword' && page !== 'Onboarding' && (
+          <AppShell page={page} setPage={setPage} profile={profile} onSignOut={handleSignOut} onSwitchAccount={handleSwitchAccount} />
         )}
       </div>
     </div>
