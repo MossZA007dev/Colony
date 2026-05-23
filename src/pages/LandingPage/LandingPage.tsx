@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motion, useScroll, useTransform, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence, useScroll, useTransform, useReducedMotion } from 'framer-motion';
 import {
   Boxes,
   BriefcaseBusiness,
@@ -9,6 +9,7 @@ import {
   Layers3,
   LayoutTemplate,
   Map,
+  Menu,
   Network,
   Plug,
   Rocket,
@@ -17,6 +18,7 @@ import {
   Target,
   Users,
   Workflow,
+  X,
   Bot,
 } from 'lucide-react';
 import { ColonyLogo } from '../../components/brand/BrandMarks';
@@ -25,7 +27,7 @@ import type { Page } from '../../types/navigation';
 import './LandingPage.css';
 
 import { RevealOnScroll, AmbientGlow, EASE_OUT_EXPO } from './components/motion';
-import { PromptToSystemDemo } from './components/PromptToSystemDemo';
+import { HeroInteractiveDemo } from './components/HeroInteractiveDemo';
 import { HowColonyWorks } from './components/HowColonyWorks';
 import { FeatureShowcase } from './components/FeatureShowcase';
 import { ProductStories } from './components/ProductStories';
@@ -55,13 +57,14 @@ export function GlobalBackgroundVideo() {
   );
 }
 
-type NavLink = { label: string; id: string; icon: React.ComponentType<{ className?: string }> };
+type NavLink = { label: string; id: string };
 
 const NAV_LINKS: NavLink[] = [
-  { label: 'Product', id: 'product', icon: Boxes },
-  { label: 'How It Works', id: 'how-it-works', icon: Workflow },
-  { label: 'Roadmap', id: 'roadmap', icon: Map },
-  { label: 'Early Access', id: 'early-access', icon: Sparkles },
+  { label: 'Product', id: 'product' },
+  { label: 'How It Works', id: 'how-it-works' },
+  { label: 'Features', id: 'features' },
+  { label: 'Pricing', id: 'comparison' },
+  { label: 'About', id: 'team' },
 ];
 
 const VIDEO_BG_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260508_064122_c4750c0e-7476-4b44-94a2-a85a65c63bf2.mp4';
@@ -85,107 +88,122 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
 
       {/* ── Hero ── */}
       <section ref={heroRef} className="relative min-h-screen overflow-hidden bg-[#050508]">
-        {/* Background video */}
+        {/* Background video — dimmed so the product demo dominates */}
         <motion.div
           className="absolute inset-0 z-0"
-          style={{ y: videoBgY }}
+          style={{ y: videoBgY, opacity: 0.45 }}
           initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+          animate={{ opacity: 0.45 }}
           transition={{ duration: 1.4, delay: 0.2, ease: EASE_OUT_EXPO }}
         >
           <video autoPlay loop muted playsInline className="h-full w-full object-cover" src={VIDEO_BG_URL} />
         </motion.div>
 
-        {/* Gradient overlays */}
+        {/* Gradient overlays — stronger so the demo card reads above the planet */}
         <div className="pointer-events-none absolute inset-0 z-[1]">
-          <div className="absolute inset-0 bg-[#050508]/68" />
+          <div className="absolute inset-0 bg-[#050508]/82" />
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(60% 50% at 70% 40%, rgba(8,10,18,0.0), rgba(5,5,8,0.55) 70%), radial-gradient(45% 40% at 25% 55%, rgba(124,92,252,0.10), transparent 70%)',
+            }}
+          />
           <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#050508] to-transparent" />
-          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#050508]/70 to-transparent" />
+          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#050508]/80 to-transparent" />
         </div>
 
         {/* Slow ambient glows */}
-        <AmbientGlow className="z-[1]" colors={['rgba(124,92,252,0.18)', 'rgba(125,183,255,0.16)']} />
+        <AmbientGlow className="z-[1]" colors={['rgba(124,92,252,0.16)', 'rgba(125,183,255,0.14)']} />
 
-        {/* Hero content */}
+        {/* Hero content — two-column on lg+, stacked on smaller */}
         <motion.div
           style={{ y: heroContentY, opacity: heroContentOpacity }}
-          className="relative z-[2] flex min-h-screen flex-col items-center justify-center px-5 pb-24 pt-[88px] text-center"
+          className="relative z-[2] mx-auto flex min-h-screen w-full max-w-[1320px] flex-col justify-center px-5 pb-20 pt-[120px] md:px-8 lg:pt-[140px]"
         >
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.05, ease: EASE_OUT_EXPO }}
-            className="liquid-glass mb-7 inline-flex items-center gap-2 rounded-lg px-3 py-2"
-          >
-            <span className="rounded-md px-2 py-0.5 text-[12px] font-semibold" style={{ backgroundColor: '#ffffff', color: '#050508' }}>New</span>
-            <span className="text-[13px] font-medium text-white/70">Now in Early Access</span>
-          </motion.div>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 26, filter: 'blur(10px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ duration: 0.9, delay: 0.12, ease: EASE_OUT_EXPO }}
-            className="mb-5 max-w-4xl text-[clamp(40px,6.8vw,76px)] font-semibold leading-[1.05] tracking-[-0.03em] text-white"
-          >
-            Turn goals into AI teams,<br />
-            workflows, and{' '}
-            <span
-              className="font-normal text-white/95"
-              style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: 'italic' }}
-            >
-              finished work.
-            </span>
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 22, filter: 'blur(6px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ duration: 0.9, delay: 0.28, ease: EASE_OUT_EXPO }}
-            className="mb-9 max-w-[560px] text-[16px] font-normal leading-[1.65] text-white/68 md:text-[17px]"
-          >
-            Colony is an AI workspace where AI Ant understands your goal, builds the right team or workflow, and delivers results you can review and control.
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.75, delay: 0.44, ease: EASE_OUT_EXPO }}
-            className="flex flex-col items-center gap-3 sm:flex-row"
-          >
-            <motion.button
-              onClick={scrollToPrimaryCta}
-              whileHover={reduce ? undefined : { y: -2, boxShadow: '0 0 0 1px rgba(255,255,255,0.38), 0 6px 44px rgba(255,255,255,0.3), 0 2px 12px rgba(0,0,0,0.22)' }}
-              whileTap={reduce ? undefined : { scale: 0.97 }}
-              transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
-              style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.22), 0 4px 28px rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.16)' }}
-              className="lp-btn-primary rounded-full px-8 py-3.5 text-[15px] font-semibold"
-            >
-              Get Started for Free
-            </motion.button>
-            {!publicOnly && (
-              <motion.button
-                onClick={() => goTo('Login')}
-                whileHover={reduce ? undefined : { y: -2 }}
-                whileTap={reduce ? undefined : { scale: 0.97 }}
-                transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
-                className="lp-btn-secondary rounded-full px-8 py-3.5 text-[15px] font-medium backdrop-blur-sm"
+          <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,42%)_minmax(0,58%)] lg:gap-10">
+            {/* ── Left: marketing copy ───────────────────────── */}
+            <div className="text-center lg:text-left">
+              <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, delay: 0.05, ease: EASE_OUT_EXPO }}
+                className="liquid-glass mb-6 inline-flex items-center gap-2 rounded-full px-3 py-1.5"
               >
-                Join Early Access
-              </motion.button>
-            )}
-          </motion.div>
+                <span className="grid h-4 w-4 place-items-center rounded-full bg-violet-400/25">
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-200" />
+                </span>
+                <span className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/75">AI Operating Workspace</span>
+              </motion.div>
 
-          {/* Prompt-to-system mini demo */}
-          <motion.div
-            initial={{ opacity: 0, y: 28, filter: 'blur(8px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ duration: 1.0, delay: 0.7, ease: EASE_OUT_EXPO }}
-            className="mt-14 w-full px-2 md:mt-16"
-          >
-            <BreathingFrame>
-              <PromptToSystemDemo />
-            </BreathingFrame>
-          </motion.div>
+              <motion.h1
+                initial={{ opacity: 0, y: 26, filter: 'blur(10px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                transition={{ duration: 0.9, delay: 0.12, ease: EASE_OUT_EXPO }}
+                className="mb-5 text-[clamp(38px,5.4vw,64px)] font-semibold leading-[1.04] tracking-[-0.03em] text-white"
+              >
+                Build and{' '}
+                <span
+                  className="font-normal text-white/95"
+                  style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: 'italic' }}
+                >
+                  coordinate
+                </span>
+                <br />
+                your AI workforce.
+              </motion.h1>
+
+              <motion.p
+                initial={{ opacity: 0, y: 22, filter: 'blur(6px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                transition={{ duration: 0.9, delay: 0.28, ease: EASE_OUT_EXPO }}
+                className="mx-auto mb-8 max-w-[520px] text-[16px] font-normal leading-[1.65] text-white/68 md:text-[17px] lg:mx-0"
+              >
+                Turn a single goal into AI teams, workflows, and review-ready deliverables — coordinated by AI Ant.
+              </motion.p>
+
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.75, delay: 0.44, ease: EASE_OUT_EXPO }}
+                className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start"
+              >
+                <motion.button
+                  onClick={scrollToPrimaryCta}
+                  whileHover={reduce ? undefined : { y: -2, boxShadow: '0 0 0 1px rgba(255,255,255,0.38), 0 6px 44px rgba(255,255,255,0.3), 0 2px 12px rgba(0,0,0,0.22)' }}
+                  whileTap={reduce ? undefined : { scale: 0.97 }}
+                  transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
+                  style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.22), 0 4px 28px rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.16)' }}
+                  className="lp-btn-primary rounded-full px-7 py-3.5 text-[15px] font-semibold"
+                >
+                  Start Building
+                </motion.button>
+                <motion.button
+                  onClick={() => document.getElementById('hero-demo')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  whileHover={reduce ? undefined : { y: -2 }}
+                  whileTap={reduce ? undefined : { scale: 0.97 }}
+                  transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
+                  className="lp-btn-secondary rounded-full px-7 py-3.5 text-[15px] font-medium backdrop-blur-sm"
+                >
+                  Try Interactive Demo
+                </motion.button>
+              </motion.div>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.7, delay: 0.6, ease: EASE_OUT_EXPO }}
+                className="mt-5 text-[12.5px] text-white/40"
+              >
+                Built for founders, creators, and small teams.
+              </motion.p>
+            </div>
+
+            {/* ── Right: interactive product demo ────────────── */}
+            <div className="w-full">
+              <HeroInteractiveDemo />
+            </div>
+          </div>
         </motion.div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-32 bg-gradient-to-t from-[#050508] to-transparent" />
@@ -210,7 +228,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
         <div className="mx-auto flex max-w-[1200px] flex-col items-center justify-between gap-5 text-[13px] text-white/40 md:flex-row">
           <div className="flex items-center gap-2 text-white/85">
             <ColonyLogo size={20} />
-            <span className="font-semibold tracking-tight">Colony</span>
+            <span className="font-semibold tracking-tight">Colony Bridge</span>
           </div>
           <div className="flex flex-wrap justify-center gap-5">
             {navLinks.map((link) => (
@@ -266,52 +284,137 @@ function StickyNav({
     return () => observer.disconnect();
   }, [navLinks]);
 
-  const dockItems: DockItemData[] = navLinks.map((link) => ({
-    icon: <link.icon className="h-[16px] w-[16px]" />,
-    label: link.label,
-    onClick: () => document.getElementById(link.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-    active: activeId === link.id,
-  }));
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setMobileOpen(false);
+  };
+
+  // Lock body scroll while mobile menu is open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [mobileOpen]);
 
   return (
-    <nav
-      className={`fixed inset-x-0 top-0 z-50 flex items-center justify-between px-6 py-3 transition-all duration-500 md:px-12 ${
-        scrolled
-          ? 'border-b border-white/[0.07] bg-[#050508]/72 backdrop-blur-xl'
-          : 'border-b border-transparent bg-transparent'
-      }`}
-      style={{ transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
-    >
-      <button onClick={() => goTo('Landing')} className="flex items-center gap-2.5">
-        <ColonyLogo size={30} />
-        <span className="text-[16px] font-semibold tracking-tight text-white">Colony</span>
-      </button>
-
-      {/* Dock — desktop only */}
-      <div className="hidden md:block">
-        <Dock
-          items={dockItems}
-          className="dock-nav"
-          panelHeight={44}
-          baseItemSize={30}
-          magnification={44}
-          distance={140}
-          dockHeight={44}
-          spring={{ mass: 0.1, stiffness: 180, damping: 14 }}
-        />
-      </div>
-
-      <div className="flex items-center gap-2.5">
-        {!publicOnly && (
-          <button onClick={() => goTo('Login')} className="lp-btn-ghost hidden rounded-md px-3.5 py-2 text-[13px] font-medium sm:block">
-            Sign In
+    <>
+      <nav
+        className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ${
+          scrolled
+            ? 'border-b border-white/[0.07] bg-[#050508]/78 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.04)]'
+            : 'border-b border-transparent bg-transparent'
+        }`}
+        style={{ transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
+      >
+        <div className="mx-auto flex h-[64px] w-full max-w-[1320px] items-center justify-between px-5 md:h-[68px] md:px-8">
+          {/* Left: brand */}
+          <button onClick={() => goTo('Landing')} className="flex shrink-0 items-center gap-2.5">
+            <ColonyLogo size={28} />
+            <span className="text-[15.5px] font-semibold tracking-tight text-white">Colony Bridge</span>
           </button>
+
+          {/* Center: text nav (desktop) */}
+          <div className="hidden items-center gap-1 md:flex">
+            {navLinks.map((link) => {
+              const isActive = activeId === link.id;
+              return (
+                <button
+                  key={link.id}
+                  onClick={() => scrollToSection(link.id)}
+                  className={`relative rounded-md px-3 py-2 text-[13.5px] font-medium transition-colors ${
+                    isActive ? 'text-white' : 'text-white/55 hover:text-white/90'
+                  }`}
+                >
+                  {link.label}
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-active"
+                      className="absolute inset-x-3 -bottom-0.5 h-[2px] rounded-full bg-gradient-to-r from-[#7c5cfc] to-[#7db7ff]"
+                      transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Right: CTAs (desktop) + hamburger (mobile) */}
+          <div className="flex items-center gap-2">
+            {!publicOnly && (
+              <button onClick={() => goTo('Login')} className="hidden rounded-md px-3 py-2 text-[13px] font-medium text-white/65 transition hover:text-white sm:block">
+                Sign In
+              </button>
+            )}
+            <button
+              onClick={publicOnly ? scrollToPrimaryCta : () => goTo('Login')}
+              className="lp-btn-navbar inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold"
+            >
+              Start Building
+              <span aria-hidden>→</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileOpen((v) => !v)}
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen}
+              className="grid h-9 w-9 place-items-center rounded-md text-white/70 transition hover:bg-white/[0.06] hover:text-white md:hidden"
+            >
+              {mobileOpen ? <X className="h-4.5 w-4.5" /> : <Menu className="h-4.5 w-4.5" />}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Mobile sheet menu */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            key="mobile-menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-40 bg-[#050508]/85 backdrop-blur-md md:hidden"
+            onClick={() => setMobileOpen(false)}
+          >
+            <motion.div
+              initial={{ y: -12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -8, opacity: 0 }}
+              transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
+              onClick={(e) => e.stopPropagation()}
+              className="mx-4 mt-[80px] rounded-2xl border border-white/[0.08] bg-[#0a0c14]/95 p-3 shadow-[0_30px_90px_rgba(0,0,0,0.55)]"
+            >
+              <nav className="flex flex-col">
+                {navLinks.map((link) => (
+                  <button
+                    key={link.id}
+                    onClick={() => scrollToSection(link.id)}
+                    className={`flex items-center justify-between rounded-xl px-3 py-3 text-left text-[15px] font-medium transition ${
+                      activeId === link.id ? 'bg-white/[0.05] text-white' : 'text-white/72 hover:bg-white/[0.04] hover:text-white'
+                    }`}
+                  >
+                    <span>{link.label}</span>
+                    <span aria-hidden className="text-white/30">→</span>
+                  </button>
+                ))}
+                {!publicOnly && (
+                  <button
+                    onClick={() => { setMobileOpen(false); goTo('Login'); }}
+                    className="mt-1 flex items-center justify-between rounded-xl border-t border-white/[0.06] px-3 py-3 text-left text-[15px] font-medium text-white/65 transition hover:text-white"
+                  >
+                    Sign In
+                    <span aria-hidden className="text-white/30">→</span>
+                  </button>
+                )}
+              </nav>
+            </motion.div>
+          </motion.div>
         )}
-        <button onClick={publicOnly ? scrollToPrimaryCta : () => goTo('Login')} className="lp-btn-navbar rounded-lg px-4 py-2 text-[13px] font-semibold">
-          Start Building →
-        </button>
-      </div>
-    </nav>
+      </AnimatePresence>
+    </>
   );
 }
 
