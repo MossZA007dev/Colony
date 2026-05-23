@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { demoAgents } from './data/demoAgents';
 import { demoDeliverables } from './data/demoDeliverables';
 import { demoScenarios } from './data/demoScenarios';
@@ -21986,6 +21986,177 @@ function CrewActiveWorkspace({ agent }: { agent: CrewPanelAgent }) {
   );
 }
 
+/* ── Crew assembly animation ──────────────────────────────────────────
+   Plays only during the 'matching' phase (a freshly created crew).
+   2D Framer Motion — no 3D deps. Each badge drops from the top of the
+   stage on a thin strap, settles via spring physics, and stays visibly
+   at rest until the next agent's badge swap kicks the previous one
+   downward into its tile. The very last badge stays visible at rest
+   until crew.phase advances away from 'matching'. */
+
+const CREW_ASSEMBLY_PER_AGENT_MS = 1000;
+const CREW_ASSEMBLY_INITIAL_DELAY_MS = 250;
+
+function CrewAssemblyStage({
+  agents, assembled, showReadyFlash, reduce,
+}: {
+  agents: CrewPanelAgent[];
+  assembled: number;
+  showReadyFlash: boolean;
+  reduce: boolean;
+}) {
+  // The agent whose badge is currently in the stage. When `assembled`
+  // hasn't reached the team size, that's the one currently being added.
+  // When `assembled === agents.length`, hold the last agent's badge so
+  // the stage is never blank while the existing crew runner finishes
+  // its matching step counter.
+  const visibleIdx = Math.min(assembled, Math.max(agents.length - 1, 0));
+  const visibleAgent = agents[visibleIdx] ?? null;
+  const showingFlash = showReadyFlash && assembled >= agents.length;
+
+  return (
+    <div className="relative h-[420px] overflow-hidden rounded-[16px] border border-white/[0.08] bg-[#0a0d18]">
+      {/* Grid background */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.28]"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(124,92,252,0.12) 1px,transparent 1px),linear-gradient(90deg,rgba(124,92,252,0.12) 1px,transparent 1px)',
+          backgroundSize: '22px 22px',
+        }}
+      />
+      {/* Violet glow */}
+      <div aria-hidden className="pointer-events-none absolute -top-12 left-1/2 h-44 w-44 -translate-x-1/2 rounded-full bg-violet-500/24 blur-3xl" />
+
+      {/* Top caption */}
+      <p className="absolute inset-x-0 top-3 z-10 text-center text-[10.5px] font-semibold uppercase tracking-[0.22em] text-white/55">
+        Building your specialist team
+      </p>
+
+      {/* Lanyard rail with center pin */}
+      <div className="absolute inset-x-0 top-9 z-[1] flex items-center justify-center">
+        <div className="relative h-[2px] w-[72%] rounded-full bg-gradient-to-r from-transparent via-violet-300/45 to-transparent">
+          <span className="absolute left-1/2 top-1/2 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-300/80 shadow-[0_0_12px_rgba(124,92,252,0.7)]" />
+        </div>
+      </div>
+
+      {/* Falling badge area (or Ready flash) */}
+      <AnimatePresence mode="wait">
+        {showingFlash ? (
+          <motion.div
+            key="ready-flash"
+            initial={{ opacity: 0, y: 12, filter: 'blur(6px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -10, filter: 'blur(4px)' }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-2"
+          >
+            <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-400/15 ring-1 ring-emerald-300/40">
+              <Check size={30} strokeWidth={3} className="text-emerald-300" />
+            </div>
+            <p className="text-[15px] font-bold text-white">Your specialist team is ready.</p>
+            <p className="text-[11.5px] text-white/45">{agents.length} agents assembled</p>
+          </motion.div>
+        ) : visibleAgent ? (
+          <FallingBadge key={visibleAgent.id} agent={visibleAgent} reduce={reduce} />
+        ) : null}
+      </AnimatePresence>
+
+      {/* Always-visible agent info card under the badge — guarantees the user
+          sees who's being added even if the canvas/transform layer hiccups. */}
+      <AnimatePresence mode="wait">
+        {!showingFlash && visibleAgent && (
+          <motion.div
+            key={`info-${visibleAgent.id}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-x-0 bottom-14 z-10 px-6 text-center"
+          >
+            <p className="text-[12.5px] font-bold uppercase tracking-[0.18em] text-white">
+              {visibleAgent.name}
+            </p>
+            <p className="mt-1 text-[11px] text-white/55">
+              {visibleAgent.role}
+              <span className="mx-1.5 text-white/25">·</span>
+              {visibleAgent.skills[0]?.label ?? 'General'}
+            </p>
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/[0.10] px-2.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+              <Check size={10} strokeWidth={3} />
+              {assembled > visibleIdx ? 'In the crew' : 'Added to crew'}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Progress count */}
+      <div className="absolute inset-x-0 bottom-3 z-10 text-center">
+        <p className="text-[10.5px] font-medium tracking-[0.18em] text-white/45">
+          {assembled} / {agents.length} agents added
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function FallingBadge({ agent, reduce }: { agent: CrewPanelAgent; reduce: boolean }) {
+  if (reduce) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        className="absolute inset-x-0 top-12 z-[3] flex justify-center"
+      >
+        <CrewBadgeCard agent={agent} />
+      </motion.div>
+    );
+  }
+  return (
+    <motion.div
+      initial={{ y: -220, opacity: 0, rotate: -4 }}
+      animate={{ y: 90, opacity: 1, rotate: 0 }}
+      exit={{ y: 230, opacity: 0, scale: 0.6, rotate: 2, transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }}
+      transition={{
+        y: { type: 'spring', stiffness: 210, damping: 13, mass: 1.25 },
+        rotate: { type: 'spring', stiffness: 150, damping: 8, mass: 1.25 },
+        opacity: { duration: 0.22 },
+      }}
+      style={{ transformOrigin: 'top center' }}
+      className="absolute inset-x-0 top-7 z-[3] flex flex-col items-center"
+    >
+      {/* Strap */}
+      <div className="h-12 w-[2px] origin-top rounded-full bg-gradient-to-b from-violet-300/22 via-violet-400/60 to-violet-500/90" />
+      {/* Clip */}
+      <div className="-mt-px h-2 w-5 rounded-b-[6px] bg-gradient-to-b from-white/55 to-white/12 ring-1 ring-white/20" />
+      <CrewBadgeCard agent={agent} />
+    </motion.div>
+  );
+}
+
+function CrewBadgeCard({ agent }: { agent: CrewPanelAgent }) {
+  return (
+    <div
+      className="mt-1 w-[176px] rounded-[14px] border border-violet-300/30 bg-[#0a0d18]/95 p-3.5 text-center backdrop-blur-sm"
+      style={{
+        boxShadow:
+          '0 28px 80px rgba(0,0,0,0.6), 0 0 32px rgba(124,92,252,0.28), inset 0 1px 0 rgba(255,255,255,0.07)',
+      }}
+    >
+      <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-violet-500/20 text-[16px] font-extrabold text-violet-50 ring-1 ring-violet-300/45">
+        {agent.shortId}
+      </div>
+      <p className="mt-2.5 truncate text-[11.5px] font-bold uppercase tracking-[0.14em] text-white">
+        {agent.name.split(' ')[0]}
+      </p>
+      <p className="mt-0.5 text-[10px] text-white/45">{agent.kind}</p>
+    </div>
+  );
+}
+
 function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop, onSend, onPause, onResume }: {
   crew: ColonyCrewSession;
   selectedAgentId: string | null;
@@ -21998,6 +22169,7 @@ function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop
 }) {
   const badge = CREW_PHASE_BADGE[crew.phase];
   const matching = crew.phase === 'matching';
+  const reduceMotion = useReducedMotion();
   const activeAgent =
     crew.agents.find((a) => a.id === selectedAgentId) ??
     crew.agents.find((a) => a.status === 'working') ??
@@ -22007,9 +22179,47 @@ function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop
   const stopped = crew.phase === 'stopped';
   const [ctlInput, setCtlInput] = React.useState('');
   const sendCtl = () => { if (!ctlInput.trim() || stopped) return; onSend(activeAgent.id, ctlInput.trim()); setCtlInput(''); };
+
+  // Assembly sub-state — how many badges have docked during the matching phase.
+  // Resets when phase leaves 'matching' so reopening an existing crew never
+  // replays the animation.
+  const [assembled, setAssembled] = React.useState(0);
+  const [showReadyFlash, setShowReadyFlash] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!matching) { setAssembled(0); setShowReadyFlash(false); return; }
+    if (reduceMotion) { setAssembled(crew.agents.length); return; }
+    const timers: number[] = [];
+    for (let i = 0; i < crew.agents.length; i++) {
+      const idx = i;
+      // Each agent stays visible for ~1000ms (spring drop + held settled view
+      // + 200ms exit). After that we tick assembled, which swaps the badge
+      // and flips the matching tile to Ready.
+      timers.push(window.setTimeout(
+        () => setAssembled(idx + 1),
+        CREW_ASSEMBLY_INITIAL_DELAY_MS + (idx + 1) * CREW_ASSEMBLY_PER_AGENT_MS,
+      ));
+    }
+    return () => { timers.forEach((id) => window.clearTimeout(id)); };
+  }, [matching, reduceMotion, crew.agents.length]);
+
+  // Once all 4 are assembled, raise the "Your specialist team is ready" flash
+  // after a brief beat so the user sees the last badge settle first. The flash
+  // STAYS visible until the existing crew runner advances the phase away from
+  // 'matching' — that's when the first useEffect resets showReadyFlash to false.
+  // (Auto-clearing the flash would re-mount the last badge and drop it twice.)
+  React.useEffect(() => {
+    if (!matching) return;
+    if (assembled < crew.agents.length) { setShowReadyFlash(false); return; }
+    const flashDelay = window.setTimeout(() => setShowReadyFlash(true), 400);
+    return () => window.clearTimeout(flashDelay);
+  }, [assembled, crew.agents.length, matching]);
+
+  // Header / progress while assembling reflects the badge drop count, not the
+  // generic matching-step counter — so users see real progress per agent.
   const overall = crew.phase === 'completed' ? 100
     : crew.phase === 'stopped' ? 0
-    : matching ? Math.round(((crew.stepIndex + 1) / CREW_MATCHING_STEPS.length) * 35)
+    : matching ? Math.round((assembled / Math.max(crew.agents.length, 1)) * 100)
     : Math.round(crew.agents.reduce((s, a) => s + a.progress, 0) / Math.max(crew.agents.length, 1));
 
   const statusDot: Record<CrewPanelAgent['status'], string> = {
@@ -22017,6 +22227,20 @@ function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop
     matched: 'bg-sky-400',
     working: 'bg-emerald-400 animate-pulse',
     done: 'bg-emerald-300',
+  };
+
+  // During matching: tile shows Waiting until its badge has docked, then Ready.
+  // Outside matching: fall back to the existing per-agent status label.
+  const tileLabel = (a: CrewPanelAgent, idx: number): string => {
+    if (matching) return idx < assembled ? 'Ready' : 'Waiting';
+    if (a.status === 'matched') return 'Ready';
+    return crewAgentStatusLabel(a);
+  };
+  const tileDotCls = (a: CrewPanelAgent, idx: number): string => {
+    if (matching) {
+      return idx < assembled ? 'bg-sky-400' : 'bg-white/22';
+    }
+    return statusDot[a.status];
   };
   const recentActivity = crew.activity.slice(-3).reverse();
 
@@ -22039,12 +22263,16 @@ function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop
                 <Users size={13} className="text-violet-300" />
               </div>
               <p className="font-heading text-base font-extrabold text-white">Colony Crew</p>
-              <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badge.cls}`}>
+              <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${matching ? 'border-violet-400/40 bg-violet-500/15 text-violet-100' : badge.cls}`}>
                 {crew.phase !== 'completed' && crew.phase !== 'stopped' && <Loader2 size={9} className="animate-spin" />}
-                {badge.label}
+                {matching ? 'Assembling' : badge.label}
               </span>
             </div>
-            <p className="mt-1 truncate text-xs text-white/45">{CREW_PHASE_SUBTITLE[crew.phase]}</p>
+            <p className="mt-1 truncate text-xs text-white/45">
+              {matching
+                ? `Building your specialist team · ${assembled} / ${crew.agents.length} agents added`
+                : CREW_PHASE_SUBTITLE[crew.phase]}
+            </p>
           </div>
           <button onClick={onClose} title="Close panel"
             className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:bg-white/10 hover:text-white">
@@ -22060,39 +22288,12 @@ function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop
       {/* ── Main workspace area ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {matching ? (
-          <div className="relative overflow-hidden rounded-[16px] border border-white/[0.08] bg-[#0a0d18] p-5">
-            <div className="pointer-events-none absolute inset-0 opacity-[0.35]"
-              style={{ backgroundImage: 'linear-gradient(rgba(124,92,252,0.12) 1px,transparent 1px),linear-gradient(90deg,rgba(124,92,252,0.12) 1px,transparent 1px)', backgroundSize: '22px 22px' }} />
-            <div className="pointer-events-none absolute -top-10 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-violet-500/20 blur-3xl" />
-            <p className="relative mb-4 text-center text-xs font-semibold text-white/55">Assembling your specialist crew…</p>
-            <div className="relative flex justify-center gap-3">
-              {buildColonyCrewAgents().map((a, i) => (
-                <motion.div key={a.id}
-                  initial={{ opacity: 0, y: 14, scale: 0.8 }}
-                  animate={{ opacity: 1, y: [0, -6, 0], scale: 1 }}
-                  transition={{ delay: i * 0.18, y: { repeat: Infinity, duration: 2 + i * 0.3 } }}>
-                  <CrewAgentAvatar src={a.avatar} size={46} />
-                </motion.div>
-              ))}
-            </div>
-            <div className="relative mt-5 space-y-1.5">
-              {CREW_MATCHING_STEPS.map((step, i) => {
-                const state = i < crew.stepIndex ? 'done' : i === crew.stepIndex ? 'active' : 'idle';
-                return (
-                  <div key={step} className="flex items-center gap-2 text-xs">
-                    {state === 'done'
-                      ? <Check size={13} className="text-emerald-400" />
-                      : state === 'active'
-                        ? <Loader2 size={13} className="animate-spin text-violet-300" />
-                        : <span className="h-[13px] w-[13px] rounded-full border border-white/15" />}
-                    <span className={state === 'idle' ? 'text-white/30' : state === 'active' ? 'text-white/85' : 'text-white/50'}>
-                      {step}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <CrewAssemblyStage
+            agents={crew.agents}
+            assembled={assembled}
+            showReadyFlash={showReadyFlash}
+            reduce={!!reduceMotion}
+          />
         ) : (
           <AnimatePresence mode="wait">
             <motion.div key={activeAgent.id}
@@ -22147,22 +22348,32 @@ function ColonyCrewPanel({ crew, selectedAgentId, onSelectAgent, onClose, onStop
       {/* ── Bottom agent strip ── */}
       <div className="shrink-0 border-t border-white/[0.07] bg-[#05060d] px-3 py-3">
         <div className="flex gap-2 overflow-x-auto">
-          {crew.agents.map((a) => {
+          {crew.agents.map((a, idx) => {
             const active = activeAgent.id === a.id;
+            const justDocked = matching && idx === assembled - 1;
             return (
-              <button key={a.id} onClick={() => onSelectAgent(a.id)}
+              <motion.button
+                key={a.id}
+                onClick={() => onSelectAgent(a.id)}
                 title={a.name}
+                animate={justDocked ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 className={`group relative flex min-w-[96px] flex-1 flex-col items-center gap-1.5 rounded-[12px] border px-2.5 py-2.5 transition ${
                   active
                     ? 'border-violet-400/55 bg-violet-500/[0.12] shadow-[0_0_24px_rgba(124,92,252,0.25)]'
-                    : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]'}`}>
+                    : justDocked
+                    ? 'border-sky-300/50 bg-sky-400/[0.10] shadow-[0_0_18px_rgba(56,189,248,0.22)]'
+                    : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]'}`}
+              >
                 <div className="relative">
                   <CrewAgentAvatar src={a.avatar} size={34} />
-                  <span className={`absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-[#05060d] ${statusDot[a.status]}`} />
+                  <span className={`absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full ring-2 ring-[#05060d] ${tileDotCls(a, idx)}`} />
                 </div>
                 <span className={`text-[10px] font-bold tracking-wide ${active ? 'text-white' : 'text-white/45'}`}>{a.shortId}</span>
-                <span className={`text-[9px] ${active ? 'text-violet-200' : 'text-white/35'}`}>{crewAgentStatusLabel(a)}</span>
-              </button>
+                <span className={`text-[9px] ${active ? 'text-violet-200' : matching && idx < assembled ? 'text-sky-200/85' : 'text-white/35'}`}>
+                  {tileLabel(a, idx)}
+                </span>
+              </motion.button>
             );
           })}
         </div>
