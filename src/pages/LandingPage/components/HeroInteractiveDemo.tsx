@@ -120,7 +120,7 @@ export function HeroInteractiveDemo() {
     'Workflow complete';
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full max-w-full">
       {/* Interactive indicator */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
@@ -154,7 +154,7 @@ export function HeroInteractiveDemo() {
         animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
         transition={{ duration: 0.9, delay: 0.55, ease: EASE_OUT_EXPO }}
         id="hero-demo"
-        className="overflow-hidden rounded-[24px] border backdrop-blur-2xl"
+        className="w-full max-w-[calc(100vw-40px)] overflow-hidden rounded-[24px] border backdrop-blur-2xl lg:max-w-full"
         style={{
           background: 'linear-gradient(180deg, rgba(16,20,30,0.84) 0%, rgba(8,10,18,0.88) 100%)',
           borderColor: 'rgba(255,255,255,0.10)',
@@ -205,7 +205,7 @@ export function HeroInteractiveDemo() {
           </aside>
 
           {/* Main */}
-          <div className="relative flex min-h-[440px] flex-col gap-4 p-5 md:p-6">
+          <div className="relative flex min-h-[440px] min-w-0 flex-col gap-4 p-5 md:p-6">
             <AnimatePresence mode="wait">
               {step === 'idle' ? (
                 <IdleState key="idle" onPick={pickPrompt} reduce={!!reduce} />
@@ -238,7 +238,7 @@ export function HeroInteractiveDemo() {
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2.5 md:px-5">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2.5 md:px-5">
           <StepIndicator step={step} />
           {step !== 'idle' && (
             <button
@@ -277,19 +277,19 @@ function IdleState({ onPick, reduce }: { onPick: (p: { chip: string; goal: strin
       >
         <img src="/assets/logos/ai ant black (2).png" alt="" width={32} height={32} draggable={false} />
       </motion.span>
-      <h3 className="font-heading text-[20px] font-extrabold tracking-tight text-white md:text-[22px]">
+      <h3 className="max-w-[280px] font-heading text-[18px] font-extrabold leading-tight tracking-tight text-white sm:max-w-full md:text-[22px]">
         What do you want to accomplish?
       </h3>
-      <p className="mt-1 max-w-[380px] text-[12.5px] text-white/50">
+      <p className="mt-1 max-w-[280px] text-[12.5px] text-white/50 sm:max-w-[380px]">
         Choose a prompt and watch AI Ant assemble a specialist crew.
       </p>
 
-      <div className="mt-5 w-full max-w-[440px] rounded-[14px] border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-left text-[13px] text-white/35">
+      <div className="mt-5 w-full max-w-[280px] rounded-[14px] border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-left text-[13px] text-white/35 sm:max-w-[440px]">
         Tell AI Ant what you want to accomplish…
         <span className="ml-0.5 inline-block h-[14px] w-[2px] -translate-y-[1px] animate-pulse bg-white/45 align-middle" />
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+      <div className="mt-4 flex max-w-[300px] flex-wrap items-center justify-center gap-2 overflow-hidden sm:max-w-full">
         {PROMPTS.map((p) => (
           <button
             key={p.chip}
@@ -563,7 +563,7 @@ function StepIndicator({ step }: { step: DemoStep }) {
   ];
   const idx = STEP_INDEX[step];
   return (
-    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]">
       {items.map((item) => {
         const itemIdx = STEP_INDEX[item.id];
         const reached = idx >= itemIdx;

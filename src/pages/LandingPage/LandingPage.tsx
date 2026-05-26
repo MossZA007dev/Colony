@@ -5,12 +5,7 @@ import {
   ChevronDown,
   FileText,
   Layers3,
-  LayoutTemplate,
-  Map,
   Menu,
-  Plug,
-  Rocket,
-  Search,
   ShieldCheck,
   Target,
   Users,
@@ -27,12 +22,8 @@ import './LandingPage.css';
 
 import { RevealOnScroll, AmbientGlow, EASE_OUT_EXPO } from './components/motion';
 import { HeroInteractiveDemo } from './components/HeroInteractiveDemo';
-import { HowColonyWorks } from './components/HowColonyWorks';
-import { FeatureShowcase } from './components/FeatureShowcase';
-import { MobileFileCapture } from './components/MobileFileCapture';
 import { StarBorder } from './components/StarBorder';
 import { LiveWaitlistCounter } from './components/LiveWaitlistCounter';
-import Dock, { type DockItemData } from './components/Dock';
 
 const glyph = {
   arrow: '->',
@@ -145,7 +136,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
         >
           <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,42%)_minmax(0,58%)] lg:gap-10">
             {/* ── Left: marketing copy ───────────────────────── */}
-            <div className="text-center lg:text-left">
+            <div className="min-w-0 text-center lg:text-left">
               <motion.div
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -165,6 +156,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                 className="mb-5 text-[clamp(38px,5.4vw,64px)] font-semibold leading-[1.04] tracking-[-0.03em] text-white"
               >
                 Build and{' '}
+                <br className="sm:hidden" />
                 <span
                   className="font-normal text-white/95"
                   style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: 'italic' }}
@@ -172,16 +164,18 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                   coordinate
                 </span>
                 <br />
-                your AI workforce.
+                your AI
+                <br className="sm:hidden" />
+                workforce.
               </motion.h1>
 
               <motion.p
                 initial={{ opacity: 0, y: 22, filter: 'blur(6px)' }}
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 transition={{ duration: 0.9, delay: 0.28, ease: EASE_OUT_EXPO }}
-                className="mx-auto mb-8 max-w-[520px] text-[16px] font-normal leading-[1.65] text-white/68 md:text-[17px] lg:mx-0"
+                className="mx-auto mb-8 max-w-[330px] text-[16px] font-normal leading-[1.65] text-white/68 sm:max-w-[520px] md:text-[17px] lg:mx-0"
               >
-                Colony Bridge helps founders and small teams turn one goal into an AI crew or repeatable workflow - producing review-ready work you can control.
+                Colony Bridge helps founders and small teams turn one goal into an AI crew that researches, plans, and produces review-ready work you can control.
               </motion.p>
 
               <motion.div
@@ -201,7 +195,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                   Join Early Access
                 </motion.button>
                 <motion.button
-                  onClick={() => document.getElementById('hero-demo')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  onClick={() => document.getElementById('workflow-example')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                   whileHover={reduce ? undefined : { y: -2 }}
                   whileTap={reduce ? undefined : { scale: 0.97 }}
                   transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
@@ -223,7 +217,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
             </div>
 
             {/* ── Right: interactive product demo ────────────── */}
-            <div className="w-full">
+            <div className="min-w-0 w-full">
               <HeroInteractiveDemo />
             </div>
           </div>
@@ -234,14 +228,13 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
 
       {/* ── Content ── */}
       <div className="relative bg-[#050508]">
-        <ExampleWorkflowSection />
-        <HowColonyWorks />
-        <FeatureShowcase />
-        <MobileFileCapture />
-        <FeaturesSection />
+        <ProblemSection />
+        <WorkflowExampleSection />
+        <ProductModelSection />
+        <TestingNowSection />
         <ApprovalControlSection />
-        <BuildersSection />
         <ComparisonSection />
+        <BuildersSection />
         <RoadmapSection />
         {!publicOnly && <EarlyAccessSection goTo={goTo} onWaitlistCountChange={setWaitlistCount} />}
       </div>
@@ -374,9 +367,10 @@ function StickyNav({
             )}
             <button
               onClick={scrollToPrimaryCta}
-              className="lp-btn-navbar inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold"
+              className="lp-btn-navbar hidden items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold sm:inline-flex"
             >
-              Join Early Access
+              <span className="sm:hidden">Join</span>
+              <span className="hidden sm:inline">Join Early Access</span>
               <span aria-hidden>→</span>
             </button>
             <button
@@ -468,22 +462,69 @@ function BreathingFrame({ children }: { children: React.ReactNode }) {
 }
 
 // ── Supporting components ─────────────────────────────────────────────────────
-function ExampleWorkflowSection() {
-  const flow = [
-    { title: 'Research Agent', copy: 'Collects competitor positioning and market signals', icon: <Search className="h-[18px] w-[18px]" /> },
-    { title: 'Strategy Agent', copy: 'Turns findings into a launch direction', icon: <Map className="h-[18px] w-[18px]" /> },
-    { title: 'Writer Agent', copy: 'Prepares a review-ready launch plan', icon: <FileText className="h-[18px] w-[18px]" /> },
-    { title: 'Approval', copy: 'You review the result before anything is shared', icon: <ShieldCheck className="h-[18px] w-[18px]" /> },
+function ProblemSection() {
+  const pains = [
+    {
+      title: 'Research is fragmented',
+      copy: 'Insights are spread across chats, browser tabs, documents, and disconnected tools.',
+    },
+    {
+      title: 'Results still need assembly',
+      copy: 'AI can generate pieces of work, but someone still has to organize them into something useful.',
+    },
+    {
+      title: 'Recurring work stays manual',
+      copy: 'Reports, planning, and routine analysis still require repeated setup and review.',
+    },
   ];
 
   return (
-    <section className="px-5 py-24 md:px-8">
+    <section id="problem" className="px-5 py-24 md:px-8">
       <div className="mx-auto max-w-[1200px]">
         <RevealOnScroll>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Example Workflow</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">The Problem</p>
           <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
-            From one request to a review-ready launch plan.
+            AI can answer questions. Your work is still scattered.
           </h2>
+          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62 md:text-[16px]">
+            Founders and small teams still spend hours moving between research, planning, writing, files, and approvals. Colony Bridge is being built to turn that scattered work into one coordinated AI workflow.
+          </p>
+        </RevealOnScroll>
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
+          {pains.map((pain, index) => (
+            <RevealOnScroll key={pain.title} delay={index * 0.06} y={20}>
+              <div className="card-premium h-full rounded-2xl border border-white/[0.07] bg-white/[0.025] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.04] motion-reduce:transform-none">
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/30">{String(index + 1).padStart(2, '0')}</span>
+                <h3 className="mt-5 text-[17px] font-semibold text-white">{pain.title}</h3>
+                <p className="mt-3 text-[13px] leading-relaxed text-white/60">{pain.copy}</p>
+              </div>
+            </RevealOnScroll>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkflowExampleSection() {
+  const flow = [
+    { title: 'AI Ant understands the goal', copy: 'Identifies what research, planning, and output the task requires.', icon: <Target className="h-[18px] w-[18px]" /> },
+    { title: 'A specialist crew is assembled', copy: 'Research, strategy, and writing agents are assigned to the work.', icon: <Users className="h-[18px] w-[18px]" /> },
+    { title: 'Agents prepare the result', copy: 'Each specialist contributes to one shared launch-plan deliverable.', icon: <FileText className="h-[18px] w-[18px]" /> },
+    { title: 'You review before anything moves forward', copy: 'The final output stays visible and under your approval.', icon: <ShieldCheck className="h-[18px] w-[18px]" /> },
+  ];
+
+  return (
+    <section id="workflow-example" className="px-5 py-24 md:px-8">
+      <div className="mx-auto max-w-[1200px]">
+        <RevealOnScroll>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">How It Works</p>
+          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
+            Describe the goal. Watch the work take shape.
+          </h2>
+          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">
+            Start with one business request. AI Ant proposes the right structure, coordinates specialist agents, and prepares a result for your review.
+          </p>
         </RevealOnScroll>
         <RevealOnScroll delay={0.08} className="mt-9 overflow-hidden rounded-[24px] border border-white/[0.08] bg-white/[0.025]">
           <div className="border-b border-white/[0.07] bg-[#07090f]/75 px-5 py-4">
@@ -492,7 +533,7 @@ function ExampleWorkflowSection() {
               Research my competitors and prepare a 30-day launch plan.
             </p>
           </div>
-          <div className="grid gap-px bg-white/[0.06] md:grid-cols-4">
+          <div className="grid gap-px bg-white/[0.06] md:grid-cols-2 lg:grid-cols-4">
             {flow.map((item, index) => (
               <div key={item.title} className="bg-[#080a10] p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -505,7 +546,7 @@ function ExampleWorkflowSection() {
             ))}
           </div>
           <div className="flex flex-col gap-3 border-t border-white/[0.07] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[13px] text-white/52">A concrete pilot workflow for founders preparing a launch.</p>
+            <p className="text-[13px] text-white/52">A concrete pilot workflow for competitor research, launch planning, and review.</p>
             <button
               type="button"
               onClick={() => document.getElementById('early-access')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -528,54 +569,99 @@ function FeatureIconBadge({ icon }: { icon: React.ReactNode }) {
   );
 }
 
-function FeaturesSection() {
+function ProductModelSection() {
+  const paths = [
+    {
+      title: 'Colony Crew',
+      label: 'Testing now',
+      copy:
+        'Specialist AI agents assembled for a focused task such as research, planning, or report preparation.',
+      icon: <Users className="h-[18px] w-[18px]" />,
+    },
+    {
+      title: 'Projects & Deliverables',
+      label: 'Testing now',
+      copy:
+        'A workspace for keeping related chats, instructions, and review-ready results together.',
+      icon: <Layers3 className="h-[18px] w-[18px]" />,
+    },
+    {
+      title: 'Automation',
+      label: 'Prototype preview',
+      copy:
+        'Repeatable AI workflows for recurring work with review checkpoints before important actions.',
+      icon: <Workflow className="h-[18px] w-[18px]" />,
+    },
+  ];
+
+  return (
+    <section id="product" className="px-5 py-24 md:px-8">
+      <div className="mx-auto max-w-[1200px]">
+        <RevealOnScroll>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">The Product</p>
+          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
+            One coordinator. Different ways to get work done.
+          </h2>
+          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">
+            AI Ant is the starting point of Colony Bridge. You describe the goal, and it helps organize the right people, process, and output around it.
+          </p>
+        </RevealOnScroll>
+        <div className="mt-10 grid gap-4 lg:grid-cols-[1.05fr_1.65fr]">
+          <RevealOnScroll y={20}>
+            <div className="card-premium h-full rounded-2xl border border-[#7db7ff]/25 bg-[#7db7ff]/[0.055] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-[#7db7ff]/35 motion-reduce:transform-none">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <FeatureIconBadge icon={<Bot className="h-[18px] w-[18px]" />} />
+                <span className="rounded-full border border-[#7db7ff]/20 bg-[#7db7ff]/10 px-3 py-1 text-[11px] font-medium text-[#bcd9ff]">
+                  Coordinator
+                </span>
+              </div>
+              <h3 className="text-[22px] font-semibold text-white">AI Ant</h3>
+              <p className="mt-3 text-[14px] leading-relaxed text-white/68">
+                Your starting point. Describe a goal and let AI Ant recommend the right structure for the work.
+              </p>
+            </div>
+          </RevealOnScroll>
+          <div className="grid gap-4 md:grid-cols-3">
+            {paths.map((path, index) => (
+              <RevealOnScroll key={path.title} delay={index * 0.06} y={20}>
+                <div className="card-premium h-full rounded-2xl border border-white/[0.07] bg-white/[0.025] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.04] motion-reduce:transform-none">
+                  <div className="mb-5 flex items-start justify-between gap-4">
+                    <FeatureIconBadge icon={path.icon} />
+                    <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/62">
+                      {path.label}
+                    </span>
+                  </div>
+                  <h3 className="text-[16px] font-semibold text-white">{path.title}</h3>
+                  <p className="mt-3 text-[13px] leading-relaxed text-white/60">{path.copy}</p>
+                </div>
+              </RevealOnScroll>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TestingNowSection() {
   const features = [
     {
-      title: 'Start with a goal',
+      title: 'Goal routing with AI Ant',
       copy:
-        'Describe what you need. AI Ant recommends the best way to organize the work.',
+        'Describe a task and see how Colony Bridge recommends a way to handle it.',
       icon: <Target className="h-[18px] w-[18px]" />,
-      status: 'Testing now',
     },
     {
-      title: 'Build a specialist crew',
+      title: 'Colony Crew task flow',
       copy:
-        'Assemble AI agents for research, analysis, writing, and review around one task.',
+        'Preview specialist agents coordinating around one focused business request.',
       icon: <Users className="h-[18px] w-[18px]" />,
-      status: 'Testing now',
     },
     {
-      title: 'Keep context together',
+      title: 'Review-ready deliverables',
       copy:
-        'Store related chats, instructions, files, workflows, and final outputs in one workspace.',
-      icon: <Layers3 className="h-[18px] w-[18px]" />,
-      status: 'Testing now',
-    },
-    {
-      title: 'Repeat successful work',
-      copy:
-        'Design repeatable AI workflows for recurring tasks with review checkpoints.',
-      icon: <Workflow className="h-[18px] w-[18px]" />,
-      status: 'Prototype preview',
-    },
-    {
-      title: 'Stay in control',
-      copy:
-        'Connect tools safely while keeping sensitive actions under user approval.',
-      icon: <ShieldCheck className="h-[18px] w-[18px]" />,
-      status: 'In development',
-      timeline: [
-        'Result prepared',
-        'Approval requested',
-        'Review required',
-      ],
-    },
-    {
-      title: 'Build a long-term AI workspace',
-      copy:
-        'Organize agents and workflows around a business or long-term goal.',
-      icon: <BriefcaseBusiness className="h-[18px] w-[18px]" />,
-      status: 'Concept preview',
+        'See how research, planning, and outputs stay organized for feedback and refinement.',
+      icon: <FileText className="h-[18px] w-[18px]" />,
     },
   ];
 
@@ -583,39 +669,35 @@ function FeaturesSection() {
     <section id="features" className="px-5 py-28 md:px-8">
       <div className="mx-auto max-w-[1200px]">
         <RevealOnScroll>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Features</p>
-          <h2 className="mb-12 max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
-            Core MVP capabilities and what comes next.
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">MVP Testing Now</p>
+          <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
+            What early users can explore first.
           </h2>
+          <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">
+            We are starting with the smallest experience that tests whether an AI crew can turn a goal into useful, review-ready work.
+          </p>
         </RevealOnScroll>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
           {features.map((feature, index) => (
             <RevealOnScroll key={feature.title} delay={index * 0.06} y={20}>
-              <div className="card-premium group flex h-full min-h-[248px] flex-col rounded-2xl border border-white/[0.07] bg-white/[0.025] p-6">
+              <div className="card-premium group flex h-full min-h-[210px] flex-col rounded-2xl border border-white/[0.07] bg-white/[0.025] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.12] hover:bg-white/[0.04] motion-reduce:transform-none">
                 <div className="mb-5 flex items-start justify-between gap-4">
                   <FeatureIconBadge icon={feature.icon} />
-                  {'status' in feature && feature.status ? (
-                    <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/62">
-                      {feature.status}
-                    </span>
-                  ) : null}
+                  <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/62">
+                    Testing now
+                  </span>
                 </div>
                 <h3 className="mb-3 text-[16px] font-semibold text-white">{feature.title}</h3>
                 <p className="text-[13px] leading-relaxed text-white/62">{feature.copy}</p>
-                {Array.isArray(feature.timeline) ? (
-                  <div className="mt-5 space-y-2 rounded-2xl border border-white/[0.08] bg-[#07090d]/90 p-4 text-[12px] text-white/55">
-                    {feature.timeline.map((line) => (
-                      <div key={line} className="flex items-center gap-3">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#7db7ff]/75" />
-                        <p>{line}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             </RevealOnScroll>
           ))}
         </div>
+        <RevealOnScroll delay={0.12} y={16}>
+          <p className="mt-6 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 text-[13px] leading-relaxed text-white/58">
+            Coming next: repeatable automation workflows, approved connectors, and shared collaboration tools.
+          </p>
+        </RevealOnScroll>
       </div>
     </section>
   );
@@ -629,10 +711,10 @@ function ApprovalControlSection() {
           <div>
             <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Approval-First Control</p>
             <h2 className="max-w-2xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
-              Powerful assistance. Human approval.
+              AI prepares the work. You stay in control.
             </h2>
             <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-white/62 md:text-[16px]">
-              AI Ant can prepare work and suggest next steps, but sensitive actions stay under your control before anything is sent, changed, or shared.
+              Colony Bridge is designed around reviewable AI workflows. AI Ant can prepare outputs and recommend next steps, while important actions remain visible before anything is sent, changed, or shared.
             </p>
           </div>
           <div className="rounded-[22px] border border-white/[0.09] bg-[#070a12]/90 p-4">
@@ -678,7 +760,7 @@ function BuildersSection() {
       name: 'Moss',
       role: 'Frontend, Business Development & Product Strategy',
       description:
-        'Designing the user experience, shaping the product direction, and finding the first pilot users for Colony Bridge.',
+        'Designing the product experience, shaping the business direction, and finding the first pilot users for Colony Bridge.',
       focus: ['Product Strategy', 'Frontend', 'Business Development', 'User Research'],
     },
     {
@@ -697,10 +779,10 @@ function BuildersSection() {
         <RevealOnScroll>
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Team</p>
           <h2 className="max-w-3xl text-[34px] font-semibold leading-tight tracking-tight text-white md:text-[44px]">
-            A small team making AI agents easier to use.
+            Built by a small team, shaped by early users.
           </h2>
           <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/60">
-            We are building Colony Bridge from a simple belief: AI agents should be understandable, controllable, and useful for real work.
+            We are building Colony Bridge with a focused MVP and learning directly from founders and small teams who want AI work to feel clearer and more controllable.
           </p>
         </RevealOnScroll>
         <div className="mt-10 grid gap-4 md:grid-cols-2">
@@ -731,9 +813,9 @@ function BuildersSection() {
         <RevealOnScroll delay={0.12} y={20} className="mt-4">
           <div className="flex flex-col gap-4 rounded-2xl border border-[#7db7ff]/18 bg-[#7db7ff]/[0.045] p-6 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-[18px] font-semibold text-white">Looking for design partners</h3>
+              <h3 className="text-[18px] font-semibold text-white">Become a design partner</h3>
               <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-white/62">
-                We are inviting founders and small teams to test real workflows, share feedback, and help shape the MVP.
+                Try early workflows, share honest feedback, and help us decide what Colony Bridge should build next.
               </p>
             </div>
             <button
@@ -752,12 +834,11 @@ function BuildersSection() {
 
 function ComparisonSection() {
   const rows = [
-    ['Starting point', 'Start from nodes, triggers, APIs, or technical setup', 'Start from a goal described in plain language'],
-    ['Setup experience', 'Often designed for users already familiar with automation', 'Designed for founders and small teams exploring AI-assisted work'],
-    ['Workflow visibility', 'Complex flows may be difficult to interpret', 'Visual crews, projects, and deliverables make progress understandable'],
-    ['Data access', 'Actions may require careful technical configuration', 'Approved access is being designed around clear user control'],
-    ['Safety', 'Automation requires careful setup to avoid unintended actions', 'Approval-first approach keeps users in control'],
-    ['Debugging / reviewability', 'Logs can feel technical', 'Work is shown through agent steps, deliverables, and review checkpoints'],
+    ['Starting point', 'Nodes, triggers, APIs, or technical setup', 'A goal described in plain language'],
+    ['User experience', 'Designed for users familiar with automation setup', 'Designed for founders and small teams exploring AI-assisted work'],
+    ['Workflow visibility', 'Complex flows may be difficult to interpret', 'Visible crews, progress, and deliverables'],
+    ['Safety', 'Actions depend on careful configuration', 'Approval-first approach keeps users in control'],
+    ['Outputs', 'Workflow execution and logs', 'Review-ready work connected to the project context'],
   ];
 
   return (
@@ -768,7 +849,7 @@ function ComparisonSection() {
           A different starting point from traditional workflow builders.
         </h2>
         <p className="mx-auto mt-4 max-w-3xl text-center text-[15px] leading-relaxed text-white/55">
-          Traditional workflow builders often begin with nodes, triggers, and integrations. Colony Bridge begins with your goal and helps shape the workflow around it.
+          Traditional workflow builders often begin with nodes, triggers, and integrations. Colony Bridge begins with your goal and helps organize the work around it.
         </p>
         <div className="mt-10 overflow-x-auto overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
           <div className="grid min-w-[760px] grid-cols-[1.1fr_1.25fr_1.25fr] border-b border-white/[0.07] text-sm">
@@ -797,53 +878,30 @@ function ComparisonSection() {
 const CURRENT_PHASE_INDEX = 0;
 
 type PhaseStage = {
-  short: string;
+  status: string;
   title: string;
   items: string[];
-  icon: React.ComponentType<{ className?: string }>;
 };
 
 function RoadmapSection() {
+  const [selectedStageIndex, setSelectedStageIndex] = React.useState(CURRENT_PHASE_INDEX);
   const stages: PhaseStage[] = [
     {
-      short: 'Testing',
-      title: 'Stage 1: Testing now',
-      items: ['AI Ant goal routing prototype', 'Colony Crew task flow', 'Project workspace preview', 'Review-ready deliverables', 'Human approval concept'],
-      icon: Rocket,
+      status: 'Testing now',
+      title: 'Goal to deliverable',
+      items: ['AI Ant goal routing', 'Colony Crew task flow', 'Project workspace preview', 'Review-ready deliverables'],
     },
     {
-      short: 'AI Ant',
-      title: 'Stage 2: AI Ant capabilities',
-      items: ['Better file/context handling', 'Structured extraction', 'Improved routing and task planning'],
-      icon: Bot,
+      status: 'Next',
+      title: 'Context and connected tools',
+      items: ['Better file handling', 'Approved connectors', 'Structured extraction', 'Improved workflow planning'],
     },
     {
-      short: 'Connectors',
-      title: 'Stage 3: Connectors',
-      items: ['Google Drive', 'Gmail', 'Notion', 'Google Sheets', 'Approved tool access'],
-      icon: Plug,
-    },
-    {
-      short: 'Templates',
-      title: 'Stage 4: Automation & Templates',
-      items: ['Repeatable workflows', 'Reusable templates', 'Workflow testing', 'Creator/small business use cases'],
-      icon: LayoutTemplate,
-    },
-    {
-      short: 'Collab',
-      title: 'Stage 5: Collaboration',
-      items: ['Shared projects', 'Roles and permissions', 'Approval history', 'Team workspace'],
-      icon: Users,
+      status: 'Later',
+      title: 'Automation and collaboration',
+      items: ['Repeatable workflows', 'Reusable templates', 'Shared team workspaces', 'Roles and approval history'],
     },
   ];
-
-  const dockItems: DockItemData[] = stages.map((stage, idx) => ({
-    icon: <stage.icon className="h-5 w-5" />,
-    label: `Phase ${idx + 1} · ${stage.short}`,
-    onClick: () =>
-      document.getElementById(`phase-${idx + 1}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
-    active: idx === CURRENT_PHASE_INDEX,
-  }));
 
   return (
     <section id="roadmap" className="px-5 py-28 md:px-8">
@@ -851,26 +909,25 @@ function RoadmapSection() {
         <RevealOnScroll>
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Roadmap</p>
           <h2 className="max-w-3xl text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[44px]">
-            Building the MVP step by step.
+            Start focused. Expand with real feedback.
           </h2>
           <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-white/62">
-            We are building Colony Bridge step by step, starting with the smallest experience that proves whether AI crews and review-ready workflows help real users.
+            We are beginning with one promise: turn a goal into review-ready work through an AI crew users can understand and control.
           </p>
         </RevealOnScroll>
 
-        {/* Phase dock with progress track */}
-        <RevealOnScroll className="mt-14" delay={0.08}>
-          <PhaseDock stages={stages} dockItems={dockItems} currentIndex={CURRENT_PHASE_INDEX} />
-        </RevealOnScroll>
-
-        {/* Phase cards */}
-        <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-10 grid items-stretch gap-4 md:grid-cols-3">
           {stages.map((stage, index) => {
-            const status: 'done' | 'current' | 'upcoming' =
-              index < CURRENT_PHASE_INDEX ? 'done' : index === CURRENT_PHASE_INDEX ? 'current' : 'upcoming';
+            const isSelected = index === selectedStageIndex;
             return (
               <RevealOnScroll key={stage.title} delay={index * 0.06} y={20} className="h-full">
-                <PhaseCard stage={stage} index={index} status={status} />
+                <PhaseCard
+                  stage={stage}
+                  index={index}
+                  isSelected={isSelected}
+                  isTestingStage={index === CURRENT_PHASE_INDEX}
+                  onSelect={() => setSelectedStageIndex(index)}
+                />
               </RevealOnScroll>
             );
           })}
@@ -880,107 +937,31 @@ function RoadmapSection() {
   );
 }
 
-function PhaseDock({
-  stages,
-  dockItems,
-  currentIndex,
-}: {
-  stages: PhaseStage[];
-  dockItems: DockItemData[];
-  currentIndex: number;
-}) {
-  const progress = stages.length > 1 ? currentIndex / (stages.length - 1) : 0;
-  return (
-    <div className="relative">
-      {/* Soft glow under the dock */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/2 h-32 w-[80%] -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{
-          background: 'radial-gradient(ellipse, rgba(124,92,252,0.16) 0%, transparent 65%)',
-          filter: 'blur(32px)',
-        }}
-      />
-
-      {/* Progress track behind the dock */}
-      <div className="relative mx-auto max-w-[640px] px-6">
-        <div className="absolute inset-x-6 top-1/2 h-px -translate-y-1/2 bg-white/[0.07]" aria-hidden />
-        <motion.div
-          aria-hidden
-          initial={{ scaleX: 0 }}
-          whileInView={{ scaleX: progress }}
-          viewport={{ once: true, amount: 0.5 }}
-          transition={{ duration: 1.1, ease: EASE_OUT_EXPO }}
-          style={{ transformOrigin: '0% 50%' }}
-          className="absolute inset-x-6 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-[#7c5cfc] via-[#7db7ff] to-[#00d4aa]"
-        />
-
-        {/* The Dock itself */}
-        <div className="relative flex justify-center">
-          <Dock
-            items={dockItems}
-            panelHeight={68}
-            baseItemSize={50}
-            magnification={72}
-            distance={180}
-            dockHeight={68}
-            spring={{ mass: 0.1, stiffness: 160, damping: 13 }}
-          />
-        </div>
-      </div>
-
-      {/* Phase labels below */}
-      <div className="mx-auto mt-3 grid max-w-[640px] grid-cols-5 px-6">
-        {stages.map((stage, idx) => {
-          const isCurrent = idx === currentIndex;
-          const isDone = idx < currentIndex;
-          return (
-            <div key={stage.short} className="flex flex-col items-center text-center">
-              <p
-                className={`text-[10.5px] font-semibold uppercase tracking-[0.14em] ${
-                  isCurrent ? 'text-white' : isDone ? 'text-[#00d4aa]/85' : 'text-white/45'
-                }`}
-              >
-                {stage.short}
-              </p>
-              {isCurrent && (
-                <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#7db7ff]/30 bg-[#7db7ff]/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-[#bcd9ff]">
-                  <motion.span
-                    animate={{ opacity: [0.4, 1, 0.4] }}
-                    transition={{ duration: 1.6, repeat: Infinity }}
-                    className="h-1 w-1 rounded-full bg-[#bcd9ff]"
-                  />
-                  Testing now
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function PhaseCard({
   stage,
   index,
-  status,
+  isSelected,
+  isTestingStage,
+  onSelect,
 }: {
-  stage: { title: string; items: string[] };
+  stage: PhaseStage;
   index: number;
-  status: 'done' | 'current' | 'upcoming';
+  isSelected: boolean;
+  isTestingStage: boolean;
+  onSelect: () => void;
 }) {
   const card = (
-    <div
-      className={`card-premium relative h-full overflow-hidden rounded-[22px] border p-6 ${
-        status === 'current'
-          ? 'border-[#7db7ff]/30 bg-gradient-to-b from-white/[0.05] to-white/[0.02]'
-          : status === 'done'
-          ? 'border-[#00d4aa]/20 bg-white/[0.025]'
-          : 'border-white/[0.07] bg-white/[0.025]'
+    <button
+      type="button"
+      aria-pressed={isSelected}
+      onClick={onSelect}
+      className={`card-premium group relative h-full w-full overflow-hidden rounded-[22px] border p-6 text-left outline-none transition-all duration-300 ease-out motion-reduce:transform-none motion-reduce:transition-none lg:hover:-translate-y-1.5 lg:hover:scale-[1.015] ${
+        isSelected
+          ? 'border-[#7db7ff]/35 bg-gradient-to-b from-white/[0.055] to-white/[0.025] shadow-[0_18px_60px_rgba(80,134,255,0.12),inset_0_1px_0_rgba(255,255,255,0.08)]'
+          : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.14] hover:bg-white/[0.045]'
       }`}
     >
-      {status === 'current' && (
+      {isSelected && (
         <>
           <span
             aria-hidden
@@ -1002,43 +983,39 @@ function PhaseCard({
       )}
 
       <div className="relative">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <span
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold ${
-                status === 'current'
-                  ? 'bg-[#7db7ff]/20 text-white shadow-[0_0_0_1px_rgba(125,183,255,0.35),0_0_24px_rgba(125,183,255,0.35)]'
-                  : status === 'done'
-                  ? 'bg-[#00d4aa]/15 text-[#00d4aa]'
-                  : 'bg-white/[0.05] text-white/55'
-              }`}
-            >
-              {status === 'done' ? '✓' : index + 1}
-            </span>
-            <h3 className="text-[15px] font-semibold leading-tight text-white">{stage.title}</h3>
-          </div>
+        <div className="mb-4 flex min-h-[74px] flex-col items-start gap-3">
+          <span
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold transition-colors duration-300 ${
+              isSelected
+                ? 'bg-[#7db7ff]/18 text-white shadow-[0_0_0_1px_rgba(125,183,255,0.28),0_0_22px_rgba(125,183,255,0.18)]'
+                : 'bg-white/[0.05] text-white/55 group-hover:bg-white/[0.08] group-hover:text-white/75'
+            }`}
+          >
+            {index + 1}
+          </span>
+          <h3 className="text-[15px] font-semibold leading-tight text-white">{stage.title}</h3>
         </div>
-        {status === 'current' && (
-          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[#7db7ff]/30 bg-[#7db7ff]/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#bcd9ff]">
+        {isTestingStage && (
+          <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-[#7db7ff]/30 bg-[#7db7ff]/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#bcd9ff]">
             <motion.span
               animate={{ opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 1.6, repeat: Infinity }}
               className="h-1.5 w-1.5 rounded-full bg-[#bcd9ff]"
             />
-            Testing now
+            {stage.status}
           </div>
         )}
-        {status === 'done' && (
-          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[#00d4aa]/25 bg-[#00d4aa]/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#00d4aa]">
-            Shipped
+        {!isTestingStage && (
+          <div className="mb-4 inline-flex rounded-full border border-white/[0.08] bg-white/[0.035] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
+            {stage.status}
           </div>
         )}
         <div className="space-y-2">
           {stage.items.map((item) => (
             <p
               key={item}
-              className={`text-[13px] leading-relaxed ${
-                status === 'upcoming' ? 'text-white/45' : 'text-white/72'
+              className={`text-[13px] leading-relaxed transition-colors duration-300 ${
+                isSelected ? 'text-white/72' : 'text-white/48 group-hover:text-white/62'
               }`}
             >
               {glyph.dot} {item}
@@ -1046,10 +1023,10 @@ function PhaseCard({
           ))}
         </div>
       </div>
-    </div>
+    </button>
   );
 
-  if (status === 'current') {
+  if (isSelected) {
     return (
       <StarBorder as="div" color="#a8c5ff" speed="5.5s" thickness={1} className="h-full">
         {card}
@@ -1122,10 +1099,10 @@ function EarlyAccessSection({
           <div>
             <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Early access</p>
             <h2 className="mb-5 text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[44px]">
-              Join the first Colony Bridge pilot users.
+              Bring us one task you wish AI could handle better.
             </h2>
             <p className="max-w-xl text-[15px] leading-relaxed text-white/62 md:text-[16px]">
-              We are looking for founders and small teams willing to test an early prototype and tell us which AI workflows would actually help their work.
+              We are inviting founders and small teams to test the early Colony Bridge prototype and help shape the workflows we build next.
             </p>
           </div>
           <div>
@@ -1182,7 +1159,7 @@ function EarlyAccessSection({
                       autoComplete="email"
                     />
                   </FormField>
-                  <FormField label="Role">
+                  <FormField label="What best describes you?">
                     <div className="form-select-wrap">
                       <BriefcaseBusiness className="form-select-icon" />
                       <select value={role} onChange={(e) => setRole(e.target.value)} className="form-select">
@@ -1199,7 +1176,7 @@ function EarlyAccessSection({
                     <textarea
                       value={task}
                       onChange={(e) => setTask(e.target.value)}
-                      placeholder="Describe a real task you face today."
+                      placeholder="For example: Research competitors and prepare a launch plan."
                       rows={3}
                       className="form-input resize-none"
                     />
@@ -1212,7 +1189,7 @@ function EarlyAccessSection({
                       onChange={(e) => setWillingToTest(e.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0b0d12] accent-[#00d4aa]"
                     />
-                    <span>I am willing to test an early prototype</span>
+                    <span>I am willing to test an early prototype and share feedback.</span>
                   </label>
                   {error ? <p className="mt-3 text-[12px] font-medium text-rose-200">{error}</p> : null}
 
