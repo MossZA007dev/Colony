@@ -24,9 +24,9 @@ const STEP_ORDER: WorkflowStep[] = ['goal', 'planning', 'execution', 'deliverabl
 
 const STEPS: { id: WorkflowStep; n: string; title: string; copy: string }[] = [
   { id: 'goal', n: '01', title: 'Describe your goal', copy: 'Tell AI Ant what you want to accomplish in plain language.' },
-  { id: 'planning', n: '02', title: 'AI Ant creates a plan', copy: 'AI Ant chooses the right workflow and assembles the team.' },
-  { id: 'execution', n: '03', title: 'Specialist agents execute', copy: 'Agents research, build, and write while you stay in the loop.' },
-  { id: 'deliverable', n: '04', title: 'Review the deliverable', copy: 'Preview the result and approve sensitive actions.' },
+  { id: 'planning', n: '02', title: 'AI Ant creates a plan', copy: 'Colony Bridge recommends the right crew or workflow.' },
+  { id: 'execution', n: '03', title: 'Specialist agents execute', copy: 'Agents research, analyze, and prepare the result while you stay in control.' },
+  { id: 'deliverable', n: '04', title: 'Review the deliverable', copy: 'Approve the output or refine the direction before anything sensitive happens.' },
 ];
 
 const GOAL_TEXT = 'Research my competitors and prepare a launch plan.';
@@ -76,7 +76,7 @@ export function HowColonyWorks() {
             From one goal to completed work.
           </h2>
           <p className="mt-5 max-w-2xl text-[16px] leading-[1.65] text-white/60 md:text-[17px]">
-            AI Ant understands your request, builds the right team, coordinates the workflow, and delivers a result ready for review.
+            AI Ant understands your request, proposes the right structure, coordinates specialist agents, and produces a result ready for your review.
           </p>
         </RevealOnScroll>
 
@@ -348,7 +348,7 @@ function ExecutionState({ reduce }: { reduce: boolean }) {
   ];
   const checklist = [
     { label: 'Understand goal', done: true, active: false },
-    { label: 'Build AI team', done: true, active: false },
+    { label: 'Assemble AI crew', done: true, active: false },
     { label: 'Research competitors', done: true, active: false },
     { label: 'Build strategy', done: false, active: true },
     { label: 'Prepare deliverable', done: false, active: false },
@@ -369,7 +369,7 @@ function ExecutionState({ reduce }: { reduce: boolean }) {
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-semibold text-white/88">
           <CheckCircle2 className="mr-1.5 inline-block h-4 w-4 -translate-y-[1px] text-[#7db7ff]" />
-          AI Agent Team Created
+          AI crew assembled
         </p>
         <p className="text-[11px] text-white/45">3 agents · 1 deliverable</p>
       </div>
@@ -472,7 +472,7 @@ function DeliverableState({ onPreview }: { onPreview: () => void }) {
       </div>
 
       <ul className="space-y-1.5 rounded-[14px] border border-white/[0.07] bg-white/[0.02] p-3">
-        {['Understand goal', 'Build AI team', 'Research competitors', 'Build strategy', 'Prepare deliverable'].map((label) => (
+        {['Understand goal', 'Assemble AI crew', 'Research competitors', 'Build strategy', 'Prepare deliverable'].map((label) => (
           <li key={label} className="flex items-center gap-2 text-[11.5px] text-white/80">
             <span className="grid h-4 w-4 place-items-center rounded-full bg-emerald-400/25 text-emerald-100 ring-1 ring-emerald-300/40">
               <Check className="h-2.5 w-2.5" strokeWidth={3} />

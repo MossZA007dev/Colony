@@ -36,3 +36,22 @@ class SurveySubmission(BaseModel):
 
 class SurveyListResponse(BaseModel):
     submissions: list[SurveySubmission]
+
+
+class WaitlistSignupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    role: str = Field(min_length=1, max_length=80)
+    task: str = Field(min_length=1, max_length=1200)
+    willing_to_test: bool
+
+
+class WaitlistSignupResponse(BaseModel):
+    id: str
+    email: EmailStr
+    count: int
+    already_joined: bool = False
+
+
+class WaitlistCountResponse(BaseModel):
+    count: int

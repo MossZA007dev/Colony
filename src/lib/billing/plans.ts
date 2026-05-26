@@ -43,8 +43,18 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     name: 'Max',
     monthlyPriceUsd: 79,
     yearlyDiscountPercent: 20,
-    description: 'Highest limits, collaboration, custom models, and internal-grade controls.',
-    features: ['Unlimited runs', 'Custom models', 'Team collaboration', 'Admin dashboard entitlement'],
+    description: 'Unlimited everything — every Colony feature with no caps, no quotas, no limits.',
+    features: [
+      'Unlimited AI Ant messages',
+      'Unlimited Colony Crew runs',
+      'Unlimited One-man Enterprise workspaces',
+      'Unlimited Automation workflows',
+      'Unlimited Colony Bridge actions',
+      'All image / video / TTS generations',
+      'Custom models + advanced routing',
+      'Team collaboration + Admin dashboard',
+      'Priority execution (highest tier)',
+    ],
   },
 };
 

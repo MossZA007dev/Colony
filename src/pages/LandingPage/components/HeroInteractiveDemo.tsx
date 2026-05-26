@@ -24,7 +24,7 @@ type AgentDef = { id: string; name: string; role: string; icon: React.ElementTyp
 const AGENTS: AgentDef[] = [
   { id: 'research', name: 'Research Agent', role: 'Searches competitors and market context', icon: Search },
   { id: 'strategy', name: 'Strategy Agent', role: 'Builds positioning and launch direction', icon: BarChart3 },
-  { id: 'writer', name: 'Report Writer', role: 'Prepares the final launch plan', icon: FileText },
+  { id: 'writer', name: 'Writer Agent', role: 'Prepares the final launch plan', icon: FileText },
 ];
 
 const PROMPTS: { chip: string; goal: string }[] = [
@@ -35,7 +35,7 @@ const PROMPTS: { chip: string; goal: string }[] = [
 
 const CHECKLIST = [
   { id: 'goal', label: 'Understand goal' },
-  { id: 'team', label: 'Assemble AI team' },
+  { id: 'team', label: 'Assemble AI crew' },
   { id: 'research', label: 'Research competitors' },
   { id: 'strategy', label: 'Build strategy' },
   { id: 'deliverable', label: 'Prepare deliverable' },
@@ -132,9 +132,9 @@ export function HeroInteractiveDemo() {
           {!reduce && <span className="absolute inset-0 animate-ping rounded-full bg-emerald-300/60" />}
           <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
         </span>
-        <span className="uppercase tracking-[0.18em] text-white/60">Interactive Demo</span>
+        <span className="uppercase tracking-[0.18em] text-white/60">Product Preview</span>
         <span className="text-white/30">·</span>
-        <span className="text-white/55">{phaseLabel}</span>
+        <span className="text-white/55">AI Ant planning the work</span>
       </motion.div>
 
       {/* Ambient halo */}
@@ -199,7 +199,7 @@ export function HeroInteractiveDemo() {
                 <p className="text-[10px] font-bold text-emerald-200/90">Live</p>
               </div>
               <p className="mt-0.5 text-[9px] leading-snug text-white/40">
-                {step === 'idle' ? 'Awaiting goal' : step === 'complete' ? '1 deliverable ready' : `${AGENTS.length} agents online`}
+                {step === 'idle' ? 'Awaiting goal' : step === 'complete' ? '1 deliverable ready' : `${AGENTS.length} agents ready`}
               </p>
             </div>
           </aside>
@@ -281,7 +281,7 @@ function IdleState({ onPick, reduce }: { onPick: (p: { chip: string; goal: strin
         What do you want to accomplish?
       </h3>
       <p className="mt-1 max-w-[380px] text-[12.5px] text-white/50">
-        Choose a prompt and watch AI Ant assemble a specialist team.
+        Choose a prompt and watch AI Ant assemble a specialist crew.
       </p>
 
       <div className="mt-5 w-full max-w-[440px] rounded-[14px] border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-left text-[13px] text-white/35">
@@ -371,7 +371,7 @@ function WorkingArea({
               className="flex items-center gap-2 text-[13px] text-white/90"
             >
               <CheckCircle2 className="h-4 w-4 text-[#7db7ff]" />
-              <span>AI Agent Team Created</span>
+              <span>AI crew assembled</span>
             </motion.div>
           )}
           {step === 'executing' && (
@@ -499,10 +499,10 @@ function WorkingArea({
                   Preview Deliverable
                   <ArrowRight className="h-3 w-3" />
                 </button>
-                <button className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/[0.10] px-3.5 py-1.5 text-[12px] font-bold text-emerald-200 transition hover:bg-emerald-400/[0.16]">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/[0.10] px-3.5 py-1.5 text-[12px] font-bold text-emerald-200">
                   <Check className="h-3 w-3" />
-                  Approve
-                </button>
+                  Waiting for approval
+                </span>
               </div>
             </motion.div>
           )}
@@ -684,10 +684,10 @@ function DeliverablePreviewModal({ onClose }: { onClose: () => void }) {
           >
             Close Preview
           </button>
-          <button className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/90 px-4 py-1.5 text-[12px] font-bold text-[#06140d] transition hover:bg-emerald-300">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/90 px-4 py-1.5 text-[12px] font-bold text-[#06140d]">
             <Check className="h-3 w-3" />
-            Approve
-          </button>
+            Review-ready
+          </span>
         </div>
       </motion.div>
     </motion.div>

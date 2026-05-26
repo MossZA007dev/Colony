@@ -73,9 +73,10 @@ PLANS: dict[str, Plan] = {
             "colony-work-product-router",
             "colony-safe-action-router",
         },
-        monthly_token_limit=1_500_000,
-        monthly_cost_limit_usd=75.00,
-        auto_approval_threshold_usd=0.20,
+        # $79/mo Max plan — truly unlimited, no quotas, no caps
+        monthly_token_limit=10_000_000_000,
+        monthly_cost_limit_usd=1_000_000.00,
+        auto_approval_threshold_usd=1_000.00,
     ),
 }
 

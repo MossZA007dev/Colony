@@ -3,7 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .ai_ant import router as ai_ant
 from .config import get_settings
-from .routes import auth, surveys
+from .crew.router import router as crew_router
+from .bridge.router import router as bridge_router
+from .enterprise.router import router as enterprise_router
+from .routes import auth, surveys, waitlist
 
 
 def create_app() -> FastAPI:
@@ -20,6 +23,10 @@ def create_app() -> FastAPI:
     app.include_router(ai_ant.router)
     app.include_router(auth.router)
     app.include_router(surveys.router)
+    app.include_router(waitlist.router)
+    app.include_router(crew_router)
+    app.include_router(bridge_router)
+    app.include_router(enterprise_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

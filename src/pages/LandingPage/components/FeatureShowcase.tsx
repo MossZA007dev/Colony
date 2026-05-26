@@ -26,16 +26,17 @@ type FeatureItem = {
   key: FeatureKey;
   label: string;
   tagline: string;
+  status?: string;
   icon: React.ComponentType<{ className?: string }>;
 };
 
 const FEATURES: FeatureItem[] = [
-  { key: 'ai-ant', label: 'AI Ant', tagline: 'Your AI operator for understanding goals and choosing the right workflow.', icon: Bot },
-  { key: 'agent-teams', label: 'AI Agent Teams', tagline: 'Specialist agents assembled to research, plan, create, and review.', icon: Users },
-  { key: 'automation', label: 'Automation', tagline: 'Turn repeated tasks into controlled AI workflows.', icon: Workflow },
-  { key: 'projects', label: 'Projects', tagline: 'Keep files, instructions, chats, and deliverables together.', icon: FolderKanban },
-  { key: 'approvals', label: 'Approvals & Connectors', tagline: 'Connect tools safely while keeping sensitive actions under your control.', icon: ShieldCheck },
-  { key: 'enterprise', label: 'One-man Enterprise', tagline: 'Organize an AI workforce around a business or long-term goal.', icon: Building2 },
+  { key: 'ai-ant', label: 'Start with a goal', tagline: 'Describe what you need. AI Ant recommends the best way to organize the work.', icon: Bot },
+  { key: 'agent-teams', label: 'Build a specialist crew', tagline: 'Assemble AI agents for research, analysis, writing, and review around one task.', icon: Users },
+  { key: 'projects', label: 'Keep context together', tagline: 'Store related chats, instructions, files, workflows, and final outputs in one workspace.', icon: FolderKanban },
+  { key: 'automation', label: 'Repeat successful work', tagline: 'Design repeatable AI workflows for recurring tasks with review checkpoints.', status: 'Prototype preview', icon: Workflow },
+  { key: 'approvals', label: 'Stay in control', tagline: 'Connect tools safely while keeping sensitive actions under user approval.', status: 'In development', icon: ShieldCheck },
+  { key: 'enterprise', label: 'Build a long-term AI workspace', tagline: 'Organize agents and workflows around a business or long-term goal.', status: 'Concept preview', icon: Building2 },
 ];
 
 export function FeatureShowcase() {
@@ -63,12 +64,12 @@ export function FeatureShowcase() {
     <section id="product" className="relative px-5 py-28 md:px-8 md:py-36">
       <div className="mx-auto max-w-[1240px]">
         <RevealOnScroll>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">One Workspace</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Product</p>
           <h2 className="max-w-3xl text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[52px]">
             Multiple ways to work with AI.
           </h2>
           <p className="mt-5 max-w-2xl text-[16px] leading-[1.65] text-white/60 md:text-[17px]">
-            Start with a simple prompt, assemble specialist agents, automate recurring work, or build an AI-powered organization — all inside one connected workspace.
+            Start with a goal, assemble specialist agents, or explore repeatable workflows - all inside one controlled workspace.
           </p>
         </RevealOnScroll>
 
@@ -145,6 +146,11 @@ function SelectorRow({
         >
           {feature.label}
         </span>
+        {feature.status ? (
+          <span className="mt-1 inline-flex rounded-full border border-white/[0.09] bg-white/[0.035] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/48">
+            {feature.status}
+          </span>
+        ) : null}
         <span className="mt-0.5 block text-[12px] leading-snug text-white/48">{feature.tagline}</span>
       </span>
     </button>
@@ -192,7 +198,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
     case 'ai-ant':
       return (
         <motion.div {...wrap} className="relative">
-          <PreviewHeader label="AI Ant" subtitle="Goal router" />
+          <PreviewHeader label="Start with a goal" subtitle="Testing now" />
           <AIAntPreview />
           <PreviewFooter cta="See product demo" />
         </motion.div>
@@ -200,7 +206,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
     case 'agent-teams':
       return (
         <motion.div {...wrap}>
-          <PreviewHeader label="AI Agent Teams" subtitle="Specialist crew" />
+          <PreviewHeader label="Build a specialist crew" subtitle="Testing now" />
           <AgentTeamsPreview />
           <PreviewFooter cta="See product demo" />
         </motion.div>
@@ -208,7 +214,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
     case 'automation':
       return (
         <motion.div {...wrap}>
-          <PreviewHeader label="Automation" subtitle="Recurring workflow" />
+          <PreviewHeader label="Repeat successful work" subtitle="Prototype preview" />
           <AutomationPreview />
           <PreviewFooter cta="See product demo" />
         </motion.div>
@@ -216,7 +222,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
     case 'projects':
       return (
         <motion.div {...wrap}>
-          <PreviewHeader label="Projects" subtitle="Connected workspace" />
+          <PreviewHeader label="Keep context together" subtitle="Testing now" />
           <ProjectsPreview />
           <PreviewFooter cta="See product demo" />
         </motion.div>
@@ -224,7 +230,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
     case 'approvals':
       return (
         <motion.div {...wrap}>
-          <PreviewHeader label="Approvals & Connectors" subtitle="Safe tool execution" />
+          <PreviewHeader label="Stay in control" subtitle="In development" />
           <ApprovalsPreview />
           <PreviewFooter cta="See product demo" />
         </motion.div>
@@ -232,7 +238,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
     case 'enterprise':
       return (
         <motion.div {...wrap}>
-          <PreviewHeader label="One-man Enterprise" subtitle="AI organization" />
+          <PreviewHeader label="Long-term AI workspace" subtitle="Concept preview" />
           <EnterprisePreview />
           <PreviewFooter cta="See product demo" />
         </motion.div>
@@ -572,7 +578,11 @@ function PreviewHeader({ label, subtitle }: { label: string; subtitle: string })
 function PreviewFooter({ cta }: { cta: string }) {
   return (
     <div className="mt-5 flex items-center justify-end">
-      <button className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-violet-200/85 transition hover:text-violet-100">
+      <button
+        type="button"
+        onClick={() => document.getElementById('hero-demo')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-violet-200/85 transition hover:text-violet-100"
+      >
         {cta}
         <ArrowRight className="h-3.5 w-3.5" />
       </button>

@@ -7,10 +7,10 @@ import { AntMark } from '../../../components/brand/BrandMarks';
 type Notification = { title: string; sub: string };
 
 const NOTIFICATIONS: Notification[] = [
-  { title: 'Q2 Finance Report received from iPhone 15', sub: 'Ready for analysis' },
-  { title: 'Sales screenshot received from iPhone 15', sub: 'Ready for summary' },
-  { title: 'Receipt photo received from iPhone 15', sub: 'Ready for extraction' },
-  { title: 'Product image received from iPhone 15', sub: 'Ready for review' },
+  { title: 'Approved report file selected on mobile', sub: 'Prepared for analysis preview' },
+  { title: 'Approved sales screenshot selected on mobile', sub: 'Prepared for summary preview' },
+  { title: 'Approved receipt photo selected on mobile', sub: 'Prepared for extraction preview' },
+  { title: 'Approved product image selected on mobile', sub: 'Prepared for review preview' },
 ];
 
 const ROTATE_MS = 4200;
@@ -34,26 +34,26 @@ export function MobileFileCapture() {
           <RevealOnScroll>
             <p className="mb-3 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">
               <Smartphone className="h-3.5 w-3.5" />
-              Mobile Bridge
+              In Development
             </p>
             <h2 className="max-w-xl text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[48px]">
-              Files captured from your phone
+              Approved mobile file access, designed for future workflows.
             </h2>
             <p className="mt-5 max-w-[520px] text-[15px] leading-[1.65] text-white/62 md:text-[16px]">
-              Let AI Ant securely retrieve selected files or screenshots from your mobile device after approval — ready for analysis, reports, or workflows.
+              We are exploring a way for AI Ant to retrieve user-approved screenshots or files from a mobile device and prepare them for analysis or reporting.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-2.5">
               <span className="inline-flex items-center gap-2 rounded-full border border-[#34d399]/22 bg-[#34d399]/[0.06] px-3 py-1.5 text-[12px] font-medium text-[#a7f3d0]">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#34d399]" />
-                Approval-first
+                Prototype concept
               </span>
               <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.035] px-3 py-1.5 text-[12px] text-white/65">
                 <ShieldCheck className="h-3.5 w-3.5 text-white/55" />
-                One-tap permission
+                User-approved files
               </span>
               <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.035] px-3 py-1.5 text-[12px] text-white/65">
                 <Bot className="h-3.5 w-3.5 text-white/55" />
-                Hand-off to AI Ant
+                Future AI Ant hand-off
               </span>
             </div>
           </RevealOnScroll>

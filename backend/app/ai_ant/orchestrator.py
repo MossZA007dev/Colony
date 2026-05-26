@@ -4,7 +4,7 @@ from uuid import uuid4
 from ..config import get_settings
 from .intent_classifier import IntentDecision, classify_intent
 from .memory import append_exchange, create_conversation_id, create_message_id
-from .providers import ProviderError, generate_openai_reply
+from .providers import ProviderError, generate_openai_reply, generate_openrouter_reply
 from .routing.registry import estimate_cost_usd, select_model
 from .schemas import AiAntAction, AiAntArtifact, AiAntIntent, AiAntMessageRequest, AiAntMessageResponse, AiAntUsage
 from .subscription import get_user_plan, plan_allows_intent
@@ -101,12 +101,21 @@ def handle_ai_ant_message(payload: AiAntMessageRequest) -> AiAntMessageResponse:
     response_model = route.model
     if not settings.ai_ant_mock_mode and not approval_required:
         try:
-            provider_result = generate_openai_reply(
-                settings=settings,
-                message=payload.message,
-                intent=decision.intent,
-                model_hint=route.model,
-            )
+            # OpenRouter is primary — falls back to OpenAI if no OpenRouter key
+            if settings.openrouter_api_key:
+                provider_result = generate_openrouter_reply(
+                    settings=settings,
+                    message=payload.message,
+                    intent=decision.intent,
+                    model_hint=route.model,
+                )
+            else:
+                provider_result = generate_openai_reply(
+                    settings=settings,
+                    message=payload.message,
+                    intent=decision.intent,
+                    model_hint=route.model,
+                )
             reply = provider_result.text
             response_model = provider_result.model
             usage = AiAntUsage(
@@ -115,7 +124,7 @@ def handle_ai_ant_message(payload: AiAntMessageRequest) -> AiAntMessageResponse:
                 estimated_cost_usd=usage.estimated_cost_usd,
             )
         except ProviderError as exc:
-            reply = f"{reply}\n\nOpenAI provider was not used: {exc}"
+            reply = f"{reply}\n\n[Provider error: {exc}]"
     response = AiAntMessageResponse(
         conversation_id=conversation_id,
         message_id=message_id,

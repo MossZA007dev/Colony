@@ -106,3 +106,15 @@
 .form-select-wrap:focus-within .form-select-chevron {
   color: #00d4aa;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .card-premium,
+  .form-input,
+  .form-select {
+    transition: none;
+  }
+
+  .card-premium:hover {
+    transform: none;
+  }
+}

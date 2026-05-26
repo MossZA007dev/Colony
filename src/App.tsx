@@ -119,6 +119,7 @@ import {
 } from 'lucide-react';
 
 import { LoginPage, ForgotPasswordPage, VerifyEmailPage } from './pages/Auth';
+import { AIRoutingCard } from './pages/ai-ant/AIRoutingCard';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { onAuthStateChanged, signOut as signOutFirebase } from 'firebase/auth';
 import { pageFromPath, pathFromPage } from './lib/navigation/routes';
@@ -132,8 +133,53 @@ import { Popover, PopoverTrigger, PopoverContent } from './components/ui/Popover
 import { ProviderLogo } from './components/model/ProviderLogo';
 import { SUPPORTED_MODELS, type SupportedModel } from './lib/modelCatalog';
 import type { Page } from './types/navigation';
+import {
+  PROVIDER_LABELS,
+  MANUAL_PROVIDERS,
+  inferCapabilitiesFromText,
+  skillsForCapabilities,
+  defaultActiveModel,
+  resolveSkillModel,
+  shortResolvedModelName,
+  MODEL_DESCRIPTIONS,
+  MODEL_TAGS,
+  providerIcon,
+  modelConfigFromResolved,
+  supportedModelsForCapability,
+  supportedToAgentConfig,
+  resolveAutoModel,
+  compatibleModelsForCapability,
+  skillSummary,
+  ModelChip,
+  ModelCard,
+  ModelRoutingSummary,
+  SkillModelPills,
+  CapabilityLine,
+} from './lib/modelDisplay';
+import { OSPageShell } from './components/shared/OSPageShell';
+import { OSGridCards, type OSCard } from './components/shared/OSGridCards';
+import { ApprovalsOSPage } from './pages/approvals/ApprovalsOSPage';
+import { TemplatesCommunityPage } from './pages/templates/TemplatesCommunityPage';
+import { TeamsOSPage } from './pages/teams/TeamsOSPage';
+import { WorkflowsOSPage } from './pages/workflows/WorkflowsOSPage';
+import { ConnectorsMarketplacePage } from './pages/connectors/ConnectorsMarketplacePage';
+import { ProjectsOSPage } from './pages/projects/ProjectsOSPage';
+import { DeliverablesOSPage } from './pages/deliverables/DeliverablesOSPage';
+import { KnowledgeOSPage } from './pages/knowledge/KnowledgeOSPage';
+import { BossIntake } from './pages/one-man-enterprse/BossIntake';
+import { runColonyCrew } from './lib/crew/crewApi';
+import { PermissionModal } from './components/bridge/PermissionModal';
+import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
+import type { BridgeRequest } from './lib/bridge/bridgeTypes';
 
 type NewProjectType = 'Sales Analysis' | 'Content Workflow' | 'File Report' | 'Custom';
+
+// PROVIDER_LABELS, MANUAL_PROVIDERS, inferCapabilitiesFromText, skillsForCapabilities,
+// defaultActiveModel, resolveSkillModel, shortResolvedModelName, MODEL_DESCRIPTIONS,
+// MODEL_TAGS, providerIcon, modelConfigFromResolved, supportedModelsForCapability,
+// supportedToAgentConfig, resolveAutoModel, compatibleModelsForCapability, skillSummary,
+// ModelChip, ModelCard, ModelRoutingSummary, SkillModelPills, CapabilityLine
+// → all imported from ./lib/modelDisplay
 
 const glyph = {
   ant: '\uD83D\uDC1C',
@@ -163,284 +209,7 @@ const glyph = {
 
 
 
-const PROVIDER_LABELS: Record<ModelProvider, string> = {
-  auto: 'Auto',
-  colony: 'Colony',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  deepseek: 'DeepSeek',
-  perplexity: 'Perplexity',
-  anthropic: 'Anthropic',
-  elevenlabs: 'ElevenLabs',
-  runway: 'Runway',
-  pika: 'Pika',
-  custom: 'Custom',
-};
-
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_LABELS) as AgentCapability[];
-const MANUAL_PROVIDERS = Object.keys(PROVIDER_LABELS).filter((p) => p !== 'auto') as ModelProvider[];
-
-function inferCapabilitiesFromText(...parts: Array<string | string[] | undefined>): AgentCapability[] {
-  const text = parts.flatMap((part) => Array.isArray(part) ? part : [part]).filter(Boolean).join(' ').toLowerCase();
-  const caps = new Set<AgentCapability>();
-  if (/research|source|web|competitor|market|search/.test(text)) caps.add('web_research');
-  if (/summar|brief|writer|report|content|draft|caption|script/.test(text)) caps.add('summarization');
-  if (/analyst|analysis|data|metric|sales|finance|spreadsheet|insight/.test(text)) caps.add('data_analysis');
-  if (/write|reason|strategy|manager|director|plan|product|support/.test(text)) caps.add('text_reasoning');
-  if (/image|visual|design|creative|storyboard/.test(text)) caps.add('image_generation');
-  if (/video|reel|tiktok|short/.test(text)) caps.add('video_generation');
-  if (/voice|audio|speech|tts|voice-over/.test(text)) caps.add('text_to_speech');
-  if (/file|screenshot|drive|pdf|csv|folder/.test(text)) caps.add('file_reading');
-  if (/browser|website|page/.test(text)) caps.add('browser_action');
-  if (/connector|gmail|slack|sheets|tool|send|publish|external/.test(text)) caps.add('connected_tool_action');
-  if (/workflow|automation|schedule|recurring|repeat/.test(text)) caps.add('workflow_automation');
-  if (/review|quality|checker|approval|fact/.test(text)) caps.add('quality_review');
-  return caps.size ? Array.from(caps) : ['text_reasoning'];
-}
-
-function skillsForCapabilities(capabilities: AgentCapability[]): AgentSkill[] {
-  return Array.from(new Set(capabilities)).map((capability) => createAgentSkill(capability));
-}
-
-function defaultActiveModel(skills?: AgentSkill[]): ModelConfig | undefined {
-  return skills?.[0] ? routeCapability(skills[0].capability, { provider: skills[0].provider, modelName: skills[0].modelName }) : undefined;
-}
-
-function resolveSkillModel(skillOrCapability: AgentSkill | AgentCapability, activeModel?: ModelConfig): ResolvedModel {
-  const capability = typeof skillOrCapability === 'string' ? skillOrCapability : skillOrCapability.capability;
-  if (activeModel?.capability === capability) return resolveModelForCapability(capability, activeModel);
-  if (typeof skillOrCapability !== 'string') {
-    return resolveModelForCapability(capability, {
-      provider: skillOrCapability.provider,
-      modelName: skillOrCapability.modelName,
-      mode: skillOrCapability.mode,
-    });
-  }
-  return resolveModelForCapability(capability);
-}
-
-function shortResolvedModelName(model: ResolvedModel) {
-  return model.displayName
-    .replace('Perplexity ', '')
-    .replace('DeepSeek ', '')
-    .replace('Gemini ', '')
-    .replace('ElevenLabs ', '')
-    .replace('Colony Bridge Tool', 'Colony Bridge');
-}
-
-const MODEL_DESCRIPTIONS: Record<AgentCapability, string> = {
-  text_reasoning: 'Structured reasoning, planning, and drafting.',
-  web_research: 'Live research and source-aware discovery.',
-  summarization: 'Fast summaries, synthesis, and review.',
-  code_generation: 'Code generation and technical implementation.',
-  data_analysis: 'Lightweight analysis, tables, and metrics.',
-  image_generation: 'Visual concepts and generated image drafts.',
-  video_generation: 'Short video drafts and motion concepts.',
-  text_to_speech: 'Voice-over and spoken audio generation.',
-  file_reading: 'Read-only workspace and file parsing.',
-  browser_action: 'Browser tool use with approval checkpoints.',
-  connected_tool_action: 'Connected workspace actions with approval.',
-  workflow_automation: 'Workflow planning and automation steps.',
-  quality_review: 'Quality, consistency, and fact review.',
-};
-
-const MODEL_TAGS: Record<ModelConfig['costTier'] | ModelConfig['qualityTier'], string> = {
-  low: 'Low Cost',
-  standard: 'Balanced',
-  high: 'High quality',
-  draft: 'Draft',
-};
-
-function providerIcon(provider: ModelProvider) {
-  const labels: Record<ModelProvider, string> = {
-    auto: 'A',
-    colony: 'C',
-    openai: 'O',
-    gemini: 'G',
-    deepseek: 'D',
-    perplexity: 'P',
-    anthropic: 'A',
-    elevenlabs: 'E',
-    runway: 'R',
-    pika: 'P',
-    custom: 'C',
-  };
-  return labels[provider];
-}
-
-function modelConfigFromResolved(model: ResolvedModel): AgentModelConfig {
-  return {
-    capability: model.capability,
-    routingMode: model.providerMode,
-    provider: model.provider,
-    modelId: model.modelName,
-    modelName: model.displayName,
-    description: MODEL_DESCRIPTIONS[model.capability],
-    tags: [MODEL_TAGS[model.costTier], MODEL_TAGS[model.qualityTier]].filter(Boolean),
-    fallbackModel: model.fallbackModelName,
-    costTier: model.costTier,
-    qualityTier: model.qualityTier,
-  };
-}
-
-
-
-function supportedModelsForCapability(capability: AgentCapability): SupportedModel[] {
-  return SUPPORTED_MODELS.filter((m) => m.capabilities.includes(capability));
-}
-
-// Convert a SupportedModel into the AgentModelConfig wire shape the rest of
-// the app already uses (so save logic and inspector cards work unchanged).
-function supportedToAgentConfig(m: SupportedModel, capability: AgentCapability, mode: 'auto' | 'manual' = 'manual'): AgentModelConfig {
-  const route = CAPABILITY_ROUTES[capability];
-  return {
-    capability,
-    routingMode: mode,
-    provider: m.provider,
-    modelId: m.modelName,
-    modelName: m.displayName,
-    description: m.description,
-    tags: m.tags,
-    fallbackModel: route?.fallbackModelName,
-    costTier: m.costTier,
-    qualityTier: m.qualityTier,
-  };
-}
-
-// Auto-resolution: walk the route's preferred providers in order, pick the
-// first registry entry that matches. Falls back through the fallback chain,
-// then to any compatible entry. Pure function — no per-agent dependency.
-function resolveAutoModel(capability: AgentCapability): SupportedModel {
-  const route = CAPABILITY_ROUTES[capability];
-  const compatible = supportedModelsForCapability(capability);
-  if (route) {
-    for (const providerKey of [...route.preferred, ...route.fallback]) {
-      const hit = compatible.find((m) => m.provider === providerKey);
-      if (hit) return hit;
-    }
-  }
-  return compatible[0] ?? SUPPORTED_MODELS[0];
-}
-
-// Picker source of truth — pure function of `capability`. Returns every model
-// in the registry that declares support, ranked by route preference. Same
-// capability always returns the same list across agents (fixes the per-agent
-// DeepSeek-disappears bug).
-function compatibleModelsForCapability(capability: AgentCapability): AgentModelConfig[] {
-  const route = CAPABILITY_ROUTES[capability];
-  const all = supportedModelsForCapability(capability);
-  const rank = (m: SupportedModel) => {
-    if (!route) return 99;
-    const p = route.preferred.indexOf(m.provider);
-    if (p >= 0) return p;
-    const f = route.fallback.indexOf(m.provider);
-    return f >= 0 ? 50 + f : 90;
-  };
-  return all
-    .slice()
-    .sort((a, b) => rank(a) - rank(b))
-    .map((m) => supportedToAgentConfig(m, capability));
-}
-
-function skillSummary(skills?: AgentSkill[] | AgentCapability[] | string[]) {
-  const first = skills?.[0];
-  if (!first) return { label: 'Text Reasoning', provider: 'Auto', capability: 'text_reasoning' as AgentCapability };
-  if (typeof first === 'string') {
-    const maybeCapability = first as AgentCapability;
-    const capability = CAPABILITY_LABELS[maybeCapability] ? maybeCapability : inferCapabilitiesFromText(first)[0];
-    return { label: CAPABILITY_LABELS[capability], provider: 'Auto', capability };
-  }
-  return { label: first.label, provider: PROVIDER_LABELS[first.provider], capability: first.capability };
-}
-
-function ModelChip({ model, capability }: { model: ResolvedModel; capability?: AgentCapability }) {
-  return (
-    <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-[11px] border border-white/[0.08] bg-white/[0.035] px-2.5 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.18)]">
-      <ProviderLogo provider={model.provider} size="sm" />
-      <span className="min-w-0">
-        <span className="block truncate text-[11px] font-bold text-white/82">{shortResolvedModelName(model)}</span>
-        <span className="block truncate text-[9px] font-semibold text-white/38">{CAPABILITY_LABELS[capability ?? model.capability]} · {model.providerMode === 'auto' ? 'Auto' : 'Manual'}</span>
-      </span>
-    </div>
-  );
-}
-
-function ModelCard({ model, capability, expanded = false, selected = false, onChange, onSelect }: {
-  model: ResolvedModel | AgentModelConfig;
-  capability?: AgentCapability;
-  expanded?: boolean;
-  selected?: boolean;
-  onChange?: () => void;
-  onSelect?: () => void;
-}) {
-  const cap = capability ?? model.capability;
-  const provider = 'provider' in model ? model.provider : 'custom';
-  const routingMode = 'providerMode' in model ? model.providerMode : model.routingMode;
-  const modelName = 'displayName' in model ? model.displayName : model.modelName;
-  const modelId = 'displayName' in model ? model.modelName : model.modelId;
-  const description = 'description' in model && model.description ? model.description : MODEL_DESCRIPTIONS[cap];
-  const tags = 'tags' in model && model.tags ? model.tags : [MODEL_TAGS[model.costTier ?? 'standard'], MODEL_TAGS[model.qualityTier ?? 'standard']];
-  const fallback = 'displayName' in model ? model.fallbackModelName : model.fallbackModel;
-  return (
-    <motion.button
-      type="button"
-      onClick={onSelect}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -1 }}
-      className={`w-full rounded-[14px] border p-3 text-left transition ${selected ? 'border-emerald-300/35 bg-emerald-400/[0.08] shadow-[0_0_28px_rgba(52,211,153,0.16)]' : 'border-white/[0.08] bg-white/[0.035] hover:border-white/[0.14] hover:bg-white/[0.055]'}`}
-    >
-      <div className="flex items-start gap-3">
-        <ProviderLogo provider={provider} size="md" />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-start justify-between gap-2">
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-bold text-white/88">{modelName}</span>
-              <span className="mt-0.5 block text-[11px] font-semibold text-white/42">{CAPABILITY_LABELS[cap]} · {routingMode === 'auto' ? 'Auto selected' : 'Manual override'}</span>
-            </span>
-            {selected && <Check size={15} className="mt-0.5 shrink-0 text-emerald-200" />}
-          </span>
-          {expanded && <span className="mt-2 block text-xs leading-relaxed text-white/48">{description}</span>}
-          <span className="mt-2 flex flex-wrap gap-1.5">
-            <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[9px] font-bold text-white/38">{PROVIDER_LABELS[provider]}</span>
-            {tags.slice(0, expanded ? 4 : 2).map((tag) => <span key={tag} className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[9px] font-bold text-white/38">{tag}</span>)}
-          </span>
-          {expanded && (
-            <span className="mt-3 grid gap-1 text-[10px] text-white/35">
-              <span>Model ID: {modelId}</span>
-              {fallback && <span>Fallback: {fallback}</span>}
-              <span>Cost: {model.costTier ?? 'standard'} · Quality: {model.qualityTier ?? 'standard'}</span>
-            </span>
-          )}
-        </span>
-        {onChange && (
-          <span
-            onClick={(e) => { e.stopPropagation(); onChange(); }}
-            className="shrink-0 rounded-[9px] border border-white/[0.10] px-2.5 py-1 text-[10px] font-bold text-white/45 hover:bg-white/[0.06] hover:text-white"
-          >
-            Change
-          </span>
-        )}
-      </div>
-    </motion.button>
-  );
-}
-
-function ModelRoutingSummary({ skills, activeModel, onChange }: { skills: AgentSkill[]; activeModel?: ModelConfig; onChange?: (skill: AgentSkill) => void }) {
-  return (
-    <div className="space-y-2">
-      {skills.map((skill) => (
-        <ModelCard
-          key={skill.id}
-          model={resolveSkillModel(skill, activeModel)}
-          capability={skill.capability}
-          expanded
-          onChange={onChange ? () => onChange(skill) : undefined}
-        />
-      ))}
-    </div>
-  );
-}
 
 // ── Custom Model storage ──────────────────────────────────────────────────────
 // User-defined custom models / providers persist locally (no API keys stored).
@@ -886,31 +655,6 @@ function ModelPickerModal({ title, skill, activeModel, onSave, onClose }: {
   );
 }
 
-function SkillModelPills({ skills, activeModel, compact = false }: { skills?: AgentSkill[] | AgentCapability[] | string[]; activeModel?: ModelConfig; compact?: boolean }) {
-  const summary = skillSummary(skills);
-  const first = skills?.[0];
-  const resolved = resolveSkillModel(
-    typeof first === 'string' && !CAPABILITY_LABELS[first as AgentCapability] ? summary.capability : (first as AgentSkill | AgentCapability | undefined) ?? summary.capability,
-    activeModel,
-  );
-  return compact ? <ModelChip model={resolved} capability={summary.capability} /> : <ModelCard model={resolved} capability={summary.capability} />;
-}
-
-function CapabilityLine({ capability, activeModel }: { capability: AgentCapability; activeModel?: ModelConfig }) {
-  const route = CAPABILITY_ROUTES[capability];
-  const resolved = resolveModelForCapability(capability, activeModel?.capability === capability ? activeModel : undefined);
-  return (
-    <div className="rounded-[10px] border border-white/[0.07] bg-white/[0.025] px-3 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold text-white/75">{CAPABILITY_LABELS[capability]}</span>
-        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${resolved.providerMode === 'auto' ? 'border-emerald-300/18 bg-emerald-400/[0.08] text-emerald-100' : 'border-amber-300/20 bg-amber-400/[0.08] text-amber-100'}`}>
-          {resolved.providerMode === 'auto' ? 'Auto' : 'Manual'} {'->'} {resolved.displayName}
-        </span>
-      </div>
-      <p className="mt-1 text-[10px] text-white/35">Preferred: {route.preferred.map((p) => PROVIDER_LABELS[p]).join(' / ')}{route.approvalRequired ? ' · Approval required' : ''}</p>
-    </div>
-  );
-}
 
 function ModelProviderSettingsModal({
   agentName,
@@ -3507,7 +3251,7 @@ interface WorkspaceMessage {
   workflowProposal?: WorkflowProposal;
 }
 
-interface WorkspaceChat {
+export interface WorkspaceChat {
   id: string;
   projectId: string | null;
   title: string;
@@ -3542,7 +3286,7 @@ interface WorkspaceDeliverableItem {
   updatedAt: number;
 }
 
-interface WorkspaceProject {
+export interface WorkspaceProject {
   id: string;
   name: string;
   goal: string;
@@ -3694,7 +3438,7 @@ const WS_PROJECTS_KEY = 'colony.workspace.projects.v1';
 
 // ── App-level Deliverables (Deliverables page) ────────────────────────────────
 
-type AppDeliverable = {
+export type AppDeliverable = {
   id: string;
   title: string;
   description: string;
@@ -22935,256 +22679,7 @@ function DeliverablePreviewCard({ deliverable, onApprove }: { deliverable: Colon
   );
 }
 
-const MODE_DELIVERABLE: Record<string, string> = {
-  chat: 'Chat response',
-  simple_chat: 'Chat response',
-  agent: 'Task result',
-  crew: 'Team deliverable',
-  colony_crew: 'Team deliverable',
-  workflow: 'Automation run',
-  deep_research: 'Research report',
-  device: 'Device action',
-  one_man_enterprise: 'Operational plan',
-};
-const MODE_NEXT_STEP: Record<string, string> = {
-  chat: 'Answer directly',
-  simple_chat: 'Answer directly',
-  agent: 'Run agent task',
-  crew: 'Assemble crew',
-  colony_crew: 'Assemble crew',
-  workflow: 'Build automation',
-  deep_research: 'Plan research',
-  device: 'Plan device actions',
-  one_man_enterprise: 'Plan operations',
-};
-const MODE_DISPLAY: Record<string, string> = {
-  chat: 'Simple Chat',
-  simple_chat: 'Simple Chat',
-  agent: 'Agent',
-  crew: 'Colony Crew',
-  colony_crew: 'Colony Crew',
-  workflow: 'Workflow',
-  deep_research: 'Deep Research',
-  device: 'Device',
-  one_man_enterprise: 'One-man Enterprise',
-};
-const MODE_HINT: Record<string, string> = {
-  chat: 'This looks like a normal question or explanation.',
-  simple_chat: 'This looks like a normal question or explanation.',
-  agent: 'A single agent can handle this task end-to-end.',
-  crew: 'A specialist team is the best fit for this goal.',
-  colony_crew: 'A specialist team is the best fit for this goal.',
-  workflow: 'This is a repeatable process worth automating.',
-  deep_research: 'This needs structured research with sources.',
-  device: 'This involves actions across your apps or files.',
-  one_man_enterprise: 'This operates like a small business or org.',
-};
-
-function AIRoutingCard({ routing, onStart, onCustomize, onCheaper, onQuality, onChangeMode }: {
-  routing: RoutingDecision;
-  onStart: () => void;
-  onCustomize: () => void;
-  onCheaper: () => void;
-  onQuality: () => void;
-  onChangeMode?: () => void;
-}) {
-  const [expanded, setExpanded] = React.useState(false);
-  const expensiveRoutes = routing.modelRoutes.filter((route) => route.costTier === 'high' || EXPENSIVE_CAPABILITIES.includes(route.capability));
-  const backend = routing.backend;
-
-  const modeKey = routing.resolvedMode.toLowerCase();
-  const modeName = MODE_DISPLAY[modeKey] ?? routing.resolvedMode.replace(/_/g, ' ');
-  const modeHint = MODE_HINT[modeKey] ?? `AI Ant will handle this as ${modeName}.`;
-  const nextStep = MODE_NEXT_STEP[modeKey] ?? 'Continue';
-  const deliverable = MODE_DELIVERABLE[modeKey] ?? 'AI Ant response';
-
-  const primaryModel = routing.manualModelSelection?.modelId
-    ?? routing.modelRoutes[0]?.displayName
-    ?? 'Auto';
-  const routingStyle = routing.modelRoutingPreference
-    ? modelRoutingLabel(routing.modelRoutingPreference as ModelRoutingPreference)
-    : 'Auto';
-  const confidencePct = Math.round(routing.confidence * 100);
-  const approval = expensiveRoutes.length > 0 ? 'Required' : 'None';
-  const primaryAgent = routing.selectedAgents[0];
-  const primaryCapability = routing.requiredCapabilities[0]
-    ? CAPABILITY_LABELS[routing.requiredCapabilities[0]]
-    : 'Text reasoning';
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14, filter: 'blur(8px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-      className="w-full max-w-2xl overflow-hidden rounded-[22px] border border-white/[0.09] bg-[#0a0f1a]/95 shadow-[0_28px_90px_rgba(0,0,0,0.45)]"
-    >
-      <div className="px-6 pb-5 pt-5">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-200/65">AI Ant Decision</p>
-        <h3 className="mt-2 font-heading text-[26px] font-extrabold leading-tight text-white">{modeName}</h3>
-        <p className="mt-1.5 text-[13.5px] leading-relaxed text-white/52">{modeHint}</p>
-
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05, delayChildren: 0.15 } } }}
-          className="mt-5 flex flex-wrap gap-1.5"
-        >
-          <MetaPill label="Model" value={primaryModel} />
-          <MetaPill label="Routing" value={routingStyle} />
-          <MetaPill label="Confidence" value={`${confidencePct}%`} tone={confidencePct >= 80 ? 'good' : confidencePct >= 60 ? 'neutral' : 'warn'} />
-          <MetaPill label="Approval" value={approval} tone={approval === 'None' ? 'good' : 'warn'} />
-        </motion.div>
-
-        <div className="mt-5 grid gap-2 rounded-[14px] border border-white/[0.06] bg-white/[0.02] p-4 sm:grid-cols-2">
-          <NextLine label="Next step" value={nextStep} />
-          <NextLine label="Deliverable" value={deliverable} />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] bg-white/[0.015] px-6 py-3.5">
-        <motion.button
-          whileHover={{ y: -1 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={onStart}
-          style={{ backgroundColor: '#F5F6F8', color: '#0A0D14' }}
-          className="rounded-full px-4 py-2 text-[13px] font-bold transition hover:!bg-white hover:shadow-[0_6px_22px_rgba(245,246,248,0.22)]"
-        >
-          Continue
-        </motion.button>
-        {onChangeMode && (
-          <button
-            onClick={onChangeMode}
-            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(148,163,184,0.20)', color: 'rgba(241,245,249,0.88)' }}
-            className="rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition hover:!bg-white/[0.06] hover:!border-[rgba(148,163,184,0.32)]"
-          >
-            Change mode
-          </button>
-        )}
-        <button
-          onClick={onCustomize}
-          style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(148,163,184,0.20)', color: 'rgba(241,245,249,0.88)' }}
-          className="rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition hover:!bg-white/[0.06] hover:!border-[rgba(148,163,184,0.32)]"
-        >
-          Change model
-        </button>
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          style={{ color: 'rgba(226,232,240,0.78)' }}
-          className="ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-2 text-[12px] font-semibold transition hover:!text-white"
-          aria-expanded={expanded}
-        >
-          <span>{expanded ? 'Hide routing details' : 'View routing details'}</span>
-          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }} className="grid place-items-center">
-            <ChevronDown className="h-3.5 w-3.5" />
-          </motion.span>
-        </button>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="advanced"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden border-t border-white/[0.06]"
-          >
-            <div className="space-y-5 px-6 pb-6 pt-5">
-              <section>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Advanced details</p>
-                <dl className="mt-3 grid gap-y-2 gap-x-4 text-[12.5px] sm:grid-cols-[auto_1fr]">
-                  <DetailRow label="Agent" value={primaryAgent?.name ?? 'AI Ant'} />
-                  <DetailRow label="Capability" value={primaryCapability} />
-                  <DetailRow label="Auto routing" value={`${routing.selectedMode === 'auto' ? 'Auto' : routing.selectedMode.replace(/_/g, ' ')} → ${primaryModel}`} />
-                  <DetailRow label="Required capability" value={routing.requiredCapabilities.map((c) => CAPABILITY_LABELS[c]).join(', ') || primaryCapability} />
-                  <DetailRow label="Detailed reason" value={routing.reason} multiline />
-                </dl>
-              </section>
-
-              {routing.modelRoutes.length > 1 && (
-                <section>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Model routing</p>
-                  <div className="mt-2 space-y-1">
-                    {routing.modelRoutes.map((route) => (
-                      <div key={route.capability} className="flex items-center justify-between gap-3 text-[12px]">
-                        <span className="text-white/52">{CAPABILITY_LABELS[route.capability]}</span>
-                        <span className="font-semibold text-white/82">{route.providerMode === 'auto' ? 'Auto' : 'Manual'} → {route.displayName}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {expensiveRoutes.length > 0 && (
-                <section className="rounded-[12px] border border-amber-300/15 bg-amber-400/[0.04] px-3.5 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-200/75">Cost preview</p>
-                      <p className="mt-1 text-[12px] text-white/55">Generation may use more credits.</p>
-                    </div>
-                    <p className="text-[12px] font-bold text-amber-200">~{routing.estimatedCredits} credits</p>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    <button onClick={onCheaper} className="rounded-full border border-emerald-300/18 bg-emerald-400/[0.07] px-3 py-1.5 text-[11.5px] font-semibold text-emerald-100/90 transition hover:bg-emerald-400/[0.12]">Use cheaper models</button>
-                    <button onClick={onQuality} className="rounded-full border border-amber-300/18 bg-amber-400/[0.07] px-3 py-1.5 text-[11.5px] font-semibold text-amber-100/90 transition hover:bg-amber-400/[0.12]">Use highest quality</button>
-                  </div>
-                </section>
-              )}
-
-              {backend?.usage && (
-                <section>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Backend usage</p>
-                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-white/65">
-                    <span>Input <span className="font-semibold text-white/85">{backend.usage.inputTokens}</span></span>
-                    <span>Output <span className="font-semibold text-white/85">{backend.usage.outputTokens}</span></span>
-                    <span>Est. cost <span className="font-semibold text-white/85">${backend.usage.estimatedCostUsd.toFixed(6)}</span></span>
-                  </div>
-                </section>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-function MetaPill({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'good' | 'warn' }) {
-  const toneCls = tone === 'good'
-    ? 'border-emerald-300/18 bg-emerald-400/[0.06] text-emerald-100/90'
-    : tone === 'warn'
-    ? 'border-amber-300/20 bg-amber-400/[0.06] text-amber-100/90'
-    : 'border-white/[0.10] bg-white/[0.035] text-white/72';
-  return (
-    <motion.span
-      variants={{ hidden: { opacity: 0, y: 6 }, visible: { opacity: 1, y: 0 } }}
-      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold ${toneCls}`}
-    >
-      <span className="text-white/40">{label}</span>
-      <span>{value}</span>
-    </motion.span>
-  );
-}
-
-function NextLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-white/35">{label}</span>
-      <span className="text-[13.5px] font-semibold text-white/85">{value}</span>
-    </div>
-  );
-}
-
-function DetailRow({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }) {
-  return (
-    <>
-      <dt className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-white/38">{label}</dt>
-      <dd className={`text-[12.5px] text-white/78 ${multiline ? 'leading-relaxed' : ''}`}>{value}</dd>
-    </>
-  );
-}
+// AIRoutingCard has been moved to src/pages/ai-ant/AIRoutingCard.tsx
 
 function AITeamProposalCard({ proposal, advancedOpen, onToggleAdvanced, onStart, onSimpler, onCustomize }: {
   proposal: AntTeamProposal;
@@ -24842,13 +24337,6 @@ function AIAntPage({
     const ev = (text: string): CrewActivityEvent => ({ id: `cae-${Date.now()}-${evSeq++}`, text, ts: tnow() });
     const pushActivity = (text: string) =>
       setCrew((p) => p ? { ...p, activity: [...p.activity, ev(text)] } : p);
-    // Staggered progress so each agent looks distinct (research leads, reviewer trails).
-    const KIND_OFFSET: Record<CrewAgentKind, number> = { research: 0, analyst: -14, writer: -31, reviewer: -44 };
-    const rampTo = (base: number) =>
-      setCrew((p) => p ? {
-        ...p,
-        agents: p.agents.map((a) => ({ ...a, progress: Math.max(6, Math.min(100, base + KIND_OFFSET[a.kind])) })),
-      } : p);
 
     setCrewSelectedAgentId(null);
     setCrew({
@@ -24863,43 +24351,57 @@ function AIAntPage({
     });
     setCrewPanelOpen(true);
 
-    // Pausable timeline — each step fires once virtual elapsed time passes `at`.
-    const steps: { at: number; run: () => void }[] = [];
-    for (let i = 1; i < CREW_MATCHING_STEPS.length; i++) {
-      steps.push({ at: i * 250, run: () => setCrew((p) => p ? { ...p, stepIndex: i } : p) });
-    }
-    steps.push({ at: 1500, run: () => setCrew((p) => p ? { ...p, phase: 'crew_ready', agents: p.agents.map((a) => ({ ...a, status: 'matched' as const })) } : p) });
-    ['Research Agent matched', 'Analyst Agent matched', 'Writer Agent matched', 'Reviewer Agent matched']
-      .forEach((m, i) => steps.push({ at: 1550 + i * 110, run: () => pushActivity(m) }));
-    steps.push({ at: 2500, run: () => { setCrew((p) => p ? { ...p, phase: 'running', agents: p.agents.map((a) => ({ ...a, status: 'working' as const, progress: Math.max(6, 24 + KIND_OFFSET[a.kind]) })) } : p); pushActivity('Research Agent started gathering context'); } });
-    steps.push({ at: 3300, run: () => { rampTo(58); pushActivity('Analyst Agent extracted insights'); } });
-    steps.push({ at: 4100, run: () => { rampTo(80); pushActivity('Writer Agent started drafting'); } });
-    steps.push({ at: 5500, run: () => { setCrew((p) => p ? { ...p, phase: 'reviewing', agents: p.agents.map((a) => ({ ...a, progress: Math.min(100, 96 + KIND_OFFSET[a.kind]) })) } : p); pushActivity('Reviewer Agent checked output'); } });
-    steps.push({ at: 7000, run: () => {
+    // Start optimistic progress loop
+    let stepCount = 0;
+    const loopId = window.setInterval(() => {
+      setCrew((p) => {
+        if (!p || p.phase === 'completed' || p.phase === 'stopped') {
+          window.clearInterval(loopId);
+          return p;
+        }
+        stepCount++;
+        if (stepCount < 4) {
+          return { ...p, stepIndex: stepCount };
+        } else if (stepCount === 4) {
+          return { ...p, phase: 'crew_ready', agents: p.agents.map((a) => ({ ...a, status: 'matched' as const })) };
+        } else if (stepCount === 5) {
+          return { ...p, phase: 'running', agents: p.agents.map((a) => ({ ...a, status: 'working' as const, progress: 24 })) };
+        } else if (stepCount < 25) {
+          return { ...p, agents: p.agents.map((a) => ({ ...a, progress: Math.min(95, a.progress + 3) })) };
+        }
+        return p;
+      });
+    }, 1000);
+    crewTimersRef.current.push(loopId);
+
+    // Call the real API
+    runColonyCrew(task).then((res) => {
+      window.clearInterval(loopId);
       const resultId = `aa-${Date.now()}-crew-result`;
-      let finalTask = task;
+      
       setCrew((p) => {
         if (!p) return p;
-        finalTask = p.task;
         return {
-          ...p, phase: 'completed', resultMsgId: resultId,
+          ...p,
+          phase: 'completed',
+          resultMsgId: resultId,
           agents: p.agents.map((a) => ({ ...a, status: 'done' as const, progress: 100 })),
-          activity: [...p.activity, ev('Final result ready')],
+          activity: [...p.activity, ...res.activity.map(a => ev(`[${a.agent_id}] ${a.step}`)), ev('Final result ready')],
           control: [...p.control, ctlMsg({ senderType: 'system', text: 'Crew completed. Final result delivered to the main chat.' })],
         };
       });
+
       setMessages((prev) => [...prev, {
         id: resultId, role: 'ant',
-        text: buildColonyCrewResult(finalTask),
+        text: res.deliverable.content_md + `\n\n*(Source: ${res.source})*`,
         timestamp: tnow(), confidence: 0.96, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general',
         actionType: 'DATA_ANALYSIS',
       }]);
       window.setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
-    } });
-
-    crewSchedRef.current = { steps, idx: 0, elapsed: 0, paused: false, stopped: false };
-    pumpCrew();
-  }, [clearCrewTimers, ctlMsg, pumpCrew]);
+    }).catch((err) => {
+      pushActivity(`Crew error: ${err.message}`);
+    });
+  }, [clearCrewTimers, ctlMsg]);
 
   // ── Crew Control: talk to / redirect / reassign agents ────────────────────
   const aMsg = React.useCallback((sender: 'user' | 'agent', text: string): AgentInstructionMessage => ({
@@ -25026,42 +24528,69 @@ function AIAntPage({
     }, (DEVICE_RUN_STEPS.length + 1) * 900));
   }, [clearDeviceTimers]);
 
+  const [bridgeModalReq, setBridgeModalReq] = React.useState<BridgeRequest | null>(null);
+
   const startDeviceAction = React.useCallback((task: string) => {
     clearDeviceTimers();
     const now = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const req = analyzeDeviceAction(task);
-    if (deviceProjectApproved && req.risk !== 'high') {
-      const approved = { ...req, status: 'running' as const, approvedForProject: true };
-      setDeviceReq(approved);
+    
+    // Wire up to actual Bridge API
+    createBridgeRequest({
+      service: task.toLowerCase().includes('drive') ? 'drive' : 'gmail',
+      action: 'list_recent',
+      params: { n: 5 },
+      risk: req.risk,
+      reason: req.affectedData
+    }).then(apiReq => {
+      req.id = apiReq.id; // Map internal ID to Bridge API ID
+      if (deviceProjectApproved && req.risk !== 'high') {
+        const approved = { ...req, status: 'running' as const, approvedForProject: true };
+        setDeviceReq(approved);
+        setMessages((prev) => [...prev, {
+          id: `aa-${Date.now()}-device`, role: 'ant',
+          text: `This project already approved device access. Running the ${req.verb} action on "${req.target}" (${req.sourceTool}).`,
+          timestamp: now, confidence: 0.95, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general', actionType: 'FILE_OPS',
+        }]);
+        runDeviceProgress(approved);
+        return;
+      }
+      setDeviceReq(req);
       setMessages((prev) => [...prev, {
         id: `aa-${Date.now()}-device`, role: 'ant',
-        text: `This project already approved device access. Running the ${req.verb} action on "${req.target}" (${req.sourceTool}).`,
-        timestamp: now, confidence: 0.95, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general', actionType: 'FILE_OPS',
+        text: 'I can use your files, apps, browser, or connected sources for this — but I need permission first. Review the device action request below before I access anything.',
+        timestamp: now, confidence: 0.94, confidenceLevel: 'verified',
+        riskLevel: req.risk === 'high' ? 'Sensitive' : req.risk === 'medium' ? 'Moderate' : 'Safe',
+        domain: req.risk === 'high' ? 'external-export' : 'general', actionType: 'FILE_OPS',
       }]);
-      runDeviceProgress(approved);
-      return;
-    }
-    setDeviceReq(req);
-    setMessages((prev) => [...prev, {
-      id: `aa-${Date.now()}-device`, role: 'ant',
-      text: 'I can use your files, apps, browser, or connected sources for this — but I need permission first. Review the device action request below before I access anything.',
-      timestamp: now, confidence: 0.94, confidenceLevel: 'verified',
-      riskLevel: req.risk === 'high' ? 'Sensitive' : req.risk === 'medium' ? 'Moderate' : 'Safe',
-      domain: req.risk === 'high' ? 'external-export' : 'general', actionType: 'FILE_OPS',
-    }]);
-    setActivitySummaries((prev) => [...prev, `Device mode: permission requested for ${req.verb} on ${req.target}.`]);
+      setActivitySummaries((prev) => [...prev, `Device mode: permission requested for ${req.verb} on ${req.target}.`]);
+    });
   }, [clearDeviceTimers, deviceProjectApproved, runDeviceProgress]);
 
   const approveDeviceAction = React.useCallback((forProject: boolean) => {
     setDeviceReq((p) => {
       if (!p) return p;
-      const next: DeviceActionRequest = { ...p, status: 'running', approvedForProject: forProject || p.approvedForProject };
-      if (forProject) setDeviceProjectApproved(true);
-      runDeviceProgress(next);
-      return next;
+      // Open the PermissionModal with a mock BridgeRequest mapped from DeviceAction
+      setBridgeModalReq({
+        id: p.id,
+        user_id: 'anonymous',
+        service: p.sourceTool.toLowerCase().includes('drive') ? 'drive' : 'gmail',
+        action: p.verb,
+        params: {},
+        risk: p.risk,
+        reason: p.affectedData,
+        requesting_agent_id: null,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        decided_at: null,
+        executed_at: null,
+        result: null,
+        error: null,
+        source: 'live'
+      });
+      return p;
     });
-    setActivitySummaries((prev) => [...prev, forProject ? 'User approved device access for the project.' : 'User approved the device action once.']);
-  }, [runDeviceProgress]);
+  }, []);
 
   const rejectDeviceAction = React.useCallback(() => {
     clearDeviceTimers();
@@ -25580,7 +25109,10 @@ function AIAntPage({
     setDeviceReq(null);
     setActivitySummaries((prev) => [...prev, `AI Ant chose ${decision.mode.replace(/_/g, ' ')}: ${decision.reason}`]);
 
-    const shouldUseBackendChat = inputMode === 'Chat' || decision.mode === 'simple_chat' || decision.mode === 'operator_task';
+    // Dedicated modes (Crew, Enterprise, Workflow, Device) have their own flows below.
+    // Only Chat / Auto-routed simple chat / operator tasks should hit the backend chat endpoint.
+    const isDedicatedMode = inputMode === 'One-man Enterprise' || inputMode === 'Colony Crew' || inputMode === 'Workflow' || inputMode === 'Device';
+    const shouldUseBackendChat = !isDedicatedMode && (inputMode === 'Chat' || decision.mode === 'simple_chat' || decision.mode === 'operator_task');
     if (shouldUseBackendChat) {
       setThinking(true);
       const backendResponse = await requestBackendAIAntResponse(currentChatId, trimmed);
@@ -25779,12 +25311,14 @@ function AIAntPage({
       return;
     }
     if (inputMode === 'One-man Enterprise') {
+      // Open BossIntake — AI Ant asks 3 questions, then generates a real team via OpenRouter.
+      // The user's initial prompt is captured so BossIntake can prefill the first answer.
       setMessages((prev) => [...prev, {
         id: `aa-${Date.now()}-enterprise`, role: 'ant',
-        text: `I’m setting up a one-man AI enterprise for "${titleFromGoal(trimmed)}". You’ll see the company-style team form before the workspace opens.`,
+        text: `Got it. I'll ask a few quick questions to design the right AI team for "${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}" — then build your workspace.`,
         timestamp: now, confidence: 0.94, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general',
       }]);
-      launchEnterpriseSetup(trimmed);
+      setEnterpriseOpen(true);
       return;
     }
     // Colony Crew and Workflow are handled earlier as explicit mode branches.
@@ -26948,6 +26482,7 @@ function AIAntPage({
                   onCheaper={() => setRoutingDecision((prev) => prev ? { ...prev, modelRoutes: prev.modelRoutes.map((route) => ({ ...route, costTier: 'low', qualityTier: route.qualityTier === 'high' ? 'standard' : route.qualityTier })) } : prev)}
                   onQuality={() => setRoutingDecision((prev) => prev ? { ...prev, modelRoutes: prev.modelRoutes.map((route) => ({ ...route, qualityTier: 'high', costTier: route.costTier === 'low' ? 'standard' : route.costTier })) } : prev)}
                   onChangeMode={() => setRoutingDecision(null)}
+                  onDismiss={() => setRoutingDecision(null)}
                 />
               </div>
             )}
@@ -27075,10 +26610,10 @@ function AIAntPage({
 
         {/* Agent right panel — only during agent-running mode */}
         {enterpriseOpen && (
-          <OneManEnterprisePanel
+          <BossIntake
             onClose={() => setEnterpriseOpen(false)}
-            onStart={(ents) => {
-              const goal = `Operate a ${ents.length}-agent one-man enterprise`;
+            onStart={(ents, projectTitle) => {
+              const goal = projectTitle || `Operate a ${ents.length}-agent one-man enterprise`;
               setEnterpriseOpen(false);
               setOrchMode('agent-running');
               setMatchedAgents([]);
@@ -27086,7 +26621,7 @@ function AIAntPage({
               setView('chat');
               setMessages((prev) => [...prev, {
                 id: `aa-${Date.now()}-enterprise-start`, role: 'ant',
-                text: `Starting a one-man enterprise setup with ${ents.length} agents. I’m matching roles, responsibilities, and workspace structure now.`,
+                text: `Building "${goal}" — assembling ${ents.length} AI agents, assigning roles, and preparing the workspace.`,
                 timestamp: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
                 confidence: 0.94, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general',
                 actionType: 'ORGANIZATION',
@@ -27357,7 +26892,7 @@ function AIAntPage({
                         <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${task.status === 'completed' ? 'bg-[#4ecca0]' : task.status === 'analyzing' || task.status === 'reading' ? 'animate-pulse bg-[#7eb5ff]' : 'bg-white/20'}`} />
                         <div className="min-w-0">
                           <p className="text-[12px] text-white/80">{task.title}</p>
-                          <p className="mt-0.5 text-[10px] capitalize text-white/30">{task.status} · {task.device}</p>
+                          <p className="mt-0.5 text-[10px] capitalize text-white/35">{task.status} · {task.device}</p>
                         </div>
                       </div>
                     </div>
@@ -27439,2095 +26974,11 @@ function AIAntPage({
     </div>
   );
 }
-// ── ConnectorsPage ───────────────────────────────────────────────────────────
 
 
 
-type OSCard = {
-  title: string;
-  subtitle: string;
-  meta?: string;
-  status?: string;
-  tone?: 'blue' | 'violet' | 'emerald' | 'amber' | 'rose';
-  capabilities?: AgentCapability[];
-};
 
-const toneClass: Record<NonNullable<OSCard['tone']>, string> = {
-  blue: 'border-blue-400/20 bg-blue-400/[0.06] text-blue-200',
-  violet: 'border-violet-400/20 bg-violet-400/[0.06] text-violet-200',
-  emerald: 'border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-200',
-  amber: 'border-amber-400/20 bg-amber-400/[0.06] text-amber-200',
-  rose: 'border-rose-400/20 bg-rose-400/[0.06] text-rose-200',
-};
 
-function OSPageShell({ eyebrow, title, subtitle, action, children }: {
-  eyebrow: string; title: string; subtitle: string; action?: React.ReactNode; children: React.ReactNode;
-}) {
-  return (
-    <div className="min-h-full bg-[#070B14] px-6 py-6 text-white md:px-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-300/60">{eyebrow}</p>
-            <h1 className="mt-2 font-heading text-3xl font-extrabold tracking-tight text-white">{title}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/45">{subtitle}</p>
-          </div>
-          {action}
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function StatStrip({ items }: { items: Array<{ label: string; value: string; detail: string }> }) {
-  return (
-    <div className="mb-6 grid gap-3 md:grid-cols-4">
-      {items.map((item) => (
-        <div key={item.label} className="rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">{item.label}</p>
-          <p className="mt-2 text-2xl font-bold text-white">{item.value}</p>
-          <p className="mt-1 truncate text-xs text-white/38">{item.detail}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function OSGridCards({ cards }: { cards: OSCard[] }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {cards.map((card) => (
-        <div key={card.title} className="rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="font-heading text-base font-bold text-white">{card.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-white/45">{card.subtitle}</p>
-            </div>
-            {card.status && <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold ${toneClass[card.tone ?? 'violet']}`}>{card.status}</span>}
-          </div>
-          {card.meta && <p className="mt-4 text-xs font-semibold text-white/32">{card.meta}</p>}
-          {card.capabilities && <SkillModelPills skills={skillsForCapabilities(card.capabilities)} compact />}
-          {card.capabilities && (
-            <div className="mt-3 space-y-1.5">
-              {card.capabilities.slice(0, 4).map((capability) => {
-                const resolved = resolveModelForCapability(capability);
-                const toolLike = capability === 'file_reading' || capability === 'browser_action' || capability === 'connected_tool_action';
-                return (
-                  <div key={capability} className="rounded-[10px] border border-white/[0.06] bg-black/15 px-3 py-2 text-[10px] text-white/45">
-                    <span className="font-bold text-white/65">{CAPABILITY_LABELS[capability]}</span>
-                    <span className="ml-2">{toolLike ? 'Tool' : 'Model'}: {resolved.providerMode === 'auto' ? 'Auto -> ' : 'Manual -> '}{resolved.displayName}</span>
-                    {CAPABILITY_ROUTES[capability].approvalRequired && <span className="ml-2 text-amber-200/80">Approval required</span>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div className="mt-5 flex gap-2">
-            <button className="rounded-[10px] bg-[#ffffff] px-3 py-2 text-xs font-bold text-[#070B14] hover:bg-[#f0f2ff]">Open</button>
-            <button className="rounded-[10px] border border-white/[0.10] px-3 py-2 text-xs font-semibold text-white/50">Details</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-const PROJ_TYPE_META: Record<string, { label: string; tone: string }> = {
-  crew:       { label: 'Colony Crew', tone: 'border-blue-400/30 bg-blue-400/[0.08] text-blue-300' },
-  enterprise: { label: 'Enterprise',  tone: 'border-violet-400/30 bg-violet-400/[0.08] text-violet-300' },
-  workflow:   { label: 'Workflow',    tone: 'border-cyan-400/30 bg-cyan-400/[0.08] text-cyan-300' },
-  mixed:      { label: 'Mixed',       tone: 'border-white/15 bg-white/[0.05] text-white/55' },
-};
-
-const PROJ_STATUS_META: Record<string, { label: string; tone: string }> = {
-  draft:          { label: 'Draft',          tone: 'border-white/12 bg-white/[0.04] text-white/38' },
-  running:        { label: 'Running',        tone: 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300' },
-  waiting:        { label: 'Waiting',        tone: 'border-amber-400/30 bg-amber-400/[0.08] text-amber-300' },
-  completed:      { label: 'Completed',      tone: 'border-sky-400/30 bg-sky-400/[0.08] text-sky-300' },
-  paused:         { label: 'Paused',         tone: 'border-white/15 bg-white/[0.05] text-white/42' },
-  needs_approval: { label: 'Needs approval', tone: 'border-rose-400/30 bg-rose-400/[0.08] text-rose-300' },
-};
-
-function ProjectsOSPage({
-  setPage,
-  wsProjects,
-  createWsProject,
-  renameWsProject,
-  archiveWsProject,
-  deleteWsProject,
-}: {
-  setPage: (page: Page) => void;
-  wsProjects: WorkspaceProject[];
-  createWsProject: (name: string, goal: string, description?: string, projectType?: WorkspaceProject['type']) => string;
-  renameWsProject: (id: string, name: string) => void;
-  archiveWsProject: (id: string) => void;
-  deleteWsProject: (id: string) => void;
-}) {
-  type ProjectFilter = 'all' | 'running' | 'needs_approval' | 'workflow' | 'enterprise' | 'crew' | 'completed' | 'draft';
-  type ProjectSort = 'updated' | 'created' | 'status' | 'progress';
-
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<ProjectFilter>('all');
-  const [sort, setSort] = useState<ProjectSort>('updated');
-  const [menuId, setMenuId] = useState<string | null>(null);
-  const [detailsId, setDetailsId] = useState<string | null>(null);
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newGoal, setNewGoal] = useState('');
-  const [newType, setNewType] = useState<WorkspaceProject['type']>('mixed');
-
-  const activeProjects = wsProjects.filter(p => !p.isArchived && p.status !== 'completed');
-  const pendingApprovals = wsProjects.reduce((s, p) => s + (p.approvalCount ?? 0), 0);
-  const totalDeliverables = wsProjects.reduce((s, p) => s + (p.deliverableCount ?? 0), 0);
-  const activeWorkflows = wsProjects.filter(p => !p.isArchived && (p.type === 'workflow' || p.type === 'mixed') && (p.workflowCount ?? 0) > 0).length;
-  const runningTasks = wsProjects.filter(p => p.status === 'running').reduce((s, p) => s + (p.taskCount ?? 0), 0);
-
-  const visible = wsProjects
-    .filter(p => !p.isArchived)
-    .filter(p => {
-      if (!search.trim()) return true;
-      const q = search.toLowerCase();
-      return (
-        p.name.toLowerCase().includes(q) ||
-        (p.goal ?? '').toLowerCase().includes(q) ||
-        (p.description ?? '').toLowerCase().includes(q)
-      );
-    })
-    .filter(p => {
-      const st = p.status ?? 'draft';
-      const ty = p.type ?? 'mixed';
-      switch (filter) {
-        case 'running':        return st === 'running';
-        case 'needs_approval': return st === 'needs_approval';
-        case 'workflow':       return ty === 'workflow';
-        case 'enterprise':     return ty === 'enterprise';
-        case 'crew':           return ty === 'crew';
-        case 'completed':      return st === 'completed';
-        case 'draft':          return st === 'draft';
-        default:               return true;
-      }
-    })
-    .sort((a, b) => {
-      if (sort === 'updated')  return b.updatedAt - a.updatedAt;
-      if (sort === 'created')  return b.createdAt - a.createdAt;
-      if (sort === 'status')   return (a.status ?? 'draft').localeCompare(b.status ?? 'draft');
-      if (sort === 'progress') return (b.progress ?? 0) - (a.progress ?? 0);
-      return 0;
-    });
-
-  const detailProject = wsProjects.find(p => p.id === detailsId) ?? null;
-
-  const handleCreate = () => {
-    if (!newName.trim()) return;
-    createWsProject(newName.trim(), newGoal.trim() || 'Define your goal.', undefined, newType);
-    setShowNewModal(false);
-    setNewName(''); setNewGoal(''); setNewType('mixed');
-  };
-
-  const handleRename = () => {
-    if (renameId && renameValue.trim()) renameWsProject(renameId, renameValue.trim());
-    setRenameId(null); setRenameValue('');
-  };
-
-  const handleDelete = (id: string) => {
-    deleteWsProject(id);
-    setDeleteConfirmId(null);
-    if (detailsId === id) setDetailsId(null);
-  };
-
-  const FILTERS: Array<{ id: ProjectFilter; label: string }> = [
-    { id: 'all',           label: 'All' },
-    { id: 'running',       label: 'Running' },
-    { id: 'needs_approval',label: 'Needs approval' },
-    { id: 'workflow',      label: 'Workflows' },
-    { id: 'enterprise',    label: 'Enterprise' },
-    { id: 'crew',          label: 'AI Teams' },
-    { id: 'completed',     label: 'Completed' },
-    { id: 'draft',         label: 'Draft' },
-  ];
-
-  return (
-    <div className="relative min-h-full bg-[#070B14] text-white" onClick={() => setMenuId(null)}>
-      <div className="mx-auto max-w-7xl px-6 py-6 md:px-8">
-
-        {/* Header */}
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-300/60">Goal workspaces</p>
-            <h1 className="mt-2 font-heading text-3xl font-extrabold tracking-tight text-white">Projects</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/45">
-              Goal-based workspaces for AI teams, workflows, approvals, knowledge, and deliverables.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage('AI Ant')}
-              className="rounded-[12px] border border-white/[0.10] px-4 py-2.5 text-sm font-semibold text-white/60 transition hover:border-white/20 hover:text-white/80"
-            >
-              Start with AI Ant
-            </button>
-            <button
-              onClick={() => setShowNewModal(true)}
-              className="flex items-center gap-1.5 rounded-[12px] bg-violet-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-violet-500"
-            >
-              <Plus className="h-4 w-4" />
-              New project
-            </button>
-          </div>
-        </div>
-
-        {/* Stats row */}
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 md:grid-cols-5">
-          {[
-            { label: 'Active projects',  value: String(activeProjects.length),  detail: 'Goal-based workspaces' },
-            { label: 'Running tasks',    value: String(runningTasks),            detail: 'Across AI teams' },
-            { label: 'Pending approvals',value: String(pendingApprovals),        detail: 'Review before AI acts' },
-            { label: 'Deliverables',     value: String(totalDeliverables),       detail: 'Ready or in progress' },
-            { label: 'Active workflows', value: String(activeWorkflows),         detail: 'Repeating processes' },
-          ].map(item => (
-            <div key={item.label} className="rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">{item.label}</p>
-              <p className="mt-2 text-2xl font-bold text-white">{item.value}</p>
-              <p className="mt-1 truncate text-xs text-white/38">{item.detail}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Search + Sort */}
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-3 py-2.5">
-            <Search className="h-3.5 w-3.5 shrink-0 text-white/30" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search projects, workflows, agents, or deliverables…"
-              className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/25"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="text-white/30 transition hover:text-white/60">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value as ProjectSort)}
-            className="rounded-[10px] border border-white/[0.09] bg-[#070B14] px-3 py-2.5 text-xs font-semibold text-white/55 outline-none transition hover:border-white/15 hover:text-white/75"
-          >
-            <option value="updated">Last updated</option>
-            <option value="created">Created date</option>
-            <option value="status">Status</option>
-            <option value="progress">Most active</option>
-          </select>
-        </div>
-
-        {/* Filter pills */}
-        <div className="mb-5 flex flex-wrap gap-2">
-          {FILTERS.map(f => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                filter === f.id
-                  ? 'bg-violet-600 text-white'
-                  : 'border border-white/[0.09] bg-white/[0.03] text-white/48 hover:border-white/15 hover:text-white/70'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Empty state */}
-        {visible.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-[24px] border border-white/[0.07] bg-white/[0.02] py-20 text-center">
-            <FolderOpen className="mb-4 h-10 w-10 text-white/15" />
-            <h3 className="font-heading text-lg font-bold text-white/50">
-              {search || filter !== 'all' ? 'No matching projects' : 'No projects yet'}
-            </h3>
-            <p className="mt-2 max-w-sm text-sm text-white/30">
-              {search || filter !== 'all'
-                ? 'Try a different search or filter.'
-                : 'Start with AI Ant and describe what you want to accomplish. Colony will create a project, crew, or workflow when needed.'}
-            </p>
-            {!search && filter === 'all' && (
-              <div className="mt-6 flex gap-2">
-                <button
-                  onClick={() => setPage('AI Ant')}
-                  className="rounded-[10px] bg-violet-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-violet-500"
-                >
-                  Start with AI Ant
-                </button>
-                <button
-                  onClick={() => setShowNewModal(true)}
-                  className="rounded-[10px] border border-white/[0.10] px-4 py-2 text-sm font-semibold text-white/50 transition hover:text-white/80"
-                >
-                  Create project manually
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          /* Project cards grid */
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visible.map(p => {
-              const typeMeta   = PROJ_TYPE_META[p.type ?? 'mixed'];
-              const statusMeta = PROJ_STATUS_META[p.status ?? 'draft'];
-              const isMenuOpen = menuId === p.id;
-              const primaryLabel =
-                p.status === 'needs_approval' ? 'Review approval' :
-                p.status === 'paused' || p.status === 'waiting' ? 'Resume' : 'Open';
-
-              return (
-                <div
-                  key={p.id}
-                  className="relative rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition hover:border-white/[0.11]"
-                >
-                  {/* Three-dot menu */}
-                  <button
-                    onClick={e => { e.stopPropagation(); setMenuId(isMenuOpen ? null : p.id); }}
-                    className="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-[8px] text-white/25 transition hover:bg-white/[0.07] hover:text-white/60"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
-                  {isMenuOpen && (
-                    <div
-                      className="absolute right-4 top-12 z-30 min-w-[160px] overflow-hidden rounded-[14px] border border-white/[0.10] bg-[#0E1420] shadow-2xl"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      {([
-                        { label: 'Rename',  onClick: () => { setRenameId(p.id); setRenameValue(p.name); setMenuId(null); } },
-                        { label: 'Archive', onClick: () => { archiveWsProject(p.id); setMenuId(null); }, danger: false },
-                        { label: 'Delete',  onClick: () => { setDeleteConfirmId(p.id); setMenuId(null); }, danger: true },
-                      ] as Array<{ label: string; onClick: () => void; danger?: boolean }>).map(action => (
-                        <button
-                          key={action.label}
-                          onClick={action.onClick}
-                          className={`flex w-full items-center px-4 py-2.5 text-sm transition hover:bg-white/[0.05] ${action.danger ? 'text-rose-300/80 hover:text-rose-200' : 'text-white/60 hover:text-white/85'}`}
-                        >
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Type + Status badges */}
-                  <div className="mb-3 flex flex-wrap items-center gap-1.5 pr-8">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${typeMeta.tone}`}>{typeMeta.label}</span>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusMeta.tone}`}>{statusMeta.label}</span>
-                  </div>
-
-                  {/* Name + goal */}
-                  <h3 className="font-heading text-base font-bold text-white">{p.name}</h3>
-                  <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-white/45">{p.goal}</p>
-
-                  {/* Progress bar */}
-                  {p.progress !== undefined && (
-                    <div className="mt-4">
-                      <div className="mb-1 flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-white/25">Progress</span>
-                        <span className="text-[11px] font-bold text-white/40">{p.progress}%</span>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
-                        <div
-                          className={`h-full rounded-full ${
-                            p.status === 'running'        ? 'bg-emerald-400' :
-                            p.status === 'needs_approval' ? 'bg-rose-400'    :
-                            p.status === 'completed'      ? 'bg-sky-400'     : 'bg-violet-400'
-                          }`}
-                          style={{ width: `${p.progress}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Counts */}
-                  <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5">
-                    {([
-                      { label: 'agents',      value: p.agentCount,      Icon: Users    },
-                      { label: 'workflows',   value: p.workflowCount,   Icon: Workflow },
-                      { label: 'tasks',       value: p.taskCount,       Icon: Layers3  },
-                      { label: 'deliverables',value: p.deliverableCount,Icon: FileText },
-                      ...(p.approvalCount ? [{ label: 'approval pending', value: p.approvalCount, Icon: ShieldCheck }] : []),
-                    ] as Array<{ label: string; value?: number; Icon: React.ElementType }>)
-                      .filter(c => c.value)
-                      .map(c => (
-                        <div key={c.label} className="flex items-center gap-1 text-[11px] text-white/35">
-                          <c.Icon className="h-3 w-3 shrink-0" />
-                          <span>{c.value} {c.label}</span>
-                        </div>
-                      ))}
-                  </div>
-
-                  {/* Activity + next action */}
-                  {(p.lastActivity || p.nextAction) && (
-                    <div className="mt-4 space-y-1.5 border-t border-white/[0.07] pt-4">
-                      {p.lastActivity && (
-                        <p className="text-[11px] text-white/32">
-                          <span className="font-bold text-white/42">Latest: </span>{p.lastActivity}
-                        </p>
-                      )}
-                      {p.nextAction && (
-                        <p className="text-[11px] text-white/32">
-                          <span className="font-bold text-white/42">Next: </span>{p.nextAction}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => setDetailsId(p.id === detailsId ? null : p.id)}
-                      className={`rounded-[10px] px-3.5 py-2 text-xs font-bold transition ${
-                        p.status === 'needs_approval'
-                          ? 'bg-rose-500 text-white hover:bg-rose-400'
-                          : 'bg-[#ffffff] text-[#070B14] hover:bg-[#f0f2ff]'
-                      }`}
-                    >
-                      {primaryLabel}
-                    </button>
-                    <button
-                      onClick={() => setDetailsId(p.id === detailsId ? null : p.id)}
-                      className="rounded-[10px] border border-white/[0.18] bg-white/[0.06] px-3.5 py-2 text-xs font-semibold text-white/65 transition hover:border-white/28 hover:bg-white/[0.09] hover:text-white/85"
-                    >
-                      Details
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Project details drawer ─────────────────────────────── */}
-      {detailsId && detailProject && (
-        <div className="fixed inset-0 z-40 flex justify-end" onClick={() => setDetailsId(null)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div
-            className="relative z-50 flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-white/[0.08] bg-[#0A0F1B] shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Drawer header */}
-            <div className="flex items-center justify-between border-b border-white/[0.07] px-6 py-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-violet-300/60">Project details</p>
-                <h2 className="mt-1 font-heading text-xl font-bold text-white">{detailProject.name}</h2>
-              </div>
-              <button
-                onClick={() => setDetailsId(null)}
-                className="grid h-8 w-8 place-items-center rounded-[8px] text-white/30 transition hover:bg-white/[0.07] hover:text-white/70"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 space-y-6 px-6 py-5">
-              {/* Overview */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Overview</p>
-                <div className="space-y-3 rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                  <div className="flex flex-wrap gap-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${PROJ_TYPE_META[detailProject.type ?? 'mixed'].tone}`}>
-                      {PROJ_TYPE_META[detailProject.type ?? 'mixed'].label}
-                    </span>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${PROJ_STATUS_META[detailProject.status ?? 'draft'].tone}`}>
-                      {PROJ_STATUS_META[detailProject.status ?? 'draft'].label}
-                    </span>
-                  </div>
-                  <p className="text-sm text-white/55">{detailProject.goal}</p>
-                  {detailProject.progress !== undefined && (
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">Progress</span>
-                        <span className="text-[11px] font-bold text-white/45">{detailProject.progress}%</span>
-                      </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.08]">
-                        <div className="h-full rounded-full bg-violet-400" style={{ width: `${detailProject.progress}%` }} />
-                      </div>
-                    </div>
-                  )}
-                  {detailProject.lastActivity && (
-                    <p className="text-xs text-white/35">
-                      <span className="font-bold text-white/45">Latest activity: </span>{detailProject.lastActivity}
-                    </p>
-                  )}
-                  {detailProject.nextAction && (
-                    <p className="text-xs text-white/35">
-                      <span className="font-bold text-white/45">Next action: </span>{detailProject.nextAction}
-                    </p>
-                  )}
-                </div>
-              </section>
-
-              {/* AI Team */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">AI Team</p>
-                {(detailProject.agentCount ?? 0) > 0 ? (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                    <div className="flex items-center gap-2 text-sm text-white/55">
-                      <Users className="h-4 w-4 shrink-0 text-blue-300/60" />
-                      <span>{detailProject.agentCount} agents assigned to this project</span>
-                    </div>
-                    <p className="mt-2 text-xs text-white/30">Open the workspace to manage individual agents and their tasks.</p>
-                  </div>
-                ) : (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-xs text-white/30">No AI agents assigned yet.</div>
-                )}
-              </section>
-
-              {/* Workflows */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Workflows</p>
-                {(detailProject.workflowCount ?? 0) > 0 ? (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                    <div className="flex items-center gap-2 text-sm text-white/55">
-                      <Workflow className="h-4 w-4 shrink-0 text-cyan-300/60" />
-                      <span>{detailProject.workflowCount} workflow{(detailProject.workflowCount ?? 0) > 1 ? 's' : ''} attached</span>
-                    </div>
-                    <p className="mt-2 text-xs text-white/30">Manage schedules and triggers in the Workflows page.</p>
-                  </div>
-                ) : (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-xs text-white/30">No workflows attached.</div>
-                )}
-              </section>
-
-              {/* Tasks */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Tasks</p>
-                {(detailProject.taskCount ?? 0) > 0 ? (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                    <div className="flex items-center gap-2 text-sm text-white/55">
-                      <Layers3 className="h-4 w-4 shrink-0 text-violet-300/60" />
-                      <span>{detailProject.taskCount} task{(detailProject.taskCount ?? 0) > 1 ? 's' : ''} in this project</span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/30">
-                      <span className="rounded-full border border-white/[0.09] bg-white/[0.03] px-2 py-1">Todo</span>
-                      <span className="rounded-full border border-emerald-400/25 bg-emerald-400/[0.07] px-2 py-1 text-emerald-300/60">Running</span>
-                      <span className="rounded-full border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1 text-amber-300/60">Review</span>
-                      <span className="rounded-full border border-sky-400/25 bg-sky-400/[0.07] px-2 py-1 text-sky-300/60">Done</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-xs text-white/30">No tasks yet.</div>
-                )}
-              </section>
-
-              {/* Deliverables */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Deliverables</p>
-                {(detailProject.deliverableCount ?? 0) > 0 ? (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-4">
-                    <div className="flex items-center gap-2 text-sm text-white/55">
-                      <FileText className="h-4 w-4 shrink-0 text-sky-300/60" />
-                      <span>{detailProject.deliverableCount} deliverable{(detailProject.deliverableCount ?? 0) > 1 ? 's' : ''} produced</span>
-                    </div>
-                    <p className="mt-2 text-xs text-white/30">View and export all finished outputs from the Deliverables page.</p>
-                  </div>
-                ) : (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-xs text-white/30">No deliverables yet.</div>
-                )}
-              </section>
-
-              {/* Approvals */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Approvals</p>
-                {(detailProject.approvalCount ?? 0) > 0 ? (
-                  <div className="rounded-[16px] border border-rose-400/20 bg-rose-400/[0.04] p-4">
-                    <div className="flex items-center gap-2 text-sm text-rose-200/70">
-                      <ShieldCheck className="h-4 w-4 shrink-0" />
-                      <span>{detailProject.approvalCount} approval{(detailProject.approvalCount ?? 0) > 1 ? 's' : ''} pending — review before AI acts</span>
-                    </div>
-                    <button
-                      onClick={() => setPage('Approvals')}
-                      className="mt-3 rounded-[10px] bg-rose-500 px-4 py-2 text-xs font-bold text-white transition hover:bg-rose-400"
-                    >
-                      Go to Approvals
-                    </button>
-                  </div>
-                ) : (
-                  <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-xs text-white/30">No pending approvals.</div>
-                )}
-              </section>
-
-              {/* Knowledge */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Knowledge</p>
-                <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-xs text-white/30">
-                  Manage files, sources, and agent learnings in the Knowledge page.
-                </div>
-              </section>
-
-              {/* Activity */}
-              <section>
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-white/25">Activity</p>
-                <div className="space-y-2">
-                  {[
-                    detailProject.lastActivity
-                      ? { text: detailProject.lastActivity, tone: 'text-white/42' }
-                      : null,
-                    {
-                      text: `Project created ${new Date(detailProject.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`,
-                      tone: 'text-white/28',
-                    },
-                  ]
-                    .filter(Boolean)
-                    .map((item, i) => (
-                      <div key={i} className="flex items-start gap-2.5">
-                        <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-white/20" />
-                        <p className={`text-xs leading-relaxed ${(item as { text: string; tone: string }).tone}`}>
-                          {(item as { text: string; tone: string }).text}
-                        </p>
-                      </div>
-                    ))}
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── New project modal ──────────────────────────────────── */}
-      {showNewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowNewModal(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div
-            className="relative z-10 w-full max-w-md overflow-hidden rounded-[24px] border border-white/[0.10] bg-[#0A0F1B] shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-white/[0.07] px-6 py-4">
-              <h2 className="font-heading text-lg font-bold text-white">New project</h2>
-              <button onClick={() => setShowNewModal(false)} className="grid h-8 w-8 place-items-center rounded-[8px] text-white/30 transition hover:bg-white/[0.07] hover:text-white/60">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-4 px-6 py-5">
-              <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-white/35">Project name</label>
-                <input
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
-                  placeholder="e.g. Weekly Reporting Workflow"
-                  className="w-full rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/50"
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-white/35">Goal</label>
-                <textarea
-                  value={newGoal}
-                  onChange={e => setNewGoal(e.target.value)}
-                  placeholder="Describe what this project should accomplish…"
-                  rows={3}
-                  className="w-full resize-none rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-500/50"
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-widest text-white/35">Type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['enterprise', 'crew', 'workflow', 'mixed'] as const).map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setNewType(t)}
-                      className={`rounded-[12px] border px-4 py-2.5 text-left text-xs font-semibold transition ${
-                        newType === t
-                          ? 'border-violet-500/50 bg-violet-500/10 text-violet-200'
-                          : 'border-white/[0.09] bg-white/[0.02] text-white/45 hover:border-white/15 hover:text-white/65'
-                      }`}
-                    >
-                      {PROJ_TYPE_META[t].label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2 border-t border-white/[0.07] px-6 py-4">
-              <button
-                onClick={handleCreate}
-                disabled={!newName.trim()}
-                className="flex-1 rounded-[12px] bg-violet-600 py-2.5 text-sm font-bold text-white transition hover:bg-violet-500 disabled:opacity-40"
-              >
-                Create project
-              </button>
-              <button
-                onClick={() => { setShowNewModal(false); setPage('AI Ant'); }}
-                className="flex-1 rounded-[12px] border border-white/[0.10] py-2.5 text-sm font-semibold text-white/55 transition hover:text-white/80"
-              >
-                Create with AI Ant
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Rename modal ──────────────────────────────────────── */}
-      {renameId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setRenameId(null)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div
-            className="relative z-10 w-full max-w-sm rounded-[20px] border border-white/[0.10] bg-[#0A0F1B] p-6 shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <h2 className="mb-4 font-heading text-base font-bold text-white">Rename project</h2>
-            <input
-              autoFocus
-              value={renameValue}
-              onChange={e => setRenameValue(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setRenameId(null); }}
-              className="w-full rounded-[12px] border border-white/[0.09] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none focus:border-violet-500/50"
-            />
-            <div className="mt-4 flex gap-2">
-              <button onClick={handleRename} className="flex-1 rounded-[12px] bg-violet-600 py-2 text-sm font-bold text-white transition hover:bg-violet-500">Save</button>
-              <button onClick={() => setRenameId(null)} className="flex-1 rounded-[12px] border border-white/[0.10] py-2 text-sm font-semibold text-white/50 transition hover:text-white/75">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Delete confirm modal ───────────────────────────────── */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setDeleteConfirmId(null)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div
-            className="relative z-10 w-full max-w-sm rounded-[20px] border border-white/[0.10] bg-[#0A0F1B] p-6 shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <h2 className="mb-2 font-heading text-base font-bold text-white">Delete project?</h2>
-            <p className="mb-5 text-sm text-white/45">This will permanently remove the project. Chats will stay in history. This cannot be undone.</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleDelete(deleteConfirmId)}
-                className="flex-1 rounded-[12px] bg-rose-500 py-2 text-sm font-bold text-white transition hover:bg-rose-400"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setDeleteConfirmId(null)}
-                className="flex-1 rounded-[12px] border border-white/[0.10] py-2 text-sm font-semibold text-white/50 transition hover:text-white/75"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TeamsOSPage({ setPage }: { setPage: (page: Page) => void }) {
-  return (
-    <OSPageShell eyebrow="AI workforce" title="AI Teams" subtitle="Manage existing AI teams. New teams are created through AI Ant when a goal needs multiple specialists."
-      action={<button onClick={() => setPage('AI Ant')} className="rounded-[12px] bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Build AI Team</button>}>
-      <OSGridCards cards={[
-        { title: 'Sales Report Team', subtitle: 'AI Ant Director, Project Manager, Data Collector, Analyst, Report Writer.', meta: 'Produced 7 reports - last active 12m ago', status: 'Working', tone: 'emerald' },
-        { title: 'Market Research Team', subtitle: 'Researcher, Competitor Analyst, Brand Strategist, Content Planner.', meta: '2 deliverables in progress', status: 'Planning', tone: 'blue' },
-        { title: 'Customer Support Triage', subtitle: 'Inbox Reader, Classifier, Draft Writer, Approval Guard.', meta: 'Reusable team template', status: 'Idle', tone: 'violet' },
-      ]} />
-    </OSPageShell>
-  );
-}
-
-function WorkflowsOSPage({ setPage }: { setPage: (page: Page) => void }) {
-  return (
-    <OSPageShell eyebrow="Repeatable processes" title="Workflows" subtitle="Workflows are repeatable processes AI Ant creates from natural language. The canvas stays in advanced mode."
-      action={<button onClick={() => setPage('AI Ant')} className="rounded-[12px] bg-violet-600 px-4 py-2.5 text-sm font-bold text-white">Create workflow with AI Ant</button>}>
-      <div className="mb-5 rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-4">
-        <input className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/30" placeholder="Describe the repeated task you want AI Ant to handle..." />
-      </div>
-      <OSGridCards cards={[
-        { title: 'Weekly Sales Report', subtitle: 'Every Monday, summarize sales, flag changes, and create a report.', meta: 'Step 1 Read file - Step 2 Summarize - Step 3 Generate report - Step 4 Send after approval', status: 'Active', tone: 'emerald', capabilities: ['file_reading', 'summarization', 'workflow_automation'] },
-        { title: 'Monthly Competitor Monitor', subtitle: 'Research competitor changes and deliver a strategy brief.', meta: 'Web research + quality review - Approval before external sends', status: 'Scheduled', tone: 'blue', capabilities: ['web_research', 'summarization', 'quality_review'] },
-        { title: 'Content Pipeline', subtitle: 'Draft, review, and package weekly content deliverables.', meta: 'Creative/text workflow - Advanced canvas available', status: 'Paused', tone: 'amber', capabilities: ['text_reasoning', 'image_generation', 'quality_review'] },
-      ]} />
-    </OSPageShell>
-  );
-}
-
-type DeliverablesFilter = 'all' | 'needs_review' | 'approved' | 'report' | 'strategy' | 'workflow_automation' | 'from_chat' | 'from_workflow' | 'from_crew' | 'missing_source';
-
-const DELIV_STATUS_META: Record<AppDeliverable['status'], { label: string; cls: string }> = {
-  draft:         { label: 'Draft',        cls: 'border-white/15 bg-white/[0.05] text-white/50' },
-  needs_review:  { label: 'Needs review', cls: 'border-amber-400/30 bg-amber-400/[0.08] text-amber-300' },
-  approved:      { label: 'Approved',     cls: 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300' },
-  export_ready:  { label: 'Export ready', cls: 'border-violet-400/30 bg-violet-400/[0.08] text-violet-300' },
-};
-
-const DELIV_TYPE_META: Record<AppDeliverable['type'], { label: string; icon: string }> = {
-  report:               { label: 'Report',               icon: '📊' },
-  strategy:             { label: 'Strategy',             icon: '🎯' },
-  summary:              { label: 'Summary',              icon: '📝' },
-  plan:                 { label: 'Plan',                 icon: '📅' },
-  draft:                { label: 'Draft',                icon: '✏️' },
-  workflow_automation:  { label: 'Workflow automation',  icon: '⚡' },
-  research:             { label: 'Research',             icon: '🔍' },
-};
-
-function deliverableSourceLabel(d: AppDeliverable, chats: WorkspaceChat[]): string {
-  if (d.sourceChatId) {
-    const chat = chats.find((c) => c.id === d.sourceChatId);
-    return `Created from: ${chat?.title ?? 'Chat conversation'}`;
-  }
-  if (d.sourceCrewRunId) return 'Source: Colony Crew run';
-  if (d.sourceWorkflowId) return 'Source: Workflow run';
-  if (d.ownerAgent) return `Created by: ${d.ownerAgent}`;
-  return '';
-}
-
-function DeliverableDetailPanel({
-  deliverable,
-  wsChats,
-  wsProjects,
-  onClose,
-  onOpenChat,
-  onOpenProject,
-}: {
-  deliverable: AppDeliverable;
-  wsChats: WorkspaceChat[];
-  wsProjects: WorkspaceProject[];
-  onClose: () => void;
-  onOpenChat: (id: string) => void;
-  onOpenProject: (id: string) => void;
-}) {
-  const sm = DELIV_STATUS_META[deliverable.status];
-  const tm = DELIV_TYPE_META[deliverable.type];
-  const sourceChat = wsChats.find((c) => c.id === deliverable.sourceChatId);
-  const sourceProject = wsProjects.find((p) => p.id === deliverable.projectId);
-  const hasChatSource = !!deliverable.sourceChatId;
-  const hasProjectSource = !!deliverable.projectId;
-
-  return (
-    <motion.aside
-      initial={{ x: 480, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 480, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-      className="fixed right-0 top-0 bottom-0 z-[70] flex w-[clamp(360px,30vw,440px)] flex-col border-l border-white/[0.09] bg-[#070912] shadow-[0_0_80px_rgba(0,0,0,0.6)]"
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] p-5">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-base">{tm.icon}</span>
-            <span className="text-[11px] font-semibold text-muted">{tm.label}</span>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${sm.cls}`}>{sm.label}</span>
-          </div>
-          <h3 className="font-heading text-lg font-bold leading-tight text-white">{deliverable.title}</h3>
-        </div>
-        <button onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 hover:text-white">
-          <X size={14} />
-        </button>
-      </div>
-
-      <div className="flex-1 space-y-5 overflow-y-auto p-5 text-sm">
-
-        {/* Summary */}
-        <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Summary</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-              <p className="text-[10px] text-muted">Version</p>
-              <p className="mt-0.5 font-bold">v{deliverable.version}</p>
-            </div>
-            <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-              <p className="text-[10px] text-muted">Updated</p>
-              <p className="mt-0.5 font-bold">{new Date(deliverable.updatedAt).toLocaleDateString()}</p>
-            </div>
-          </div>
-          {deliverable.description && <p className="mt-3 leading-relaxed text-white/60">{deliverable.description}</p>}
-        </div>
-
-        {/* Source context */}
-        <div>
-          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/35">Source context</p>
-          <div className="space-y-2">
-            {sourceChat ? (
-              <div className="flex items-center justify-between gap-3 rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <MessageSquare size={12} className="shrink-0 text-accent" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] text-muted">Source chat</p>
-                    <p className="truncate text-[13px] font-semibold">{sourceChat.title}</p>
-                  </div>
-                </div>
-                <button onClick={() => onOpenChat(sourceChat.id)} className="shrink-0 rounded-lg border border-accent/25 bg-accent/[0.08] px-2.5 py-1 text-[11px] font-semibold text-accent transition hover:bg-accent/15">
-                  Open
-                </button>
-              </div>
-            ) : deliverable.sourceChatId ? (
-              <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.025] p-3">
-                <p className="text-[12px] text-muted">Source chat is no longer available, but the deliverable is still saved.</p>
-              </div>
-            ) : null}
-
-            {sourceProject ? (
-              <div className="flex items-center justify-between gap-3 rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Layers3 size={12} className="shrink-0 text-blue-400" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] text-muted">Project</p>
-                    <p className="truncate text-[13px] font-semibold">{sourceProject.name}</p>
-                  </div>
-                </div>
-                <button onClick={() => onOpenProject(sourceProject.id)} className="shrink-0 rounded-lg border border-blue-400/25 bg-blue-400/[0.08] px-2.5 py-1 text-[11px] font-semibold text-blue-300 transition hover:bg-blue-400/15">
-                  Open
-                </button>
-              </div>
-            ) : deliverable.projectName ? (
-              <div className="rounded-[12px] border border-white/[0.07] bg-white/[0.025] p-3">
-                <div className="flex items-center gap-1.5">
-                  <Layers3 size={12} className="text-blue-400/50" />
-                  <span className="text-[12px] text-muted">{deliverable.projectName}</span>
-                </div>
-              </div>
-            ) : null}
-
-            {deliverable.sourceCrewRunId && (
-              <div className="flex items-center gap-2 rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-                <Users size={12} className="shrink-0 text-violet-400" />
-                <div>
-                  <p className="text-[10px] text-muted">Colony Crew run</p>
-                  <p className="text-[12px] font-mono text-white/50">{deliverable.sourceCrewRunId}</p>
-                </div>
-              </div>
-            )}
-
-            {deliverable.sourceWorkflowId && (
-              <div className="flex items-center gap-2 rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-                <Workflow size={12} className="shrink-0 text-cyan-400" />
-                <div>
-                  <p className="text-[10px] text-muted">Workflow run</p>
-                  <p className="text-[12px] font-mono text-white/50">{deliverable.sourceWorkflowId}</p>
-                </div>
-              </div>
-            )}
-
-            {!hasChatSource && !hasProjectSource && !deliverable.sourceCrewRunId && !deliverable.sourceWorkflowId && (
-              <p className="text-[12px] text-muted">No source context linked to this deliverable.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Owner agent */}
-        {deliverable.ownerAgent && (
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Owner agent</p>
-            <div className="flex items-center gap-2 rounded-[12px] border border-white/[0.07] bg-white/[0.03] p-3">
-              <Bot size={13} className="text-violet-400" />
-              <span className="text-[13px] font-semibold">{deliverable.ownerAgent}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Original prompt */}
-        {deliverable.sourcePrompt && (
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Original prompt</p>
-            <p className="rounded-[12px] border border-white/[0.07] bg-white/[0.02] p-3 text-[12px] leading-relaxed text-white/55">{deliverable.sourcePrompt}</p>
-          </div>
-        )}
-
-        {/* Content preview */}
-        {deliverable.content && (
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Content preview</p>
-            <p className="whitespace-pre-wrap rounded-[12px] border border-white/[0.07] bg-white/[0.02] p-3 text-[12px] leading-relaxed text-white/55">{deliverable.content}</p>
-          </div>
-        )}
-
-        {/* Version history */}
-        <div>
-          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/35">Version history</p>
-          <div className="space-y-1.5">
-            {Array.from({ length: deliverable.version }, (_, i) => deliverable.version - i).map((v) => (
-              <div key={v} className={`flex items-center justify-between rounded-[10px] border px-3 py-2 ${v === deliverable.version ? 'border-accent/20 bg-accent/[0.05]' : 'border-white/[0.06] bg-white/[0.02]'}`}>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[12px] font-bold ${v === deliverable.version ? 'text-accent' : 'text-muted'}`}>v{v}</span>
-                  {v === deliverable.version && <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-bold text-accent">Current</span>}
-                </div>
-                <span className="text-[11px] text-muted">
-                  {v === deliverable.version ? new Date(deliverable.updatedAt).toLocaleDateString() : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Actions footer */}
-      <div className="border-t border-white/[0.07] p-4 space-y-2">
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => hasChatSource && deliverable.sourceChatId && onOpenChat(deliverable.sourceChatId)}
-            disabled={!hasChatSource}
-            title={!hasChatSource ? 'No source chat linked' : undefined}
-            className="rounded-[10px] border border-white/[0.10] px-3 py-2 text-[12px] font-semibold text-white/60 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            View source chat
-          </button>
-          <button
-            onClick={() => hasProjectSource && deliverable.projectId && onOpenProject(deliverable.projectId)}
-            disabled={!hasProjectSource}
-            title={!hasProjectSource ? 'No project linked' : undefined}
-            className="rounded-[10px] border border-white/[0.10] px-3 py-2 text-[12px] font-semibold text-white/60 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            Open project
-          </button>
-        </div>
-        <div className="flex gap-2">
-          {deliverable.status === 'needs_review' && (
-            <button className="flex-1 rounded-[10px] bg-emerald-600 px-3 py-2 text-[12px] font-bold text-white transition hover:bg-emerald-500">
-              Approve
-            </button>
-          )}
-          <button className="flex-1 rounded-[10px] bg-[#ffffff] px-3 py-2 text-[12px] font-bold text-[#070B14] hover:bg-[#f0f2ff]">
-            Open deliverable
-          </button>
-          <button className="rounded-[10px] border border-white/[0.10] px-3 py-2 text-[12px] font-semibold text-white/50 transition hover:bg-white/[0.06]">
-            Export
-          </button>
-        </div>
-      </div>
-    </motion.aside>
-  );
-}
-
-function DeliverablesOSPage({
-  deliverables,
-  setDeliverables,
-  wsChats,
-  wsProjects,
-  setPage,
-  onOpenChat,
-}: {
-  deliverables: AppDeliverable[];
-  setDeliverables: (fn: (prev: AppDeliverable[]) => AppDeliverable[]) => void;
-  wsChats: WorkspaceChat[];
-  wsProjects: WorkspaceProject[];
-  setPage: (p: Page) => void;
-  onOpenChat: (id: string) => void;
-}) {
-  const [filter, setFilter] = useState<DeliverablesFilter>('all');
-  const [showSourceFilters, setShowSourceFilters] = useState(false);
-  const [detailItem, setDetailItem] = useState<AppDeliverable | null>(null);
-  const [sourceBanner, setSourceBanner] = useState<string | null>(null);
-
-  const PRIMARY_FILTERS: Array<{ id: DeliverablesFilter; label: string }> = [
-    { id: 'all', label: 'All' },
-    { id: 'needs_review', label: 'Needs review' },
-    { id: 'approved', label: 'Approved' },
-    { id: 'report', label: 'Report' },
-    { id: 'strategy', label: 'Strategy' },
-    { id: 'workflow_automation', label: 'Workflow automation' },
-  ];
-
-  const SOURCE_FILTERS: Array<{ id: DeliverablesFilter; label: string }> = [
-    { id: 'from_chat', label: 'From chat' },
-    { id: 'from_workflow', label: 'From workflow' },
-    { id: 'from_crew', label: 'From crew' },
-    { id: 'missing_source', label: 'Missing source' },
-  ];
-
-  const filtered = deliverables.filter((d) => {
-    if (filter === 'all') return true;
-    if (filter === 'needs_review') return d.status === 'needs_review';
-    if (filter === 'approved') return d.status === 'approved';
-    if (filter === 'report') return d.type === 'report';
-    if (filter === 'strategy') return d.type === 'strategy';
-    if (filter === 'workflow_automation') return d.type === 'workflow_automation';
-    if (filter === 'from_chat') return !!d.sourceChatId;
-    if (filter === 'from_workflow') return !!d.sourceWorkflowId;
-    if (filter === 'from_crew') return !!d.sourceCrewRunId;
-    if (filter === 'missing_source') return !d.sourceChatId && !d.projectId && !d.sourceWorkflowId && !d.sourceCrewRunId;
-    return true;
-  });
-
-  const openDeliverableSource = (d: AppDeliverable) => {
-    if (d.sourceChatId) {
-      const chat = wsChats.find((c) => c.id === d.sourceChatId);
-      if (chat) {
-        setSourceBanner(`Viewing source conversation for "${d.title}"`);
-        setTimeout(() => setSourceBanner(null), 4000);
-        onOpenChat(d.sourceChatId);
-      } else {
-        setSourceBanner(`The original chat is no longer available, but the deliverable is still saved.`);
-        setTimeout(() => setSourceBanner(null), 4000);
-      }
-      return;
-    }
-    if (d.projectId) {
-      setPage('Projects');
-      return;
-    }
-    if (d.sourceWorkflowId || d.sourceCrewRunId) {
-      setPage('Workflows');
-      return;
-    }
-    setSourceBanner('No source context found for this deliverable.');
-    setTimeout(() => setSourceBanner(null), 3000);
-  };
-
-  return (
-    <OSPageShell eyebrow="Finished work" title="Deliverables" subtitle="Reports, strategies, summaries, plans, drafts, and automations produced by AI Ant and your AI teams.">
-
-      {/* Source banner */}
-      <AnimatePresence>
-        {sourceBanner && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="mb-5 flex items-center gap-2 rounded-[14px] border border-accent/25 bg-accent/[0.07] px-4 py-3 text-[13px] font-semibold text-accent"
-          >
-            <MessageSquare size={13} className="shrink-0" />
-            {sourceBanner}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Filter bar */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {PRIMARY_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => { setFilter(f.id); setShowSourceFilters(false); }}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${filter === f.id ? 'border-accent/40 bg-accent/[0.12] text-accent' : 'border-white/[0.09] bg-white/[0.03] text-white/48 hover:text-white/70'}`}
-          >
-            {f.label}
-          </button>
-        ))}
-        <div className="relative">
-          <button
-            onClick={() => setShowSourceFilters((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${SOURCE_FILTERS.some((f) => f.id === filter) ? 'border-accent/40 bg-accent/[0.12] text-accent' : 'border-white/[0.09] bg-white/[0.03] text-white/48 hover:text-white/70'}`}
-          >
-            <Filter size={10} />Source
-          </button>
-          {showSourceFilters && (
-            <div className="absolute left-0 top-9 z-20 min-w-[160px] rounded-[14px] border border-white/[0.09] bg-[#0b0f1a] p-1.5 shadow-xl">
-              {SOURCE_FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => { setFilter(f.id); setShowSourceFilters(false); }}
-                  className={`block w-full rounded-[10px] px-3 py-2 text-left text-[12px] font-semibold transition ${filter === f.id ? 'bg-accent/15 text-accent' : 'text-white/50 hover:bg-white/[0.04] hover:text-white/75'}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Empty state */}
-      {deliverables.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-[22px] border border-white/[0.07] bg-white/[0.02] py-20 text-center">
-          <FileText size={32} className="mb-4 text-white/20" />
-          <p className="text-[15px] font-bold text-white/40">No deliverables yet</p>
-          <p className="mt-1.5 max-w-xs text-sm text-white/28">Ask AI Ant to create a report, plan, workflow, or summary. It will appear here.</p>
-          <button onClick={() => setPage('AI Ant')} className="mt-5 rounded-xl bg-accent px-4 py-2 text-[13px] font-bold text-white hover:bg-accent/85">
-            Open AI Ant
-          </button>
-        </div>
-      )}
-
-      {/* Filtered empty */}
-      {deliverables.length > 0 && filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-[22px] border border-white/[0.07] bg-white/[0.02] py-14 text-center">
-          <p className="text-sm text-white/35">No deliverables match this filter.</p>
-          <button onClick={() => setFilter('all')} className="mt-3 rounded-lg border border-white/[0.12] px-3 py-1.5 text-xs font-semibold text-muted hover:text-ink">
-            Show all
-          </button>
-        </div>
-      )}
-
-      {/* Cards */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((d) => {
-          const sm = DELIV_STATUS_META[d.status];
-          const tm = DELIV_TYPE_META[d.type];
-          const sourceLabel = deliverableSourceLabel(d, wsChats);
-          const hasChat = !!d.sourceChatId && wsChats.some((c) => c.id === d.sourceChatId);
-          const hasProject = !!d.projectId;
-
-          return (
-            <div key={d.id} className="flex flex-col rounded-[22px] border border-white/[0.07] bg-white/[0.025] p-5 shadow-[0_16px_48px_rgba(0,0,0,0.2)] transition hover:border-white/[0.12]">
-              {/* Header */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-sm">{tm.icon}</span>
-                    <span className="text-[11px] text-muted">{tm.label}</span>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${sm.cls}`}>{sm.label}</span>
-                  </div>
-                  <h3 className="font-heading text-[15px] font-bold leading-snug text-white">{d.title}</h3>
-                </div>
-                <span className="shrink-0 rounded-full border border-white/[0.10] bg-white/[0.04] px-2 py-0.5 text-[10px] font-mono text-muted">v{d.version}</span>
-              </div>
-
-              {/* Description */}
-              <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-white/50">{d.description}</p>
-
-              {/* Metadata row */}
-              <div className="mt-3 space-y-1">
-                {d.ownerAgent && (
-                  <div className="flex items-center gap-1.5">
-                    <Bot size={11} className="shrink-0 text-violet-400/70" />
-                    <span className="text-[11px] text-muted">Owner: {d.ownerAgent}</span>
-                  </div>
-                )}
-                {d.projectName && (
-                  <div className="flex items-center gap-1.5">
-                    <Layers3 size={11} className="shrink-0 text-blue-400/70" />
-                    <span className="text-[11px] text-muted">{d.projectName}</span>
-                  </div>
-                )}
-                {sourceLabel && (
-                  <div className="flex items-center gap-1.5">
-                    <LinkIcon size={11} className="shrink-0 text-accent/60" />
-                    <span className="text-[11px] text-accent/70">{sourceLabel}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-1.5">
-                  <Clock3 size={11} className="shrink-0 text-muted/50" />
-                  <span className="text-[11px] text-muted/60">Updated {new Date(d.updatedAt).toLocaleDateString()}</span>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button className="rounded-[10px] bg-[#ffffff] px-3 py-2 text-xs font-bold text-[#070B14] hover:bg-[#f0f2ff]">
-                  Open
-                </button>
-                <button onClick={() => setDetailItem(d)} className="rounded-[10px] border border-white/[0.10] px-3 py-2 text-xs font-semibold text-white/50 transition hover:border-white/[0.20] hover:text-white/70">
-                  Details
-                </button>
-                <button
-                  onClick={() => openDeliverableSource(d)}
-                  title={!d.sourceChatId && !d.projectId && !d.sourceWorkflowId && !d.sourceCrewRunId ? 'No source chat linked' : undefined}
-                  disabled={!d.sourceChatId && !d.projectId && !d.sourceWorkflowId && !d.sourceCrewRunId}
-                  className="flex items-center gap-1.5 rounded-[10px] border border-white/[0.10] px-3 py-2 text-xs font-semibold text-white/50 transition hover:border-accent/30 hover:text-accent/80 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <MessageSquare size={11} />View source
-                </button>
-                {hasProject && (
-                  <button onClick={() => setPage('Projects')} className="flex items-center gap-1.5 rounded-[10px] border border-white/[0.10] px-3 py-2 text-xs font-semibold text-white/50 transition hover:border-blue-400/30 hover:text-blue-300/80">
-                    <Layers3 size={11} />Project
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Detail panel */}
-      <AnimatePresence>
-        {detailItem && (
-          <>
-            <motion.div
-              key="detail-backdrop"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm"
-              onClick={() => setDetailItem(null)}
-            />
-            <DeliverableDetailPanel
-              deliverable={detailItem}
-              wsChats={wsChats}
-              wsProjects={wsProjects}
-              onClose={() => setDetailItem(null)}
-              onOpenChat={(id) => { setDetailItem(null); onOpenChat(id); }}
-              onOpenProject={() => { setDetailItem(null); setPage('Projects'); }}
-            />
-          </>
-        )}
-      </AnimatePresence>
-
-    </OSPageShell>
-  );
-}
-
-const APPROVAL_ITEMS = [
-  { id: 'a1', title: 'Export report to Google Sheets', agent: 'Report Writer', desc: 'Write the cleaned Daily Sales Report to the shared sheet.', file: 'sales-report-final.csv', requestedAgo: '4m ago', risk: 'Medium risk', riskTone: 'text-amber-300 bg-amber-400/10 border-amber-400/25' },
-  { id: 'a2', title: 'Send summary to manager', agent: 'AI Ant', desc: 'External message prepared — review before sending.', file: null, requestedAgo: '2m ago', risk: 'High risk', riskTone: 'text-rose-300 bg-rose-400/10 border-rose-400/25' },
-  { id: 'a3', title: 'Connect Slack workspace', agent: 'Customer Support Triage', desc: 'Needs read/write access for drafts and approvals.', file: null, requestedAgo: '18m ago', risk: 'Low risk', riskTone: 'text-blue-300 bg-blue-400/10 border-blue-400/25' },
-] as const;
-
-function ApprovalsOSPage() {
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const visible = APPROVAL_ITEMS.filter(a => !dismissed.includes(a.id));
-  return (
-    <OSPageShell eyebrow="Safety and control" title="Review before AI acts" subtitle="Approvals appear before AI sends messages, edits files, publishes content, or runs irreversible actions.">
-      {visible.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.07] bg-white/[0.02] py-16 text-center">
-          <ShieldCheck size={32} className="mb-3 text-emerald-400/60" />
-          <p className="text-sm font-semibold text-white/40">All clear — no pending approvals</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {visible.map((item) => (
-            <div key={item.id} className="rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${item.riskTone}`}>{item.risk}</span>
-                    <span className="text-[10px] text-white/30">{item.requestedAgo} · {item.agent}</span>
-                  </div>
-                  <h3 className="font-heading text-[15px] font-bold text-white">{item.title}</h3>
-                  <p className="mt-1 text-sm leading-relaxed text-white/45">{item.desc}</p>
-                  {item.file && (
-                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-white/30">
-                      <FileText size={10} className="shrink-0" />{item.file}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="mt-4 flex gap-2">
-                <button onClick={() => setDismissed(p => [...p, item.id])}
-                  className="rounded-[10px] bg-violet-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-violet-500">
-                  Approve
-                </button>
-                <button onClick={() => setDismissed(p => [...p, item.id])}
-                  className="rounded-[10px] border border-white/[0.10] px-4 py-2 text-xs font-semibold text-white/50 transition hover:border-rose-500/30 hover:text-rose-300">
-                  Deny
-                </button>
-                <button className="ml-auto rounded-[10px] border border-white/[0.08] px-3 py-2 text-xs text-white/35 transition hover:text-white/70">
-                  Preview
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </OSPageShell>
-  );
-}
-
-// ── Memory & Sources (Knowledge Base) ────────────────────────────────────────
-type KnowledgeType =
-  | 'global_memory' | 'project_knowledge' | 'file' | 'note' | 'decision' | 'source' | 'agent_learning';
-type KnowledgeStatus = 'active' | 'pinned' | 'approval_required' | 'archived' | 'disabled';
-
-type KnowledgeItem = {
-  id: string;
-  title: string;
-  type: KnowledgeType;
-  scope: 'global' | 'project';
-  projectId?: string;
-  projectName?: string;
-  summary: string;
-  content: string;
-  tags: string[];
-  status: KnowledgeStatus;
-  usedByAgents: string[];
-  sourceUrl?: string;
-  fileName?: string;
-  createdAt: string;
-  updatedAt: string;
-  lastUsedAt?: string;
-  requiresApproval?: boolean;
-};
-
-const KNOWLEDGE_LS_KEY = 'colony.knowledge.v1';
-const KNOWLEDGE_PROJECTS = ['Daily Sales Report', 'Market Launch', 'Mango Kitchen'];
-
-const KNOW_TYPE_META: Record<KnowledgeType, { label: string; tone: string; Icon: React.ElementType }> = {
-  global_memory:     { label: 'Global Memory',     tone: 'border-violet-400/30 bg-violet-400/10 text-violet-300',  Icon: Brain },
-  project_knowledge: { label: 'Project Knowledge', tone: 'border-blue-400/30 bg-blue-400/10 text-blue-300',      Icon: Layers3 },
-  file:              { label: 'File',              tone: 'border-sky-400/30 bg-sky-400/10 text-sky-300',         Icon: FileText },
-  note:              { label: 'Note',              tone: 'border-white/15 bg-white/[0.06] text-white/60',        Icon: StickyNote },
-  decision:          { label: 'Decision',          tone: 'border-amber-400/30 bg-amber-400/10 text-amber-300',   Icon: Scale },
-  source:            { label: 'Source',            tone: 'border-sky-400/30 bg-sky-400/10 text-sky-300',         Icon: FolderOpen },
-  agent_learning:    { label: 'Agent Learning',    tone: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300', Icon: Sparkles },
-};
-
-const KNOW_STATUS_META: Record<KnowledgeStatus, { label: string; tone: string }> = {
-  active:            { label: 'Active',            tone: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' },
-  pinned:            { label: 'Pinned',            tone: 'border-violet-400/30 bg-violet-400/10 text-violet-300' },
-  approval_required: { label: 'Approval required', tone: 'border-amber-400/30 bg-amber-400/10 text-amber-300' },
-  archived:          { label: 'Archived',          tone: 'border-white/12 bg-white/[0.04] text-white/35' },
-  disabled:          { label: 'Disabled',          tone: 'border-red-400/25 bg-red-400/10 text-red-300/70' },
-};
-
-const KNOWLEDGE_CATEGORIES: Array<{ id: KnowledgeType | 'all' | 'archived'; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'global_memory', label: 'Global Memory' },
-  { id: 'project_knowledge', label: 'Project Knowledge' },
-  { id: 'file', label: 'Files' },
-  { id: 'note', label: 'Notes' },
-  { id: 'decision', label: 'Decisions' },
-  { id: 'source', label: 'Sources' },
-  { id: 'agent_learning', label: 'Agent Learnings' },
-  { id: 'archived', label: 'Archived' },
-];
-
-const NOW_ISO = () => new Date().toISOString();
-const fmtDate = (iso?: string) => iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-
-const DEFAULT_KNOWLEDGE_ITEMS: KnowledgeItem[] = [
-  {
-    id: 'k-1', title: 'Mango Kitchen reporting rules', type: 'global_memory', scope: 'global',
-    summary: 'Revenue, cost, margin, and delivery platform fields should be preserved in summaries.',
-    content: 'When summarising sales or finance data for Mango Kitchen, never drop the revenue, cost, margin, or delivery-platform breakdown. Round currency to 2 decimals and keep platform names verbatim.',
-    tags: ['reporting', 'finance', 'mango-kitchen'], status: 'pinned',
-    usedByAgents: ['Analyst Agent', 'Report Writer', 'Approval Guard', 'AI Ant'],
-    createdAt: '2026-04-02T09:00:00.000Z', updatedAt: '2026-05-10T09:00:00.000Z', lastUsedAt: '2026-05-17T09:00:00.000Z',
-  },
-  {
-    id: 'k-2', title: 'Daily Sales source folder', type: 'source', scope: 'project',
-    projectName: 'Daily Sales Report',
-    summary: 'Approved folder for read-only sales CSV and spreadsheet imports.',
-    content: 'Read-only connector pointing at the approved Daily Sales folder. Agents may import CSV/XLSX but must not write back.',
-    tags: ['sales', 'csv', 'read-only'], status: 'active',
-    usedByAgents: ['Research Agent', 'Analyst Agent'],
-    sourceUrl: 'drive://approved/daily-sales/',
-    createdAt: '2026-05-01T09:00:00.000Z', updatedAt: NOW_ISO(), lastUsedAt: NOW_ISO(),
-  },
-  {
-    id: 'k-3', title: 'Approval preference', type: 'decision', scope: 'global',
-    summary: 'Always ask before sending external messages or writing to spreadsheets.',
-    content: 'Standing decision: external sends, publishes, deletes, and spreadsheet writes always require explicit human approval, regardless of Safety Mode shortcuts.',
-    tags: ['approval', 'safety', 'policy'], status: 'approval_required', requiresApproval: true,
-    usedByAgents: ['Approval Guard', 'AI Ant'],
-    createdAt: '2026-03-15T09:00:00.000Z', updatedAt: '2026-05-12T09:00:00.000Z', lastUsedAt: '2026-05-16T09:00:00.000Z',
-  },
-  {
-    id: 'k-4', title: 'Market Launch competitor notes', type: 'note', scope: 'project',
-    projectName: 'Market Launch',
-    summary: 'Notes about competitor positioning, pricing, and customer segments.',
-    content: 'Competitor A leads on price, Competitor B on brand. Mid-market segment underserved. Use this to frame positioning and pricing tiers.',
-    tags: ['competitors', 'positioning', 'pricing'], status: 'active',
-    usedByAgents: ['Research Agent', 'Strategy Agent'],
-    createdAt: '2026-05-05T09:00:00.000Z', updatedAt: '2026-05-14T09:00:00.000Z',
-  },
-  {
-    id: 'k-5', title: 'Customer interview source', type: 'file', scope: 'project',
-    projectName: 'Market Launch',
-    summary: 'Uploaded interview notes used for persona and positioning analysis.',
-    content: 'Raw customer interview transcript notes. Source of truth for persona pains, jobs-to-be-done, and willingness-to-pay signals.',
-    tags: ['interviews', 'personas', 'research'], status: 'active',
-    usedByAgents: ['Research Agent', 'Writer Agent'],
-    fileName: 'customer-interviews.md',
-    createdAt: '2026-05-06T09:00:00.000Z', updatedAt: '2026-05-06T09:00:00.000Z',
-  },
-];
-
-function loadKnowledgeItems(): KnowledgeItem[] {
-  try {
-    const raw = localStorage.getItem(KNOWLEDGE_LS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length) return parsed as KnowledgeItem[];
-    }
-  } catch { /* ignore corrupt storage */ }
-  return DEFAULT_KNOWLEDGE_ITEMS;
-}
-
-function emptyKnowledgeDraft(type: KnowledgeType): KnowledgeItem {
-  return {
-    id: `k-${Date.now()}`, title: '', type, scope: 'global',
-    summary: '', content: '', tags: [], status: 'active',
-    usedByAgents: [], createdAt: NOW_ISO(), updatedAt: NOW_ISO(),
-  };
-}
-
-function KnowledgeEditorModal({ mode, draft, onCancel, onSave }: {
-  mode: 'add-memory' | 'add-source' | 'edit';
-  draft: KnowledgeItem;
-  onCancel: () => void;
-  onSave: (item: KnowledgeItem) => void;
-}) {
-  const isSource = mode === 'add-source' || (mode === 'edit' && (draft.type === 'source' || draft.type === 'file'));
-  const [d, setD] = React.useState<KnowledgeItem>(draft);
-  const [sourceKind, setSourceKind] = React.useState<'URL' | 'File' | 'Folder' | 'Note'>(
-    draft.fileName ? 'File' : draft.sourceUrl ? 'URL' : isSource ? 'URL' : 'Note',
-  );
-  const [readOnly, setReadOnly] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const set = (patch: Partial<KnowledgeItem>) => setD((prev) => ({ ...prev, ...patch }));
-
-  const memoryTypes: KnowledgeType[] = ['global_memory', 'project_knowledge', 'note', 'decision', 'agent_learning'];
-
-  const submit = () => {
-    if (!d.title.trim()) return setError('Title is required.');
-    if (!d.summary.trim()) return setError('Summary is required.');
-    if (d.scope === 'project' && !d.projectName) return setError('Select a project for project-scoped items.');
-    let next: KnowledgeItem = { ...d, updatedAt: NOW_ISO() };
-    if (isSource) {
-      next.type = sourceKind === 'File' ? 'file' : 'source';
-      if (sourceKind === 'URL') {
-        if (!d.sourceUrl?.trim()) return setError('Enter the source URL.');
-        next = { ...next, fileName: undefined };
-      } else if (sourceKind === 'File' || sourceKind === 'Folder') {
-        if (!d.fileName?.trim()) return setError(`Enter the ${sourceKind.toLowerCase()} name or path.`);
-        next = { ...next, sourceUrl: undefined };
-      }
-      next.tags = Array.from(new Set([...next.tags, readOnly ? 'read-only' : 'writable']));
-    }
-    if (next.requiresApproval && next.status === 'active') next.status = 'approval_required';
-    onSave(next);
-  };
-
-  const title = mode === 'edit' ? 'Edit knowledge item' : isSource ? 'Add source' : 'Add memory';
-  const inputCls = 'w-full rounded-[10px] border border-white/[0.10] bg-[#0b0f1a] px-3 py-2 text-sm text-white outline-none focus:border-violet-400/50';
-  const labelCls = 'mb-1 block text-[11px] font-bold uppercase tracking-wide text-white/40';
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onCancel}>
-      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-[20px] border border-white/[0.10] bg-[#0a0d18] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-heading text-lg font-bold text-white">{title}</h3>
-          <button onClick={onCancel} className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 text-white/50 hover:text-white"><X size={14} /></button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>Title *</label>
-            <input className={inputCls} value={d.title} onChange={(e) => set({ title: e.target.value })} placeholder="Short, descriptive title" />
-          </div>
-
-          {isSource ? (
-            <div>
-              <label className={labelCls}>Source type</label>
-              <div className="flex flex-wrap gap-1.5">
-                {(['URL', 'File', 'Folder', 'Note'] as const).map((s) => (
-                  <button key={s} onClick={() => setSourceKind(s)}
-                    className={`rounded-[9px] border px-3 py-1.5 text-xs font-semibold ${sourceKind === s ? 'border-violet-400/50 bg-violet-400/15 text-white' : 'border-white/[0.10] text-white/45'}`}>{s}</button>
-                ))}
-              </div>
-              {sourceKind === 'URL' && (
-                <input className={`${inputCls} mt-2`} value={d.sourceUrl ?? ''} onChange={(e) => set({ sourceUrl: e.target.value })} placeholder="https:// or drive:// URL" />
-              )}
-              {(sourceKind === 'File' || sourceKind === 'Folder') && (
-                <input className={`${inputCls} mt-2`} value={d.fileName ?? ''} onChange={(e) => set({ fileName: e.target.value })} placeholder={sourceKind === 'File' ? 'file-name.md' : 'folder/path/'} />
-              )}
-            </div>
-          ) : (
-            <div>
-              <label className={labelCls}>Type</label>
-              <select className={inputCls} value={d.type} onChange={(e) => set({ type: e.target.value as KnowledgeType })}>
-                {memoryTypes.map((t) => <option key={t} value={t}>{KNOW_TYPE_META[t].label}</option>)}
-              </select>
-            </div>
-          )}
-
-          <div>
-            <label className={labelCls}>Scope</label>
-            <div className="flex gap-1.5">
-              {(['global', 'project'] as const).map((s) => (
-                <button key={s} onClick={() => set({ scope: s, projectName: s === 'global' ? undefined : d.projectName })}
-                  className={`flex-1 rounded-[9px] border px-3 py-1.5 text-xs font-semibold capitalize ${d.scope === s ? 'border-violet-400/50 bg-violet-400/15 text-white' : 'border-white/[0.10] text-white/45'}`}>{s}</button>
-              ))}
-            </div>
-            {d.scope === 'project' && (
-              <select className={`${inputCls} mt-2`} value={d.projectName ?? ''} onChange={(e) => set({ projectName: e.target.value || undefined })}>
-                <option value="">Select project…</option>
-                {KNOWLEDGE_PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            )}
-          </div>
-
-          <div>
-            <label className={labelCls}>Summary *</label>
-            <input className={inputCls} value={d.summary} onChange={(e) => set({ summary: e.target.value })} placeholder="One line agents will see first" />
-          </div>
-          {!isSource && (
-            <div>
-              <label className={labelCls}>Content</label>
-              <textarea className={`${inputCls} min-h-[80px] resize-y`} value={d.content} onChange={(e) => set({ content: e.target.value })} placeholder="Full memory / instructions agents can use" />
-            </div>
-          )}
-          <div>
-            <label className={labelCls}>Tags (comma separated)</label>
-            <input className={inputCls} value={d.tags.join(', ')} onChange={(e) => set({ tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })} placeholder="sales, finance" />
-          </div>
-
-          <div className="flex flex-col gap-2 rounded-[10px] border border-white/[0.08] bg-white/[0.02] p-3">
-            {isSource && (
-              <label className="flex items-center justify-between text-xs text-white/65">
-                <span>Read-only</span>
-                <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="accent-violet-500" />
-              </label>
-            )}
-            <label className="flex items-center justify-between text-xs text-white/65">
-              <span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-amber-300" /> Requires approval before agents use it</span>
-              <input type="checkbox" checked={!!d.requiresApproval} onChange={(e) => set({ requiresApproval: e.target.checked })} className="accent-amber-500" />
-            </label>
-          </div>
-
-          {error && <p className="text-xs font-semibold text-red-400">{error}</p>}
-        </div>
-        <div className="mt-5 flex gap-2">
-          <button onClick={onCancel} className="flex-1 rounded-[10px] border border-white/[0.12] px-3 py-2.5 text-sm font-semibold text-white/55 hover:text-white">Cancel</button>
-          <button onClick={submit} className="flex-1 rounded-[10px] bg-[#ffffff] px-3 py-2.5 text-sm font-bold text-[#070B14] hover:bg-[#f0f2ff]">{mode === 'edit' ? 'Save changes' : 'Add item'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function KnowledgeDetailPanel({ item, onClose, onEdit, onArchive, onDelete, onTogglePin }: {
-  item: KnowledgeItem;
-  onClose: () => void;
-  onEdit: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-  onTogglePin: () => void;
-}) {
-  const tm = KNOW_TYPE_META[item.type];
-  const sm = KNOW_STATUS_META[item.status];
-  return (
-    <motion.aside
-      initial={{ x: 480, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 480, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-      className="fixed right-0 top-0 bottom-0 z-[70] flex w-[clamp(380px,32vw,460px)] flex-col border-l border-white/[0.09] bg-[#070912] shadow-[0_0_80px_rgba(0,0,0,0.6)]">
-      <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] p-5">
-        <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2">
-            <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${tm.tone}`}><tm.Icon size={10} />{tm.label}</span>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${sm.tone}`}>{sm.label}</span>
-          </div>
-          <h3 className="font-heading text-lg font-bold leading-tight text-white">{item.title}</h3>
-        </div>
-        <button onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 hover:text-white"><X size={14} /></button>
-      </div>
-
-      <div className="flex-1 space-y-4 overflow-y-auto p-5 text-sm">
-        <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Summary</p>
-          <p className="leading-relaxed text-white/70">{item.summary}</p>
-        </div>
-        {item.content && (
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Content</p>
-            <p className="whitespace-pre-wrap rounded-[10px] border border-white/[0.07] bg-white/[0.02] p-3 leading-relaxed text-white/60">{item.content}</p>
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Linked project</p>
-            <p className="flex items-center gap-1.5 text-white/65">{item.scope === 'project'
-              ? <><Layers3 size={12} className="text-blue-300" />{item.projectName}</>
-              : <><Globe size={12} className="text-violet-300" />Global</>}</p>
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">Scope</p>
-            <p className="capitalize text-white/65">{item.scope}</p>
-          </div>
-        </div>
-        {(item.sourceUrl || item.fileName) && (
-          <div>
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/35">{item.fileName ? 'File' : 'Source'}</p>
-            <p className="flex items-center gap-1.5 break-all rounded-[10px] border border-white/[0.07] bg-white/[0.02] p-2.5 text-xs text-sky-300/80">
-              {item.fileName ? <FileText size={12} /> : <LinkIcon size={12} />}{item.fileName ?? item.sourceUrl}
-            </p>
-          </div>
-        )}
-        <div>
-          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-white/35">Used by agents ({item.usedByAgents.length})</p>
-          <div className="flex flex-wrap gap-1.5">
-            {item.usedByAgents.length ? item.usedByAgents.map((a) => (
-              <span key={a} className="flex items-center gap-1 rounded-full border border-white/[0.10] bg-white/[0.04] px-2 py-0.5 text-[11px] text-white/60"><Users size={10} />{a}</span>
-            )) : <span className="text-xs text-white/30">No agents linked yet</span>}
-          </div>
-        </div>
-        {item.tags.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-white/35">Tags</p>
-            <div className="flex flex-wrap gap-1.5">
-              {item.tags.map((t) => <span key={t} className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/45">#{t}</span>)}
-            </div>
-          </div>
-        )}
-        <div className={`rounded-[10px] border p-3 ${item.requiresApproval ? 'border-amber-400/25 bg-amber-400/[0.06]' : 'border-emerald-400/20 bg-emerald-400/[0.05]'}`}>
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-white/70">
-            <ShieldCheck size={13} className={item.requiresApproval ? 'text-amber-300' : 'text-emerald-300'} />
-            {item.requiresApproval ? 'Approval-protected' : 'Standard access'}
-          </p>
-          <p className="mt-1 text-[11px] leading-relaxed text-white/45">
-            {item.requiresApproval
-              ? 'Agents must request approval before using this item in external actions.'
-              : 'Agents can use this item directly within Safety Mode rules.'}
-          </p>
-        </div>
-        <div>
-          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-white/35">Activity history</p>
-          <div className="space-y-1.5 text-[11px] text-white/45">
-            <p className="flex items-center gap-2"><Clock3 size={11} /> Created {fmtDate(item.createdAt)}</p>
-            <p className="flex items-center gap-2"><PenLine size={11} /> Updated {fmtDate(item.updatedAt)}</p>
-            <p className="flex items-center gap-2"><Eye size={11} /> Last used {fmtDate(item.lastUsedAt)}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 border-t border-white/[0.07] p-4">
-        <button onClick={onEdit} className="flex items-center justify-center gap-1.5 rounded-[10px] border border-white/[0.12] px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/[0.06]"><PenLine size={12} /> Edit</button>
-        <button onClick={onTogglePin} className="flex items-center justify-center gap-1.5 rounded-[10px] border border-violet-400/25 bg-violet-400/[0.06] px-3 py-2 text-xs font-semibold text-violet-200 hover:bg-violet-400/[0.12]"><Sparkles size={12} />{item.status === 'pinned' ? 'Unpin' : 'Pin'}</button>
-        <button onClick={onArchive} className="flex items-center justify-center gap-1.5 rounded-[10px] border border-white/[0.12] px-3 py-2 text-xs font-semibold text-white/55 hover:bg-white/[0.06]"><Square size={11} />{item.status === 'archived' ? 'Restore' : 'Archive'}</button>
-        <button onClick={onDelete} className="flex items-center justify-center gap-1.5 rounded-[10px] border border-red-400/30 bg-red-500/[0.08] px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/[0.16]"><X size={12} /> Delete</button>
-      </div>
-    </motion.aside>
-  );
-}
-
-function KnowledgeOSPage() {
-  const [items, setItems] = React.useState<KnowledgeItem[]>(() => loadKnowledgeItems());
-  React.useEffect(() => {
-    try { localStorage.setItem(KNOWLEDGE_LS_KEY, JSON.stringify(items)); } catch { /* ignore */ }
-  }, [items]);
-
-  const [cat, setCat] = React.useState<KnowledgeType | 'all' | 'archived'>('all');
-  const [query, setQuery] = React.useState('');
-  const [statusFilter, setStatusFilter] = React.useState<KnowledgeStatus | 'all'>('all');
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [editor, setEditor] = React.useState<{ mode: 'add-memory' | 'add-source' | 'edit'; draft: KnowledgeItem } | null>(null);
-  const [deleteId, setDeleteId] = React.useState<string | null>(null);
-
-  const counts = React.useMemo(() => {
-    const c: Record<string, number> = { all: 0, archived: 0 };
-    for (const it of items) {
-      if (it.status === 'archived') { c.archived = (c.archived ?? 0) + 1; continue; }
-      c.all += 1;
-      c[it.type] = (c[it.type] ?? 0) + 1;
-    }
-    return c;
-  }, [items]);
-
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter((it) => {
-      if (cat === 'archived') { if (it.status !== 'archived') return false; }
-      else if (it.status === 'archived') return false;
-      else if (cat !== 'all' && it.type !== cat) return false;
-      if (statusFilter !== 'all' && it.status !== statusFilter) return false;
-      if (!q) return true;
-      const hay = [it.title, it.summary, it.content, it.projectName ?? '', it.tags.join(' '), it.usedByAgents.join(' ')].join(' ').toLowerCase();
-      return hay.includes(q);
-    });
-  }, [items, cat, query, statusFilter]);
-
-  const selected = items.find((i) => i.id === selectedId) ?? null;
-
-  const upsert = (item: KnowledgeItem) => {
-    setItems((prev) => prev.some((p) => p.id === item.id)
-      ? prev.map((p) => (p.id === item.id ? item : p))
-      : [{ ...item, createdAt: NOW_ISO() }, ...prev]);
-    setEditor(null);
-    setSelectedId(item.id);
-  };
-  const archiveItem = (id: string) => setItems((prev) => prev.map((p) => p.id === id
-    ? { ...p, status: p.status === 'archived' ? 'active' : 'archived', updatedAt: NOW_ISO() } : p));
-  const togglePin = (id: string) => setItems((prev) => prev.map((p) => p.id === id
-    ? { ...p, status: p.status === 'pinned' ? 'active' : 'pinned', updatedAt: NOW_ISO() } : p));
-  const removeItem = (id: string) => { setItems((prev) => prev.filter((p) => p.id !== id)); setDeleteId(null); setSelectedId((s) => s === id ? null : s); };
-
-  return (
-    <OSPageShell
-      eyebrow="Knowledge base"
-      title="Memory & Sources"
-      subtitle="Control what AI Ant and your agents can remember, reference, and reuse across projects."
-      action={
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-300">
-            <ShieldCheck size={12} /> Safety Mode: ON
-          </span>
-          <button onClick={() => setEditor({ mode: 'add-memory', draft: emptyKnowledgeDraft('global_memory') })}
-            className="flex items-center gap-1.5 rounded-[10px] bg-[#ffffff] px-3 py-2 text-xs font-bold text-[#070B14] hover:bg-[#f0f2ff]"><Plus size={13} /> Add memory</button>
-          <button onClick={() => setEditor({ mode: 'add-source', draft: emptyKnowledgeDraft('source') })}
-            className="flex items-center gap-1.5 rounded-[10px] border border-white/[0.14] px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/[0.06]"><FolderOpen size={13} /> Add source</button>
-        </div>
-      }
-    >
-      <div className="mb-4 flex items-start gap-2.5 rounded-[16px] border border-violet-400/15 bg-violet-400/[0.05] p-3.5 text-sm text-violet-100/70">
-        <Brain className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
-        Knowledge items can be attached to projects, used by agents, or kept global. Approval-protected items require confirmation before agents use them.
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        <div className="relative min-w-[240px] flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title, summary, tags, project, agents…"
-            className="w-full rounded-[12px] border border-white/[0.10] bg-white/[0.03] py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-violet-400/40" />
-        </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as KnowledgeStatus | 'all')}
-          className="rounded-[12px] border border-white/[0.10] bg-[#0b0f1a] px-3 py-2.5 text-sm text-white/70 outline-none focus:border-violet-400/40">
-          <option value="all">All statuses</option>
-          {(Object.keys(KNOW_STATUS_META) as KnowledgeStatus[]).map((s) => <option key={s} value={s}>{KNOW_STATUS_META[s].label}</option>)}
-        </select>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        <div className="h-fit rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-2.5">
-          {KNOWLEDGE_CATEGORIES.map((c) => (
-            <button key={c.id} onClick={() => setCat(c.id)}
-              className={`mb-1 flex w-full items-center justify-between rounded-[11px] px-3 py-2 text-left text-sm font-semibold transition ${cat === c.id ? 'bg-violet-400/15 text-white' : 'text-white/45 hover:bg-white/[0.04]'}`}>
-              <span>{c.label}</span>
-              <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${cat === c.id ? 'bg-violet-400/20 text-violet-200' : 'bg-white/[0.05] text-white/30'}`}>
-                {c.id === 'all' ? counts.all : c.id === 'archived' ? counts.archived : (counts[c.id] ?? 0)}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div>
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-[18px] border border-dashed border-white/[0.10] bg-white/[0.02] py-16 text-center">
-              <Database className="mb-3 h-7 w-7 text-white/20" />
-              <p className="text-sm font-semibold text-white/55">No knowledge items found.</p>
-              <p className="mt-1 text-xs text-white/30">Try changing filters or add a new memory/source.</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-2">
-              {filtered.map((it) => {
-                const tm = KNOW_TYPE_META[it.type];
-                const sm = KNOW_STATUS_META[it.status];
-                return (
-                  <div key={it.id} className="flex flex-col rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-4 transition hover:border-white/[0.14]">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${tm.tone}`}><tm.Icon size={10} />{tm.label}</span>
-                      <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${sm.tone}`}>
-                        {it.status === 'approval_required' && <ShieldCheck size={9} />}{sm.label}
-                      </span>
-                    </div>
-                    <h3 className="font-heading text-[15px] font-bold leading-tight text-white">{it.title}</h3>
-                    <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-white/45">{it.summary}</p>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/32">
-                      <span className="flex items-center gap-1">{it.scope === 'project'
-                        ? <><Layers3 size={10} />{it.projectName}</> : <><Globe size={10} />Global</>}</span>
-                      <span className="flex items-center gap-1"><Users size={10} />{it.usedByAgents.length} agents</span>
-                      <span className="flex items-center gap-1"><Clock3 size={10} />{fmtDate(it.updatedAt)}</span>
-                    </div>
-                    <div className="mt-4 flex gap-1.5">
-                      <button onClick={() => setSelectedId(it.id)} className="flex items-center gap-1 rounded-[9px] bg-[#ffffff] px-2.5 py-1.5 text-[11px] font-bold text-[#070B14] hover:bg-[#f0f2ff]"><Eye size={11} /> Details</button>
-                      <button onClick={() => setEditor({ mode: 'edit', draft: it })} className="flex items-center gap-1 rounded-[9px] border border-white/[0.12] px-2.5 py-1.5 text-[11px] font-semibold text-white/55 hover:text-white"><PenLine size={11} /> Edit</button>
-                      <button onClick={() => archiveItem(it.id)} className="flex items-center gap-1 rounded-[9px] border border-white/[0.12] px-2.5 py-1.5 text-[11px] font-semibold text-white/45 hover:text-white"><Square size={10} />{it.status === 'archived' ? 'Restore' : 'Archive'}</button>
-                      <button onClick={() => setDeleteId(it.id)} className="flex items-center gap-1 rounded-[9px] border border-red-400/25 px-2.5 py-1.5 text-[11px] font-semibold text-red-300/80 hover:bg-red-500/[0.12]"><X size={11} /></button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {selected && (
-          <>
-            <motion.div key="kb-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setSelectedId(null)} className="fixed inset-0 z-[65] bg-black/50" />
-            <KnowledgeDetailPanel
-              key="kb-detail"
-              item={selected}
-              onClose={() => setSelectedId(null)}
-              onEdit={() => setEditor({ mode: 'edit', draft: selected })}
-              onArchive={() => archiveItem(selected.id)}
-              onDelete={() => setDeleteId(selected.id)}
-              onTogglePin={() => togglePin(selected.id)}
-            />
-          </>
-        )}
-      </AnimatePresence>
-
-      {editor && (
-        <KnowledgeEditorModal
-          mode={editor.mode}
-          draft={editor.draft}
-          onCancel={() => setEditor(null)}
-          onSave={upsert}
-        />
-      )}
-
-      {deleteId && (
-        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setDeleteId(null)}>
-          <div className="w-full max-w-sm rounded-[18px] border border-white/[0.10] bg-[#0a0d18] p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex items-center gap-2">
-              <AlertTriangle size={16} className="text-red-400" />
-              <h3 className="font-heading text-base font-bold text-white">Delete this item?</h3>
-            </div>
-            <p className="mb-4 text-sm leading-relaxed text-white/50">
-              "{items.find((i) => i.id === deleteId)?.title}" will be permanently removed. Agents will no longer be able to use it. This cannot be undone.
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => setDeleteId(null)} className="flex-1 rounded-[10px] border border-white/[0.12] px-3 py-2.5 text-sm font-semibold text-white/55 hover:text-white">Cancel</button>
-              <button onClick={() => removeItem(deleteId)} className="flex-1 rounded-[10px] bg-red-500/85 px-3 py-2.5 text-sm font-bold text-white hover:bg-red-500">Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </OSPageShell>
-  );
-}
-
-const TEMPLATE_ITEMS = [
-  { name: 'Weekly Sales Report Team', type: 'AI Team', category: 'Sales', agents: '5 agents', output: 'Report + spreadsheet', rating: 4.8, uses: '2.4k' },
-  { name: 'Startup Market Research', type: 'Project', category: 'Startup', agents: '6 agents', output: 'Research + positioning', rating: 4.6, uses: '1.1k' },
-  { name: 'Competitor Monitoring', type: 'Workflow', category: 'Research', agents: '3 agents', output: 'Monthly brief', rating: 4.7, uses: '890' },
-  { name: 'AI Social Media Team', type: 'AI Team', category: 'Content', agents: '4 agents', output: 'Calendar + drafts', rating: 4.9, uses: '3.2k' },
-  { name: 'Customer Support Triage', type: 'AI Team', category: 'Support', agents: '4 agents', output: 'Draft replies', rating: 4.5, uses: '1.7k' },
-  { name: 'Monthly Finance Report', type: 'Workflow', category: 'Finance', agents: '5 agents', output: 'Finance report', rating: 4.8, uses: '640' },
-] as const;
-
-const TYPE_TONE: Record<string, string> = {
-  'AI Team': 'text-violet-300 bg-violet-400/10 border-violet-400/20',
-  'Project': 'text-blue-300 bg-blue-400/10 border-blue-400/20',
-  'Workflow': 'text-emerald-300 bg-emerald-400/10 border-emerald-400/20',
-};
-
-function TemplatesCommunityPage({ setPage }: { setPage: (page: Page) => void }) {
-  const [cat, setCat] = useState('All');
-  const cats = ['All', 'Sales', 'Research', 'Content', 'Finance', 'Startup', 'Support'];
-  const filtered = cat === 'All' ? TEMPLATE_ITEMS : TEMPLATE_ITEMS.filter(t => t.category === cat);
-  return (
-    <OSPageShell eyebrow="Reusable AI workforce setups" title="Template Community" subtitle="Discover, use, and remix AI team templates, workflow templates, and project setups.">
-      <div className="mb-5 flex flex-wrap gap-2">
-        {cats.map((c) => (
-          <button key={c} onClick={() => setCat(c)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${cat === c ? 'border-violet-400/40 bg-violet-400/15 text-white' : 'border-white/[0.09] bg-white/[0.03] text-white/48 hover:text-white/80'}`}>
-            {c}
-          </button>
-        ))}
-      </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((t) => (
-          <div key={t.name} className="flex flex-col rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 transition hover:border-white/[0.12]">
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${TYPE_TONE[t.type] ?? ''}`}>{t.type}</span>
-              <div className="flex items-center gap-1 text-[11px] text-amber-300">
-                <Sparkles size={10} />
-                {t.rating}
-              </div>
-            </div>
-            <h3 className="font-heading text-[15px] font-bold text-white">{t.name}</h3>
-            <p className="mt-1 text-sm text-white/45">{t.agents} · {t.output}</p>
-            <p className="mt-2 text-[11px] text-white/28">Colony Community · {t.uses} uses</p>
-            <div className="mt-auto pt-5 flex gap-2">
-              <button onClick={() => setPage('AI Ant')} className="rounded-[10px] bg-[#ffffff] px-3 py-2 text-xs font-bold text-[#070B14] transition hover:bg-[#f0f2ff]">Use</button>
-              <button className="rounded-[10px] border border-white/[0.18] bg-white/[0.06] px-3 py-2 text-xs font-semibold text-white/65 transition hover:border-white/28 hover:bg-white/[0.09] hover:text-white/85">Remix</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </OSPageShell>
-  );
-}
-
-const CONNECTOR_CATEGORIES = ['All', 'Files & Storage', 'Communication', 'Productivity', 'Browser & Web', 'Data & Analytics', 'Developer Tools', 'Local Device', 'Automation', 'Finance', 'Social Media'] as const;
-
-const CONNECTOR_LIST: { name: string; category: string; status: 'Connected' | 'Needs re-auth' | 'Not connected' | 'Restricted' | 'Coming soon'; desc: string; perms: string; usedBy: string }[] = [
-  { name: 'Google Drive', category: 'Files & Storage', status: 'Connected', desc: 'Read and organize approved project files.', perms: 'Read files, create drafts', usedBy: '2 projects' },
-  { name: 'Gmail', category: 'Communication', status: 'Needs re-auth', desc: 'Draft replies and summarize inbox with approval.', perms: 'Read email, draft only', usedBy: '1 agent' },
-  { name: 'Google Sheets', category: 'Data & Analytics', status: 'Connected', desc: 'Analyze spreadsheets and write approved updates.', perms: 'Read/write with approval', usedBy: 'Sales team' },
-  { name: 'Slack', category: 'Communication', status: 'Not connected', desc: 'Summarize channels and draft team updates.', perms: 'Draft messages', usedBy: '—' },
-  { name: 'Notion', category: 'Productivity', status: 'Not connected', desc: 'Sync docs and turn notes into project knowledge.', perms: 'Read/write pages', usedBy: '—' },
-  { name: 'Web Browser', category: 'Browser & Web', status: 'Connected', desc: 'Browse and extract data from public pages.', perms: 'Read web pages', usedBy: 'Research team' },
-  { name: 'Local Files', category: 'Local Device', status: 'Restricted', desc: 'Read selected folders on this device.', perms: 'Read-only folders', usedBy: '—' },
-  { name: 'GitHub', category: 'Developer Tools', status: 'Coming soon', desc: 'Summarize issues, PRs, and release notes.', perms: 'Read repositories', usedBy: '—' },
-  { name: 'Stripe', category: 'Finance', status: 'Coming soon', desc: 'Summarize revenue and flag anomalies.', perms: 'Read-only', usedBy: '—' },
-  { name: 'X / Twitter', category: 'Social Media', status: 'Coming soon', desc: 'Draft and schedule posts with approval.', perms: 'Draft posts', usedBy: '—' },
-];
-
-const STATUS_TONE: Record<string, string> = {
-  Connected: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-  'Needs re-auth': 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-  'Not connected': 'border-white/[0.12] text-white/45',
-  Restricted: 'border-blue-400/30 bg-blue-400/10 text-blue-300',
-  'Coming soon': 'border-white/[0.1] text-white/35',
-};
-
-const CONNECTOR_BRAND: Record<string, { bg: string; text: string; abbr: string }> = {
-  'Google Drive':  { bg: '#1a73e8', text: '#fff', abbr: 'GD' },
-  'Gmail':         { bg: '#ea4335', text: '#fff', abbr: 'GM' },
-  'Google Sheets': { bg: '#34a853', text: '#fff', abbr: 'GS' },
-  'Slack':         { bg: '#4a154b', text: '#fff', abbr: 'SL' },
-  'Notion':        { bg: '#1c1c1c', text: '#fff', abbr: 'NO' },
-  'Web Browser':   { bg: '#2b6cb0', text: '#fff', abbr: 'WB' },
-  'Local Files':   { bg: '#374151', text: '#fff', abbr: 'LF' },
-  'GitHub':        { bg: '#24292e', text: '#fff', abbr: 'GH' },
-  'Stripe':        { bg: '#635bff', text: '#fff', abbr: 'ST' },
-  'X / Twitter':   { bg: '#000', text: '#fff', abbr: 'X' },
-};
-
-function ConnectorsMarketplacePage() {
-  const [cat, setCat] = useState<string>('All');
-  const [query, setQuery] = useState('');
-  const filtered = CONNECTOR_LIST.filter((c) =>
-    (cat === 'All' || c.category === cat) &&
-    (query === '' || c.name.toLowerCase().includes(query.toLowerCase())));
-
-  return (
-    <OSPageShell eyebrow="Integration marketplace" title="Connect tools for AI Ant" subtitle="Give AI Ant safe access to your files, apps, and services — with your approval every step of the way.">
-      <div className="mb-4 flex items-start gap-2.5 rounded-[18px] border border-emerald-400/15 bg-emerald-400/[0.05] p-4 text-sm text-emerald-100/70">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-        AI Ant asks for approval before sending messages, editing files, publishing content, or sharing data.
-      </div>
-
-      {/* Search + filter */}
-      <div className="mb-4">
-        <div className="relative">
-          <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/30" />
-          <input
-            value={query} onChange={(e) => setQuery(e.target.value)}
-            className="w-full rounded-[14px] border border-white/[0.08] bg-white/[0.04] py-3 pl-9 pr-4 text-sm text-white outline-none placeholder:text-white/28 focus:border-violet-400/40"
-            placeholder="Search connectors..."
-          />
-        </div>
-      </div>
-
-      <div className="mb-5 flex flex-wrap gap-2">
-        {CONNECTOR_CATEGORIES.map((c) => (
-          <button key={c} onClick={() => setCat(c)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${cat === c ? 'border-violet-400/40 bg-violet-400/15 text-white' : 'border-white/[0.09] bg-white/[0.03] text-white/48 hover:text-white/80'}`}>
-            {c}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((c) => {
-          const brand = CONNECTOR_BRAND[c.name];
-          return (
-            <div key={c.name} className="flex flex-col rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 transition hover:border-white/[0.12]">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] text-[13px] font-bold"
-                    style={{ background: brand?.bg ?? 'rgba(255,255,255,0.08)', color: brand?.text ?? '#fff' }}>
-                    {brand?.abbr ?? c.name[0]}
-                  </div>
-                  <div>
-                    <h3 className="text-[14px] font-bold text-white/90">{c.name}</h3>
-                    <p className="text-[11px] text-white/30">{c.category}</p>
-                  </div>
-                </div>
-                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${STATUS_TONE[c.status]}`}>{c.status}</span>
-              </div>
-              <p className="mt-4 flex-1 text-sm leading-relaxed text-white/45">{c.desc}</p>
-              <div className="mt-3 text-[11px] text-white/25">
-                <span className="flex items-center gap-1"><ShieldCheck size={10} className="text-white/20" />{c.perms}</span>
-              </div>
-              <SkillModelPills
-                skills={skillsForCapabilities(c.name === 'Web Browser' ? ['browser_action'] : c.category === 'Local Device' || c.category === 'Files & Storage' ? ['file_reading'] : ['connected_tool_action'])}
-                compact
-              />
-              <p className="mt-2 text-[10px] text-white/28">{c.name === 'Web Browser' ? 'Browser Action · Approval required' : c.status === 'Connected' ? 'Colony Bridge · Read-only' : 'Colony Bridge · Approval-first'}</p>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-[11px] text-white/25">Used by: {c.usedBy}</span>
-                <button disabled={c.status === 'Coming soon'}
-                  className={`rounded-[10px] px-3 py-1.5 text-xs font-bold transition ${
-                    c.status === 'Coming soon' ? 'cursor-default text-white/25' :
-                    c.status === 'Connected' ? 'border border-white/[0.15] text-white/70 hover:bg-white/[0.05]' :
-                    c.status === 'Needs re-auth' ? 'border border-amber-400/30 text-amber-300 hover:bg-amber-400/10' :
-                    'bg-[#ffffff] text-[#070B14] hover:bg-[#f0f2ff]'}`}>
-                  {c.status === 'Coming soon' ? 'Soon' : c.status === 'Connected' ? 'Manage' : c.status === 'Needs re-auth' ? 'Re-auth' : 'Connect'}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </OSPageShell>
-  );
-}
 
 
 

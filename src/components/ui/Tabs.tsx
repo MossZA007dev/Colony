@@ -72,7 +72,7 @@ export function TabsTrigger({ value, children, className = '', highlightClassNam
           transition={{ type: 'spring', stiffness: 380, damping: 32, bounce: 0 }}
         />
       )}
-      {children}
+      {children as React.ReactNode}
     </motion.button>
   );
 }

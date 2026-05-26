@@ -19,8 +19,16 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_default_model: str = "gpt-5-mini"
     openai_timeout_seconds: float = 30.0
+    # OpenRouter (primary AI provider for Colony)
+    openrouter_api_key: str | None = None
+    openrouter_default_model: str = "deepseek/deepseek-chat-v3-0324:free"
+    openrouter_timeout_seconds: float = 40.0
+    # Colony Bridge — Google OAuth
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    google_oauth_redirect_uri: str = "http://localhost:8000/bridge/oauth/google/callback"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origin_list(self) -> list[str]:
