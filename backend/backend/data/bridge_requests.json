@@ -1,0 +1,61 @@
+{
+  "anonymous": [
+    {
+      "id": "req-2d2063c0dbf2",
+      "user_id": "anonymous",
+      "service": "gmail",
+      "action": "list_recent",
+      "params": {
+        "n": 2
+      },
+      "risk": "medium",
+      "reason": "Requested by agent",
+      "requesting_agent_id": null,
+      "status": "executed",
+      "created_at": "2026-05-24T07:35:21.504611Z",
+      "decided_at": "2026-05-24T07:35:21.509156+00:00",
+      "executed_at": "2026-05-24T07:35:21.518314+00:00",
+      "result": {
+        "emails": [
+          {
+            "id": "m1",
+            "subject": "Contract Revision",
+            "from": "client@example.com",
+            "date": "2024-01-01",
+            "snippet": "Please review the attached..."
+          },
+          {
+            "id": "m2",
+            "subject": "Product Update",
+            "from": "team@example.com",
+            "date": "2024-01-02",
+            "snippet": "Here are the new features..."
+          }
+        ]
+      },
+      "error": null,
+      "source": "mock"
+    }
+  ],
+  "test@example.com": [
+    {
+      "id": "req-393fb41f109c",
+      "user_id": "test@example.com",
+      "service": "gmail",
+      "action": "list_recent",
+      "params": {
+        "n": 5
+      },
+      "risk": "low",
+      "reason": "Test scan inbox",
+      "requesting_agent_id": null,
+      "status": "pending",
+      "created_at": "2026-05-24T08:09:46.006427Z",
+      "decided_at": null,
+      "executed_at": null,
+      "result": null,
+      "error": null,
+      "source": "mock"
+    }
+  ]
+}

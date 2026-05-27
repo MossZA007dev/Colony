@@ -13,6 +13,10 @@ import {
   X,
   Bot,
   CheckCircle2,
+  Linkedin,
+  Twitter,
+  Github,
+  Mail,
 } from 'lucide-react';
 import { ColonyLogo } from '../../components/brand/BrandMarks';
 import { validateEmail } from '../../lib/auth/mockAuth';
@@ -252,28 +256,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
         {!publicOnly && <EarlyAccessSection goTo={goTo} onWaitlistCountChange={setWaitlistCount} />}
       </div>
 
-      <footer className="border-t border-white/[0.07] bg-[#050508] px-5 py-10 md:px-8">
-        <div className="mx-auto flex max-w-[1200px] flex-col items-center justify-between gap-5 text-[13px] text-white/40 md:flex-row">
-          <div className="flex items-center gap-2 text-white/85">
-            <ColonyLogo size={20} />
-            <span className="font-semibold tracking-tight">Colony Bridge</span>
-          </div>
-          <div className="flex flex-wrap justify-center gap-5">
-            <a href="mailto:hello@colonybridge.ai" className="transition-colors hover:text-white/65">
-              Contact
-            </a>
-            {navLinks.map((link) => (
-              <a key={link.id} href={`#${link.id}`} className="transition-colors hover:text-white/65">
-                {link.label}
-              </a>
-            ))}
-            <a href="#faq" className="transition-colors hover:text-white/65">
-              FAQ
-            </a>
-          </div>
-          <p>(c) 2026 Colony Bridge</p>
-        </div>
-      </footer>
+      <LandingFooter navLinks={navLinks} scrollToPrimaryCta={scrollToPrimaryCta} />
     </div>
   );
 }
@@ -1052,7 +1035,7 @@ function PhaseCard({
   return card;
 }
 
-function EarlyAccessSection({
+export function EarlyAccessSection({
   goTo,
   onWaitlistCountChange,
 }: {
@@ -1250,5 +1233,170 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
       {label}
       <div className="mt-2">{children}</div>
     </label>
+  );
+}
+
+// ── Premium footer ───────────────────────────────────────────────────────────
+type FooterLinkItem = {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  external?: boolean;
+  placeholder?: boolean;
+};
+
+function LandingFooter({
+  navLinks,
+  scrollToPrimaryCta,
+}: {
+  navLinks: NavLink[];
+  scrollToPrimaryCta: () => void;
+}) {
+  const scrollToId = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const productLinks: FooterLinkItem[] = navLinks.map((link) => ({
+    label: link.label,
+    onClick: () => scrollToId(link.id),
+  }));
+
+  const accessLinks: FooterLinkItem[] = [
+    { label: 'Request Early Access', onClick: scrollToPrimaryCta },
+    { label: 'Pilot Program', onClick: scrollToPrimaryCta },
+    { label: 'Contact the Team', href: 'mailto:hello@colonybridge.ai', external: true },
+    { label: 'Blog', placeholder: true },
+  ];
+
+  const legalLinks: FooterLinkItem[] = [
+    { label: 'Terms of Use', placeholder: true },
+    { label: 'Privacy Policy', placeholder: true },
+    { label: 'Cookie Policy', placeholder: true },
+  ];
+
+  const socials: { label: string; href: string; icon: React.ElementType }[] = [
+    { label: 'LinkedIn', href: 'https://www.linkedin.com/', icon: Linkedin },
+    { label: 'X / Twitter', href: 'https://twitter.com/', icon: Twitter },
+    { label: 'GitHub', href: 'https://github.com/', icon: Github },
+    { label: 'Email the team', href: 'mailto:hello@colonybridge.ai', icon: Mail },
+  ];
+
+  return (
+    <footer className="relative overflow-hidden border-t border-white/[0.07] bg-[#050508]">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -top-px h-px"
+        style={{
+          background:
+            'linear-gradient(90deg, transparent, rgba(125,183,255,0.35) 30%, rgba(124,92,252,0.35) 70%, transparent)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-40 left-1/2 h-[320px] w-[860px] -translate-x-1/2"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, rgba(124,92,252,0.10) 0%, rgba(125,183,255,0.07) 35%, transparent 70%)',
+          filter: 'blur(40px)',
+        }}
+      />
+
+      <div className="relative mx-auto w-full max-w-[1200px] px-5 pb-10 pt-16 md:px-8 md:pb-12 md:pt-20">
+        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-[1.55fr_1fr_1fr_1fr] lg:gap-12">
+          {/* Brand column */}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <ColonyLogo size={22} />
+              <span className="font-heading text-[15px] font-semibold tracking-tight text-white">Colony Bridge</span>
+            </div>
+            <p className="mt-4 max-w-[340px] text-[13px] leading-relaxed text-white/52">
+              AI operating workspace for coordinating goals, agents, workflows, and approvals in one place.
+            </p>
+            <p className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.025] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-300/85 shadow-[0_0_10px_rgba(167,139,250,0.65)]" />
+              Private prototype · Invitation only
+            </p>
+          </div>
+
+          <FooterColumn heading="Product" links={productLinks} />
+          <FooterColumn heading="Access" links={accessLinks} />
+          <FooterColumn heading="Legal" links={legalLinks} />
+        </div>
+
+        <div className="mt-12 flex flex-col items-start justify-between gap-5 border-t border-white/[0.05] pt-6 sm:flex-row sm:items-center">
+          <p className="text-[12px] text-white/40">© 2026 Colony Bridge. All rights reserved.</p>
+          <nav aria-label="Social links" className="flex items-center gap-2">
+            {socials.map((s) => (
+              <a
+                key={s.label}
+                href={s.href}
+                aria-label={s.label}
+                target={s.href.startsWith('mailto:') ? undefined : '_blank'}
+                rel={s.href.startsWith('mailto:') ? undefined : 'noreferrer noopener'}
+                className="group grid h-9 w-9 place-items-center rounded-full border border-white/[0.08] bg-white/[0.025] text-white/55 transition-all duration-300 hover:-translate-y-0.5 hover:border-[#7db7ff]/35 hover:bg-[#7db7ff]/[0.08] hover:text-white hover:shadow-[0_0_24px_rgba(125,183,255,0.18)]"
+              >
+                <s.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </a>
+            ))}
+          </nav>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function FooterColumn({ heading, links }: { heading: string; links: FooterLinkItem[] }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10.5px] font-bold uppercase tracking-[0.2em] text-white/40">{heading}</p>
+      <ul className="mt-4 space-y-2.5">
+        {links.map((link) => (
+          <li key={link.label}>
+            <FooterLink link={link} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FooterLink({ link }: { link: FooterLinkItem }) {
+  const baseClasses =
+    'inline-flex items-center gap-1.5 text-[13px] transition-colors duration-200';
+
+  if (link.placeholder) {
+    return (
+      <span
+        title="Coming soon"
+        className={`${baseClasses} cursor-default text-white/35`}
+      >
+        {link.label}
+        <span className="rounded-full border border-white/[0.06] bg-white/[0.025] px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.12em] text-white/35">
+          Soon
+        </span>
+      </span>
+    );
+  }
+
+  if (link.onClick) {
+    return (
+      <button
+        type="button"
+        onClick={link.onClick}
+        className={`${baseClasses} text-left text-white/55 hover:text-white`}
+      >
+        {link.label}
+      </button>
+    );
+  }
+
+  return (
+    <a
+      href={link.href}
+      target={link.external && !link.href?.startsWith('mailto:') ? '_blank' : undefined}
+      rel={link.external && !link.href?.startsWith('mailto:') ? 'noreferrer noopener' : undefined}
+      className={`${baseClasses} text-white/55 hover:text-white`}
+    >
+      {link.label}
+    </a>
   );
 }

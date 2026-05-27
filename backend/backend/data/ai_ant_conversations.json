@@ -1,0 +1,394 @@
+{
+  "conversations": [
+    {
+      "created_at": "2026-05-25T04:00:51.346224+00:00",
+      "id": "wsc-1779681649709",
+      "messages": [
+        {
+          "content": "hello",
+          "created_at": "2026-05-25T04:00:51.346224+00:00",
+          "role": "user"
+        },
+        {
+          "content": "Hello! How can I assist you today? \ud83d\ude0a",
+          "created_at": "2026-05-25T04:00:51.346224+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779681649709",
+            "created_at": "2026-05-25T04:00:51.341630Z",
+            "intent": "chat",
+            "message_id": "msg_5526e014955c484fbe78f456b850da00",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "Hello! How can I assist you today? \ud83d\ude0a",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 76,
+              "output_tokens": 12
+            }
+          },
+          "role": "assistant"
+        },
+        {
+          "content": "i want to bult businesntrys iabout making thai tea expert to another cou",
+          "created_at": "2026-05-25T04:02:55.393590+00:00",
+          "role": "user"
+        },
+        {
+          "content": "To build a business around exporting Thai tea expertise to another country, here\u2019s a concise plan:\n\n1. **Market Research**:  \n   - Identify target countries with a growing interest in tea or Asian beverages.  \n   - Study local preferences, competitors, and regulations.  \n\n2. **Product Offering**:  \n   - Decide whether to sell ready-to-drink Thai tea, tea leaves, or tea-making kits.  \n   - Ensure authenticity in flavor and branding.  \n\n3. **Partnerships**:  \n   - Partner with local suppliers or distributors in the target country.  \n   - Collaborate with Thai tea experts for training or recipes.  \n\n4. **Branding & Marketing**:  \n   - Create a strong brand identity highlighting Thai culture and tea expertise.  \n   - Use social media, influencers, and local events to promote.  \n\n5. **Logistics**:  \n   - Plan for exporting, including packaging, shipping, and customs.  \n   - Ensure compliance with food safety regulations in the target country.  \n\n6. **Sales Channels**:  \n   - Sell online via your own website or platforms like Amazon.  \n   - Partner with local cafes, restaurants, or retailers.  \n\n7. **Scaling**:  \n   - Expand product lines (e.g., other Thai beverages or snacks).  \n   - Offer workshops or franchise opportunities for Thai tea-making.  \n\nWould you like help with any specific step?",
+          "created_at": "2026-05-25T04:02:55.393590+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779681649709",
+            "created_at": "2026-05-25T04:02:55.389982Z",
+            "intent": "chat",
+            "message_id": "msg_5303a1dc34d742c682462e1ca4a96b1b",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "To build a business around exporting Thai tea expertise to another country, here\u2019s a concise plan:\n\n1. **Market Research**:  \n   - Identify target countries with a growing interest in tea or Asian beverages.  \n   - Study local preferences, competitors, and regulations.  \n\n2. **Product Offering**:  \n   - Decide whether to sell ready-to-drink Thai tea, tea leaves, or tea-making kits.  \n   - Ensure authenticity in flavor and branding.  \n\n3. **Partnerships**:  \n   - Partner with local suppliers or distributors in the target country.  \n   - Collaborate with Thai tea experts for training or recipes.  \n\n4. **Branding & Marketing**:  \n   - Create a strong brand identity highlighting Thai culture and tea expertise.  \n   - Use social media, influencers, and local events to promote.  \n\n5. **Logistics**:  \n   - Plan for exporting, including packaging, shipping, and customs.  \n   - Ensure compliance with food safety regulations in the target country.  \n\n6. **Sales Channels**:  \n   - Sell online via your own website or platforms like Amazon.  \n   - Partner with local cafes, restaurants, or retailers.  \n\n7. **Scaling**:  \n   - Expand product lines (e.g., other Thai beverages or snacks).  \n   - Offer workshops or franchise opportunities for Thai tea-making.  \n\nWould you like help with any specific step?",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 94,
+              "output_tokens": 284
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "hello",
+      "updated_at": "2026-05-25T04:02:55.393590+00:00",
+      "user_id": "usr_003"
+    },
+    {
+      "created_at": "2026-05-25T03:51:31.511208+00:00",
+      "id": "wsc-1779681089669",
+      "messages": [
+        {
+          "content": "hello",
+          "created_at": "2026-05-25T03:51:31.511208+00:00",
+          "role": "user"
+        },
+        {
+          "content": "Hello! How can I assist you today? \ud83d\ude0a",
+          "created_at": "2026-05-25T03:51:31.511208+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779681089669",
+            "created_at": "2026-05-25T03:51:31.501960Z",
+            "intent": "chat",
+            "message_id": "msg_4e616900660045aea1c59e30a46824e5",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "Hello! How can I assist you today? \ud83d\ude0a",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 76,
+              "output_tokens": 12
+            }
+          },
+          "role": "assistant"
+        },
+        {
+          "content": "can you tell me about llm mean?",
+          "created_at": "2026-05-25T03:55:35.037667+00:00",
+          "role": "user"
+        },
+        {
+          "content": "LLM stands for **Large Language Model**, which refers to advanced AI models designed to understand and generate human-like text based on the input they receive. These models are trained on vast amounts of textual data and use deep learning techniques, particularly transformer architectures, to process and predict sequences of words.\n\nKey characteristics of LLMs:\n- **Scale**: They are \"large\" because they have billions or even trillions of parameters, enabling them to capture complex language patterns.\n- **Versatility**: They can perform a wide range of tasks, such as answering questions, summarizing text, translating languages, writing code, and more.\n- **Contextual Understanding**: They can generate contextually relevant responses by analyzing the input context.\n- **Examples**: Popular LLMs include OpenAI's GPT series (e.g., GPT-3, GPT-4), Google's Bard, and Meta's LLaMA.\n\nIn short, LLMs are powerful AI tools that mimic human language understanding and generation, enabling applications in various fields like customer service, education, and content creation.",
+          "created_at": "2026-05-25T03:55:35.037667+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.74,
+            "conversation_id": "wsc-1779681089669",
+            "created_at": "2026-05-25T03:55:35.035633Z",
+            "intent": "answer_question",
+            "message_id": "msg_74d6d0c04aa640d1ad2770c4411e2918",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "LLM stands for **Large Language Model**, which refers to advanced AI models designed to understand and generate human-like text based on the input they receive. These models are trained on vast amounts of textual data and use deep learning techniques, particularly transformer architectures, to process and predict sequences of words.\n\nKey characteristics of LLMs:\n- **Scale**: They are \"large\" because they have billions or even trillions of parameters, enabling them to capture complex language patterns.\n- **Versatility**: They can perform a wide range of tasks, such as answering questions, summarizing text, translating languages, writing code, and more.\n- **Contextual Understanding**: They can generate contextually relevant responses by analyzing the input context.\n- **Examples**: Popular LLMs include OpenAI's GPT series (e.g., GPT-3, GPT-4), Google's Bard, and Meta's LLaMA.\n\nIn short, LLMs are powerful AI tools that mimic human language understanding and generation, enabling applications in various fields like customer service, education, and content creation.",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 86,
+              "output_tokens": 212
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "hello",
+      "updated_at": "2026-05-25T03:55:35.037667+00:00",
+      "user_id": "usr_003"
+    },
+    {
+      "created_at": "2026-05-24T18:59:04.611347+00:00",
+      "id": "wsc-1779649135727",
+      "messages": [
+        {
+          "content": "hi i want to create new bussines call memonic",
+          "created_at": "2026-05-24T18:59:04.611347+00:00",
+          "role": "user"
+        },
+        {
+          "content": "Hi! That sounds exciting! To get started with your new business, \"Memonic,\" here are a few steps you can take:\n\n1. **Define Your Business Idea**: Clearly outline what Memonic will offer. Is it a product, service, or something else?\n\n2. **Market Research**: Identify your target audience and competitors. Understand what makes Memonic unique.\n\n3. **Business Plan**: Draft a plan covering your goals, strategies, budget, and timeline.\n\n4. **Legal Structure**: Decide on the legal structure (e.g., sole proprietorship, LLC).\n\n5. **Name and Branding**: Ensure \"Memonic\" is available as a domain and trademark. Design a logo and branding materials.\n\n6. **Register Your Business**: Register Memonic with the appropriate government authorities.\n\n7. **Set Up Finances**: Open a business bank account and set up accounting systems.\n\n8. **Build an Online Presence**: Create a website and social media profiles.\n\n9. **Launch and Market**: Plan a launch strategy and start marketing Memonic.\n\nLet me know if you'd like help with any specific step! \ud83d\ude80",
+          "created_at": "2026-05-24T18:59:04.611347+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779649135727",
+            "created_at": "2026-05-24T18:59:04.610118Z",
+            "intent": "chat",
+            "message_id": "msg_fcc196dd885c4154aeea53d0efbb8839",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "Hi! That sounds exciting! To get started with your new business, \"Memonic,\" here are a few steps you can take:\n\n1. **Define Your Business Idea**: Clearly outline what Memonic will offer. Is it a product, service, or something else?\n\n2. **Market Research**: Identify your target audience and competitors. Understand what makes Memonic unique.\n\n3. **Business Plan**: Draft a plan covering your goals, strategies, budget, and timeline.\n\n4. **Legal Structure**: Decide on the legal structure (e.g., sole proprietorship, LLC).\n\n5. **Name and Branding**: Ensure \"Memonic\" is available as a domain and trademark. Design a logo and branding materials.\n\n6. **Register Your Business**: Register Memonic with the appropriate government authorities.\n\n7. **Set Up Finances**: Open a business bank account and set up accounting systems.\n\n8. **Build an Online Presence**: Create a website and social media profiles.\n\n9. **Launch and Market**: Plan a launch strategy and start marketing Memonic.\n\nLet me know if you'd like help with any specific step! \ud83d\ude80",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 87,
+              "output_tokens": 229
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "hi i want to create new bussines call memonic",
+      "updated_at": "2026-05-24T18:59:04.611347+00:00",
+      "user_id": "usr_003"
+    },
+    {
+      "created_at": "2026-05-24T18:57:02.333034+00:00",
+      "id": "wsc-1779648987597",
+      "messages": [
+        {
+          "content": "hello",
+          "created_at": "2026-05-24T18:57:02.333034+00:00",
+          "role": "user"
+        },
+        {
+          "content": "Hello! How can I assist you today? \ud83d\ude0a",
+          "created_at": "2026-05-24T18:57:02.333034+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779648987597",
+            "created_at": "2026-05-24T18:57:02.327886Z",
+            "intent": "chat",
+            "message_id": "msg_ce0699981c1d4f37ab392787f9ee4351",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "Hello! How can I assist you today? \ud83d\ude0a",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 76,
+              "output_tokens": 12
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "hello",
+      "updated_at": "2026-05-24T18:57:02.333034+00:00",
+      "user_id": "usr_003"
+    },
+    {
+      "created_at": "2026-05-24T18:46:33.963382+00:00",
+      "id": "wsc-1779648383684",
+      "messages": [
+        {
+          "content": "i want to create busniess i want my own secret srouce for thai tea",
+          "created_at": "2026-05-24T18:46:33.963382+00:00",
+          "role": "user"
+        },
+        {
+          "content": "That sounds like a fun and unique business idea! Here\u2019s a concise roadmap to get you started:\n\n### 1. **Develop Your Secret Sauce**\n   - Experiment with flavors (e.g., spices, sweetness, creaminess) to create a signature Thai tea blend.\n   - Keep notes on recipes and ratios\u2014this will be your intellectual property.\n\n### 2. **Legal & Compliance**\n   - **Trademark**: Protect your sauce name/logo.\n   - **Food Safety**: Check local regulations for homemade food/beverage sales (licenses, kitchen requirements).\n   - **Packaging**: Use airtight, food-grade containers if selling bottled sauce.\n\n### 3. **Business Model**\n   - **Sell the Sauce**: Online (Etsy, Shopify) or to local cafes.\n   - **Thai Tea Stand/Pop-up**: Use the sauce as your star ingredient.\n   - **Subscription Box**: Monthly Thai tea kits with your sauce.\n\n### 4. **Branding**\n   - Create a catchy name and story (e.g., \u201cGrandma\u2019s Bangkok Secret\u201d).\n   - Use vibrant colors (orange, gold) in packaging for visual appeal.\n\n### 5. **Test & Launch**\n   - Offer free samples at markets to gather feedback.\n   - Start small (local/online) before scaling.\n\n### Need Help?\n- I can brainstorm sauce flavors, draft a recipe template, or suggest branding ideas. Just ask!  \n\n\ud83d\ude80 *Approval needed for any irreversible steps (e.g., trademark filing).*",
+          "created_at": "2026-05-24T18:46:33.963382+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779648383684",
+            "created_at": "2026-05-24T18:46:33.957791Z",
+            "intent": "chat",
+            "message_id": "msg_107e5daeb2b842c58094572d52083886",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "That sounds like a fun and unique business idea! Here\u2019s a concise roadmap to get you started:\n\n### 1. **Develop Your Secret Sauce**\n   - Experiment with flavors (e.g., spices, sweetness, creaminess) to create a signature Thai tea blend.\n   - Keep notes on recipes and ratios\u2014this will be your intellectual property.\n\n### 2. **Legal & Compliance**\n   - **Trademark**: Protect your sauce name/logo.\n   - **Food Safety**: Check local regulations for homemade food/beverage sales (licenses, kitchen requirements).\n   - **Packaging**: Use airtight, food-grade containers if selling bottled sauce.\n\n### 3. **Business Model**\n   - **Sell the Sauce**: Online (Etsy, Shopify) or to local cafes.\n   - **Thai Tea Stand/Pop-up**: Use the sauce as your star ingredient.\n   - **Subscription Box**: Monthly Thai tea kits with your sauce.\n\n### 4. **Branding**\n   - Create a catchy name and story (e.g., \u201cGrandma\u2019s Bangkok Secret\u201d).\n   - Use vibrant colors (orange, gold) in packaging for visual appeal.\n\n### 5. **Test & Launch**\n   - Offer free samples at markets to gather feedback.\n   - Start small (local/online) before scaling.\n\n### Need Help?\n- I can brainstorm sauce flavors, draft a recipe template, or suggest branding ideas. Just ask!  \n\n\ud83d\ude80 *Approval needed for any irreversible steps (e.g., trademark filing).*",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 94,
+              "output_tokens": 314
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "i want to create busniess i want my own secret srouce for thai t",
+      "updated_at": "2026-05-24T18:46:33.963382+00:00",
+      "user_id": "usr_003"
+    },
+    {
+      "created_at": "2026-05-24T18:31:52.498497+00:00",
+      "id": "wsc-1779647510502",
+      "messages": [
+        {
+          "content": "hello",
+          "created_at": "2026-05-24T18:31:52.498497+00:00",
+          "role": "user"
+        },
+        {
+          "content": "Hello! How can I assist you today? \ud83d\ude0a",
+          "created_at": "2026-05-24T18:31:52.498497+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "wsc-1779647510502",
+            "created_at": "2026-05-24T18:31:52.490112Z",
+            "intent": "chat",
+            "message_id": "msg_f8fe8a5efd8343c6b7042fcac943d1d3",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "Hello! How can I assist you today? \ud83d\ude0a",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 76,
+              "output_tokens": 12
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "hello",
+      "updated_at": "2026-05-24T18:31:52.498497+00:00",
+      "user_id": "usr_003"
+    },
+    {
+      "created_at": "2026-05-24T18:15:11.655239+00:00",
+      "id": "conv_e3ca20e081604f39867299b93aee059d",
+      "messages": [
+        {
+          "content": "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35 \u0e2d\u0e18\u0e34\u0e1a\u0e32\u0e22\u0e15\u0e31\u0e27\u0e40\u0e2d\u0e07\u0e43\u0e19\u0e1b\u0e23\u0e30\u0e42\u0e22\u0e04\u0e40\u0e14\u0e35\u0e22\u0e27",
+          "created_at": "2026-05-24T18:15:11.655239+00:00",
+          "role": "user"
+        },
+        {
+          "content": "\u0e09\u0e31\u0e19\u0e04\u0e37\u0e2d AI Ant \u0e20\u0e32\u0e22\u0e43\u0e19\u0e23\u0e30\u0e1a\u0e1a\u0e1b\u0e0f\u0e34\u0e1a\u0e31\u0e15\u0e34\u0e01\u0e32\u0e23 AI Colony \u0e17\u0e35\u0e48\u0e2d\u0e2d\u0e01\u0e41\u0e1a\u0e1a\u0e21\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e0a\u0e48\u0e27\u0e22\u0e40\u0e2b\u0e25\u0e37\u0e2d\u0e41\u0e25\u0e30\u0e2a\u0e19\u0e31\u0e1a\u0e2a\u0e19\u0e38\u0e19\u0e01\u0e32\u0e23\u0e17\u0e33\u0e07\u0e32\u0e19\u0e02\u0e2d\u0e07\u0e04\u0e19\u0e17\u0e33\u0e18\u0e38\u0e23\u0e01\u0e34\u0e08\u0e41\u0e1a\u0e1a\u0e04\u0e19\u0e40\u0e14\u0e35\u0e22\u0e27",
+          "created_at": "2026-05-24T18:15:11.655239+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.68,
+            "conversation_id": "conv_e3ca20e081604f39867299b93aee059d",
+            "created_at": "2026-05-24T18:15:11.650311Z",
+            "intent": "chat",
+            "message_id": "msg_36e618b83d3c4380855301dfe58b1848",
+            "model": "deepseek/deepseek-chat-v3",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "\u0e09\u0e31\u0e19\u0e04\u0e37\u0e2d AI Ant \u0e20\u0e32\u0e22\u0e43\u0e19\u0e23\u0e30\u0e1a\u0e1a\u0e1b\u0e0f\u0e34\u0e1a\u0e31\u0e15\u0e34\u0e01\u0e32\u0e23 AI Colony \u0e17\u0e35\u0e48\u0e2d\u0e2d\u0e01\u0e41\u0e1a\u0e1a\u0e21\u0e32\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e0a\u0e48\u0e27\u0e22\u0e40\u0e2b\u0e25\u0e37\u0e2d\u0e41\u0e25\u0e30\u0e2a\u0e19\u0e31\u0e1a\u0e2a\u0e19\u0e38\u0e19\u0e01\u0e32\u0e23\u0e17\u0e33\u0e07\u0e32\u0e19\u0e02\u0e2d\u0e07\u0e04\u0e19\u0e17\u0e33\u0e18\u0e38\u0e23\u0e01\u0e34\u0e08\u0e41\u0e1a\u0e1a\u0e04\u0e19\u0e40\u0e14\u0e35\u0e22\u0e27",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 87,
+              "output_tokens": 34
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35 \u0e2d\u0e18\u0e34\u0e1a\u0e32\u0e22\u0e15\u0e31\u0e27\u0e40\u0e2d\u0e07\u0e43\u0e19\u0e1b\u0e23\u0e30\u0e42\u0e22\u0e04\u0e40\u0e14\u0e35\u0e22\u0e27",
+      "updated_at": "2026-05-24T18:15:11.655239+00:00",
+      "user_id": "test"
+    },
+    {
+      "created_at": "2026-05-23T19:13:37.509705+00:00",
+      "id": "conv_51ee60c811ae42f49f794c4bb2fc082a",
+      "messages": [
+        {
+          "content": "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35 \u0e0a\u0e48\u0e27\u0e22\u0e2d\u0e18\u0e34\u0e1a\u0e32\u0e22 Colony \u0e43\u0e2b\u0e49\u0e2b\u0e19\u0e48\u0e2d\u0e22\u0e44\u0e14\u0e49\u0e44\u0e2b\u0e21",
+          "created_at": "2026-05-23T19:13:37.509705+00:00",
+          "role": "user"
+        },
+        {
+          "content": "\u0e1c\u0e21\u0e15\u0e2d\u0e1a\u0e44\u0e14\u0e49\u0e08\u0e32\u0e01 context \u0e1b\u0e31\u0e08\u0e08\u0e38\u0e1a\u0e31\u0e19 \u0e16\u0e49\u0e32\u0e04\u0e33\u0e16\u0e32\u0e21\u0e40\u0e01\u0e35\u0e48\u0e22\u0e27\u0e01\u0e31\u0e1a project \u0e08\u0e23\u0e34\u0e07 backend \u0e04\u0e27\u0e23\u0e14\u0e36\u0e07 project context \u0e41\u0e25\u0e30 chat history \u0e21\u0e32\u0e1b\u0e23\u0e30\u0e01\u0e2d\u0e1a\u0e04\u0e33\u0e15\u0e2d\u0e1a",
+          "created_at": "2026-05-23T19:13:37.509705+00:00",
+          "metadata": {
+            "actions": [],
+            "approval_required": false,
+            "artifacts": [],
+            "confidence": 0.74,
+            "conversation_id": "conv_51ee60c811ae42f49f794c4bb2fc082a",
+            "created_at": "2026-05-23T19:13:37.507402Z",
+            "intent": "answer_question",
+            "message_id": "msg_7f3d37a4029348bc86f61acc3201df19",
+            "model": "colony-mock-router-v1",
+            "plan_id": "free",
+            "plan_name": "Free",
+            "reply": "\u0e1c\u0e21\u0e15\u0e2d\u0e1a\u0e44\u0e14\u0e49\u0e08\u0e32\u0e01 context \u0e1b\u0e31\u0e08\u0e08\u0e38\u0e1a\u0e31\u0e19 \u0e16\u0e49\u0e32\u0e04\u0e33\u0e16\u0e32\u0e21\u0e40\u0e01\u0e35\u0e48\u0e22\u0e27\u0e01\u0e31\u0e1a project \u0e08\u0e23\u0e34\u0e07 backend \u0e04\u0e27\u0e23\u0e14\u0e36\u0e07 project context \u0e41\u0e25\u0e30 chat history \u0e21\u0e32\u0e1b\u0e23\u0e30\u0e01\u0e2d\u0e1a\u0e04\u0e33\u0e15\u0e2d\u0e1a",
+            "route_source": "manual",
+            "status": "completed",
+            "usage": {
+              "estimated_cost_usd": 0.00016,
+              "input_tokens": 64,
+              "output_tokens": 96
+            }
+          },
+          "role": "assistant"
+        }
+      ],
+      "project_id": null,
+      "title": "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35 \u0e0a\u0e48\u0e27\u0e22\u0e2d\u0e18\u0e34\u0e1a\u0e32\u0e22 Colony \u0e43\u0e2b\u0e49\u0e2b\u0e19\u0e48\u0e2d\u0e22\u0e44\u0e14\u0e49\u0e44\u0e2b\u0e21",
+      "updated_at": "2026-05-23T19:13:37.509705+00:00",
+      "user_id": "test"
+    }
+  ]
+}

@@ -40,7 +40,7 @@ import {
   validateEmail,
 } from './lib/auth/mockAuth';
 import type { AuthProvider, AuthUser } from './lib/auth/mockAuth';
-import { canAccessAdminDashboard, canSeeDeveloperSettings, isDeveloperOrAdmin, roleBadgeLabel } from './lib/auth/roles';
+import { canAccessAdminDashboard, canAccessApp, canSeeDeveloperSettings, isDeveloperOrAdmin, roleBadgeLabel } from './lib/auth/roles';
 import {
   Activity,
   ArrowLeft,
@@ -118,7 +118,23 @@ import {
   PinOff,
 } from 'lucide-react';
 
-import { LoginPage, ForgotPasswordPage, VerifyEmailPage } from './pages/Auth';
+import { LoginPage, ForgotPasswordPage, VerifyEmailPage, AccessPendingPage } from './pages/Auth';
+import {
+  ProductPage as MarketingProductPage,
+  HowItWorksPage as MarketingHowItWorksPage,
+  FeaturesPage as MarketingFeaturesPage,
+  PricingPage as MarketingPricingPage,
+  RoadmapPage as MarketingRoadmapPage,
+  AboutPage as MarketingAboutPage,
+  EarlyAccessPage as MarketingEarlyAccessPage,
+  PrivacyPage as MarketingPrivacyPage,
+  TermsPage as MarketingTermsPage,
+  AIAntPage as MarketingAIAntPage,
+  ColonyCrewPage as MarketingColonyCrewPage,
+  OneManEnterprisePage as MarketingOneManEnterprisePage,
+  AutomationPage as MarketingAutomationPage,
+  ColonyBridgePage as MarketingColonyBridgePage,
+} from './pages/marketing';
 import { AIRoutingCard } from './pages/ai-ant/AIRoutingCard';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { onAuthStateChanged, signOut as signOutFirebase } from 'firebase/auth';
@@ -28663,7 +28679,12 @@ export default function App() {
     saveProfile(next);
   };
 
-  // After auth: first-time users go to onboarding, returning users to AI Ant.
+  // After auth: gate by canAccessApp first. Developers/admins (and, once the
+  // backend lands accessStatus, active pilots) proceed to the app. Everyone
+  // else is routed to AccessPending. First-time approved users see onboarding.
+  //
+  // TODO(BACKEND-ACCESS-GATE): this is a frontend convenience only. The API
+  // must independently refuse non-approved users; see canAccessApp() comment.
   const handleAuthed = async (user: AuthUser) => {
     const isSameProfile = profile.email === user.email;
     const keepExistingOnboarding = isSameProfile && profile.onboarded;
@@ -28679,6 +28700,10 @@ export default function App() {
     const hasSavedSurvey = next.onboarded ? false : await hasSurveySubmission(resolveSurveyUserId(next));
     if (hasSavedSurvey) next.onboarded = true;
     updateProfile(next);
+    if (!canAccessApp({ role: next.role })) {
+      setPage('AccessPending');
+      return;
+    }
     setPage(next.onboarded ? 'AI Ant' : 'Onboarding');
   };
 
@@ -28708,8 +28733,28 @@ export default function App() {
   // so it's not wiped here.
   const handleSwitchAccount = handleSignOut;
 
-  const publicPages: Page[] = ['Landing', 'Login', 'CreateAccount', 'VerifyEmail', 'ForgotPassword'];
+  const MARKETING_PAGE_LIST: Page[] = [
+    'MarketingProduct',
+    'MarketingHowItWorks',
+    'MarketingFeatures',
+    'MarketingFeatureAIAnt',
+    'MarketingFeatureColonyCrew',
+    'MarketingFeatureOneManEnterprise',
+    'MarketingFeatureAutomation',
+    'MarketingFeatureColonyBridge',
+    'MarketingPricing',
+    'MarketingRoadmap',
+    'MarketingAbout',
+    'MarketingEarlyAccess',
+    'MarketingPrivacy',
+    'MarketingTerms',
+  ];
+  const isMarketingPage = MARKETING_PAGE_LIST.includes(page);
+  const publicPages: Page[] = ['Landing', 'Login', 'CreateAccount', 'VerifyEmail', 'ForgotPassword', 'AccessPending', ...MARKETING_PAGE_LIST];
   const needsAuth = !publicPages.includes(page) && (!profile.email || !profile.emailVerified);
+  // TODO(BACKEND-ACCESS-GATE): mirror this check on every API route.
+  const authedButUnauthorized =
+    !!profile.email && profile.emailVerified && !canAccessApp({ role: profile.role }) && !isMarketingPage;
 
   useEffect(() => {
     let cancelled = false;
@@ -28753,13 +28798,33 @@ export default function App() {
         {page === 'CreateAccount' && <LoginPage goTo={setPage} onAuthed={handleAuthed} initialMode="signup" />}
         {page === 'VerifyEmail' && <VerifyEmailPage goTo={setPage} onAuthed={handleAuthed} />}
         {page === 'ForgotPassword' && <ForgotPasswordPage goTo={setPage} />}
-        {!needsAuth && page === 'Onboarding' && (
+        {page === 'AccessPending' && (
+          <AccessPendingPage goTo={setPage} onSignOut={handleSignOut} email={profile.email || undefined} />
+        )}
+        {page === 'MarketingProduct' && <MarketingProductPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingHowItWorks' && <MarketingHowItWorksPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingFeatures' && <MarketingFeaturesPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingFeatureAIAnt' && <MarketingAIAntPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingFeatureColonyCrew' && <MarketingColonyCrewPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingFeatureOneManEnterprise' && <MarketingOneManEnterprisePage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingFeatureAutomation' && <MarketingAutomationPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingFeatureColonyBridge' && <MarketingColonyBridgePage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingPricing' && <MarketingPricingPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingRoadmap' && <MarketingRoadmapPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingAbout' && <MarketingAboutPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingEarlyAccess' && <MarketingEarlyAccessPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingPrivacy' && <MarketingPrivacyPage goTo={setPage} currentPage={page} />}
+        {page === 'MarketingTerms' && <MarketingTermsPage goTo={setPage} currentPage={page} />}
+        {authedButUnauthorized && page !== 'AccessPending' && page !== 'Landing' && page !== 'Login' && page !== 'CreateAccount' && page !== 'VerifyEmail' && page !== 'ForgotPassword' && !isMarketingPage && (
+          <AccessPendingPage goTo={setPage} onSignOut={handleSignOut} email={profile.email || undefined} />
+        )}
+        {!needsAuth && !authedButUnauthorized && !isMarketingPage && page === 'Onboarding' && (
           <OnboardingPage
             onComplete={completeOnboarding}
             onSkip={() => completeOnboarding(profile.answers)}
           />
         )}
-        {!needsAuth && page !== 'Landing' && page !== 'Login' && page !== 'CreateAccount' && page !== 'VerifyEmail' && page !== 'ForgotPassword' && page !== 'Onboarding' && (
+        {!needsAuth && !authedButUnauthorized && !isMarketingPage && page !== 'Landing' && page !== 'Login' && page !== 'CreateAccount' && page !== 'VerifyEmail' && page !== 'ForgotPassword' && page !== 'Onboarding' && page !== 'AccessPending' && (
           <AppShell page={page} setPage={setPage} profile={profile} onSignOut={handleSignOut} onSwitchAccount={handleSwitchAccount} />
         )}
       </div>

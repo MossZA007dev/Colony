@@ -1,0 +1,184 @@
+{
+  "records": [
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779681649709",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-25T04:02:55.391869+00:00",
+      "intent": "chat",
+      "message_id": "msg_5303a1dc34d742c682462e1ca4a96b1b",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 94,
+      "tokens_out": 284,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779681649709",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-25T04:00:51.342265+00:00",
+      "intent": "chat",
+      "message_id": "msg_5526e014955c484fbe78f456b850da00",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 76,
+      "tokens_out": 12,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.74,
+      "conversation_id": "wsc-1779681089669",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-25T03:55:35.036142+00:00",
+      "intent": "answer_question",
+      "message_id": "msg_74d6d0c04aa640d1ad2770c4411e2918",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 86,
+      "tokens_out": 212,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779681089669",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-25T03:51:31.504112+00:00",
+      "intent": "chat",
+      "message_id": "msg_4e616900660045aea1c59e30a46824e5",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 76,
+      "tokens_out": 12,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779649135727",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-24T18:59:04.610451+00:00",
+      "intent": "chat",
+      "message_id": "msg_fcc196dd885c4154aeea53d0efbb8839",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 87,
+      "tokens_out": 229,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779648987597",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-24T18:57:02.328422+00:00",
+      "intent": "chat",
+      "message_id": "msg_ce0699981c1d4f37ab392787f9ee4351",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 76,
+      "tokens_out": 12,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779648383684",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-24T18:46:33.960041+00:00",
+      "intent": "chat",
+      "message_id": "msg_107e5daeb2b842c58094572d52083886",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 94,
+      "tokens_out": 314,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "wsc-1779647510502",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-24T18:31:52.492426+00:00",
+      "intent": "chat",
+      "message_id": "msg_f8fe8a5efd8343c6b7042fcac943d1d3",
+      "metadata": {
+        "approval_required": false,
+        "mode": "balanced",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 76,
+      "tokens_out": 12,
+      "user_id": "usr_003"
+    },
+    {
+      "confidence": 0.68,
+      "conversation_id": "conv_e3ca20e081604f39867299b93aee059d",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-24T18:15:11.650806+00:00",
+      "intent": "chat",
+      "message_id": "msg_36e618b83d3c4380855301dfe58b1848",
+      "metadata": {
+        "approval_required": false,
+        "mode": "normal",
+        "plan": "free"
+      },
+      "model": "deepseek/deepseek-chat-v3",
+      "route_source": "manual",
+      "tokens_in": 87,
+      "tokens_out": 34,
+      "user_id": "test"
+    },
+    {
+      "confidence": 0.74,
+      "conversation_id": "conv_51ee60c811ae42f49f794c4bb2fc082a",
+      "cost_usd": 0.00016,
+      "created_at": "2026-05-23T19:13:37.508193+00:00",
+      "intent": "answer_question",
+      "message_id": "msg_7f3d37a4029348bc86f61acc3201df19",
+      "metadata": {
+        "approval_required": false,
+        "mode": "normal",
+        "plan": "free"
+      },
+      "model": "colony-mock-router-v1",
+      "route_source": "manual",
+      "tokens_in": 64,
+      "tokens_out": 96,
+      "user_id": "test"
+    }
+  ]
+}

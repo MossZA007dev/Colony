@@ -25,6 +25,7 @@ import {
   isDevAdminCredentials,
   isDevAuthEnabled,
 } from '../../lib/auth/devAuth';
+import { ACCESS_STAGE } from '../../lib/access/accessStage';
 
 const VIDEO_BG_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260508_064122_c4750c0e-7476-4b44-94a2-a85a65c63bf2.mp4';
 
@@ -44,7 +45,8 @@ function GoogleGlyph() {
 type AuthFieldErrors = Partial<Record<'email' | 'password' | 'confirmPassword' | 'code' | 'newPassword', string>>;
 
 export function LoginPage({ goTo, onAuthed, initialMode = 'signin' }: { goTo: (page: Page) => void; onAuthed: (user: AuthUser) => void; initialMode?: 'signin' | 'signup' }) {
-  const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
+  const isInternalOnly = ACCESS_STAGE === 'waitlist_only';
+  const [mode, setMode] = useState<'signin' | 'signup'>(isInternalOnly ? 'signin' : initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -233,43 +235,57 @@ export function LoginPage({ goTo, onAuthed, initialMode = 'signin' }: { goTo: (p
           </div>
         </div>
 
-        <Tabs value={mode} onValueChange={(v) => goToMode(v as 'signin' | 'signup')}>
-          <TabsList className="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
-            <TabsTrigger
-              value="signin"
-              className="rounded-lg px-3 py-2 text-[13px] font-semibold text-white/55 transition-colors data-[state=active]:text-white"
-              highlightClassName="absolute inset-0 -z-10 rounded-lg bg-white/[0.07] shadow-[0_4px_18px_rgba(124,92,252,0.18)] ring-1 ring-white/[0.10]"
-            >
-              Sign in
-            </TabsTrigger>
-            <TabsTrigger
-              value="signup"
-              className="rounded-lg px-3 py-2 text-[13px] font-semibold text-white/55 transition-colors data-[state=active]:text-white"
-              highlightClassName="absolute inset-0 -z-10 rounded-lg bg-white/[0.07] shadow-[0_4px_18px_rgba(124,92,252,0.18)] ring-1 ring-white/[0.10]"
-            >
-              Create account
-            </TabsTrigger>
-          </TabsList>
+        {isInternalOnly ? (
+          <div className="mb-6">
+            <p className="mb-2 text-center text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
+              Colony Bridge Internal
+            </p>
+            <h1 className="mb-2 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">
+              Developer Access
+            </h1>
+            <p className="mx-auto max-w-[320px] text-center text-[13px] leading-relaxed text-white/45">
+              This workspace is currently restricted to internal developers and invited pilot users.
+            </p>
+          </div>
+        ) : (
+          <Tabs value={mode} onValueChange={(v) => goToMode(v as 'signin' | 'signup')}>
+            <TabsList className="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
+              <TabsTrigger
+                value="signin"
+                className="rounded-lg px-3 py-2 text-[13px] font-semibold text-white/55 transition-colors data-[state=active]:text-white"
+                highlightClassName="absolute inset-0 -z-10 rounded-lg bg-white/[0.07] shadow-[0_4px_18px_rgba(124,92,252,0.18)] ring-1 ring-white/[0.10]"
+              >
+                Sign in
+              </TabsTrigger>
+              <TabsTrigger
+                value="signup"
+                className="rounded-lg px-3 py-2 text-[13px] font-semibold text-white/55 transition-colors data-[state=active]:text-white"
+                highlightClassName="absolute inset-0 -z-10 rounded-lg bg-white/[0.07] shadow-[0_4px_18px_rgba(124,92,252,0.18)] ring-1 ring-white/[0.10]"
+              >
+                Create account
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContents className="mb-6">
-            <TabsContent value="signin">
-              <h1 className="mb-1 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">
-                Welcome back
-              </h1>
-              <p className="text-center text-[14px] text-white/40">
-                Sign in to command AI Ant and your AI workforce.
-              </p>
-            </TabsContent>
-            <TabsContent value="signup">
-              <h1 className="mb-1 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">
-                Create your account
-              </h1>
-              <p className="text-center text-[14px] text-white/40">
-                Start building your AI workforce in minutes.
-              </p>
-            </TabsContent>
-          </TabsContents>
-        </Tabs>
+            <TabsContents className="mb-6">
+              <TabsContent value="signin">
+                <h1 className="mb-1 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">
+                  Welcome back
+                </h1>
+                <p className="text-center text-[14px] text-white/40">
+                  Sign in to command AI Ant and your AI workforce.
+                </p>
+              </TabsContent>
+              <TabsContent value="signup">
+                <h1 className="mb-1 text-center font-heading text-[26px] font-semibold leading-tight tracking-[-0.02em] text-white">
+                  Create your account
+                </h1>
+                <p className="text-center text-[14px] text-white/40">
+                  Start building your AI workforce in minutes.
+                </p>
+              </TabsContent>
+            </TabsContents>
+          </Tabs>
+        )}
 
         <>
         {/* Google button */}
@@ -362,6 +378,24 @@ export function LoginPage({ goTo, onAuthed, initialMode = 'signin' }: { goTo: (p
         <div className="mt-5 flex items-center justify-center text-[13px]">
           <button onClick={() => goTo('ForgotPassword')} className="text-white/35 transition hover:text-white/65">Forgot password?</button>
         </div>
+
+        {isInternalOnly && (
+          <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-white/35">Not part of the internal team?</p>
+            <button
+              type="button"
+              onClick={() => {
+                goTo('Landing');
+                requestAnimationFrame(() => {
+                  document.getElementById('early-access')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+              }}
+              className="mt-1.5 text-[13px] font-semibold text-[#bcd9ff] underline-offset-2 transition hover:text-white hover:underline"
+            >
+              Request Early Access →
+            </button>
+          </div>
+        )}
 
         {/* Terms */}
         <p className="mt-6 text-center text-[11px] leading-relaxed text-white/20">

@@ -33,3 +33,16 @@ export function roleBadgeLabel(role?: UserRole | null): 'User' | 'Developer' | '
   if (role === 'developer') return 'Developer';
   return 'User';
 }
+
+// TODO(BACKEND-ACCESS-GATE): real enforcement must happen server-side.
+// Every /api/* product endpoint must 403 unless the caller is developer/admin
+// or has accessStatus="active_pilot". This frontend helper only decides which
+// page to render; it is not an access-control boundary.
+//
+// When the backend lands the `accessStatus` field and the 'pilot' role on the
+// user record, extend this to:
+//   return isDeveloperOrAdmin(user) ||
+//          (user.role === 'pilot' && user.accessStatus === 'active');
+export function canAccessApp(user: RoleHolder): boolean {
+  return isDeveloperOrAdmin(user);
+}

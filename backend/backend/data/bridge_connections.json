@@ -1,0 +1,22 @@
+{
+  "test@example.com": [
+    {
+      "user_id": "test@example.com",
+      "service": "gmail",
+      "connected_at": "2026-05-24T08:09:46.000693Z",
+      "scopes": [
+        "mock_gmail_scope"
+      ],
+      "email": "mock_test@example.com@example.com"
+    },
+    {
+      "user_id": "test@example.com",
+      "service": "drive",
+      "connected_at": "2026-05-24T08:09:46.001385Z",
+      "scopes": [
+        "mock_drive_scope"
+      ],
+      "email": "mock_test@example.com@example.com"
+    }
+  ]
+}
