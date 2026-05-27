@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight,
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 
 import { EASE_OUT_EXPO, RevealOnScroll } from './motion';
+import './SupportedModelsMarquee.css';
 
 type Accent = 'violet' | 'blue' | 'teal' | 'amber';
 
@@ -79,31 +80,37 @@ function FeatureIconBadge({ icon }: { icon: React.ReactNode }) {
 }
 
 type ModelProvider = {
+  id: string;
   name: string;
-  status: 'Supported' | 'Planned';
   logo?: string;
   fallback: string;
 };
 
 const modelProviders: ModelProvider[] = [
-  { name: 'OpenAI', status: 'Supported', logo: '/assets/Ai logo/OpenAI.svg', fallback: 'AI' },
-  { name: 'Claude', status: 'Supported', logo: '/assets/Ai logo/Claude.svg', fallback: 'CL' },
-  { name: 'Gemini', status: 'Supported', logo: '/assets/Ai logo/Gemini.svg', fallback: 'GM' },
-  { name: 'DeepSeek', status: 'Supported', logo: '/assets/Ai logo/DeepSeek.svg', fallback: 'DS' },
-  { name: 'Perplexity', status: 'Supported', logo: '/assets/Ai logo/Perplexity.svg', fallback: 'PX' },
-  { name: 'Mistral', status: 'Planned', logo: '/assets/Ai logo/Mistral AI.svg', fallback: 'MI' },
-  { name: 'Groq', status: 'Planned', fallback: 'GQ' },
-  { name: 'Cohere', status: 'Planned', logo: '/assets/Ai logo/Cohere.svg', fallback: 'CO' },
-  { name: 'Llama', status: 'Planned', logo: '/assets/Ai logo/Meta.svg', fallback: 'LA' },
-  { name: 'xAI / Grok', status: 'Planned', logo: '/assets/Ai logo/Grok.svg', fallback: 'XA' },
+  { id: 'openai', name: 'OpenAI', fallback: 'AI' },
+  { id: 'claude', name: 'Claude', logo: '/assets/Ai logo/Claude.svg', fallback: 'CL' },
+  { id: 'gemini', name: 'Gemini', logo: '/assets/Ai logo/Gemini.svg', fallback: 'GM' },
+  { id: 'deepseek', name: 'DeepSeek', logo: '/assets/Ai logo/DeepSeek.svg', fallback: 'DS' },
+  { id: 'perplexity', name: 'Perplexity', logo: '/assets/Ai logo/Perplexity-1.svg', fallback: 'PX' },
 ];
+
+const marqueeProviders = [...modelProviders, ...modelProviders];
 
 export function SupportedModelsSection() {
   const capabilities = ['Research', 'Reasoning', 'Writing', 'Image', 'Video'];
 
   return (
     <SectionShell id="supported-models" compact>
-      <GlassPanel className="p-5 md:p-8">
+      <div className="relative overflow-hidden py-3 md:py-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-0 h-48 w-[72%] -translate-x-1/2 rounded-full"
+          style={{
+            background: 'radial-gradient(ellipse at center, rgba(125,183,255,0.12), transparent 68%)',
+            filter: 'blur(46px)',
+          }}
+        />
+        <div className="relative">
         <SectionHeader
           center
           label="Supported Models"
@@ -112,15 +119,24 @@ export function SupportedModelsSection() {
         />
 
         <RevealOnScroll delay={0.08} y={18}>
-          <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-            {modelProviders.map((provider) => (
-              <ModelProviderCard key={provider.name} provider={provider} />
-            ))}
+          <div
+            className="supported-models-marquee mx-auto mt-10 max-w-[1180px]"
+            aria-label="Supported AI model providers"
+          >
+            <div className="supported-models-track">
+              {marqueeProviders.map((provider, index) => (
+                <ModelProviderItem
+                  key={`${provider.id}-${index}`}
+                  provider={provider}
+                  ariaHidden={index >= modelProviders.length}
+                />
+              ))}
+            </div>
           </div>
         </RevealOnScroll>
 
         <RevealOnScroll delay={0.14} y={14}>
-          <div className="mx-auto mt-7 flex max-w-3xl flex-wrap items-center justify-center gap-2">
+          <div className="mx-auto mt-10 flex max-w-3xl flex-wrap items-center justify-center gap-2">
             {capabilities.map((capability) => (
               <span
                 key={capability}
@@ -130,40 +146,38 @@ export function SupportedModelsSection() {
               </span>
             ))}
           </div>
-          <p className="mx-auto mt-4 max-w-2xl text-center text-[12.5px] leading-relaxed text-white/42">
+          <p className="mx-auto mt-5 max-w-2xl text-center text-[12.5px] leading-relaxed text-white/42">
             Designed to support leading model providers as Colony Bridge expands routing, evaluation, and capability-based model selection.
           </p>
         </RevealOnScroll>
-      </GlassPanel>
+        </div>
+      </div>
     </SectionShell>
   );
 }
 
-function ModelProviderCard({ provider }: { provider: ModelProvider }) {
+function ModelProviderItem({ provider, ariaHidden }: { provider: ModelProvider; ariaHidden?: boolean }) {
   return (
-    <div className="group flex min-h-[104px] flex-col items-center justify-center rounded-[18px] border border-white/[0.075] bg-[#060912]/70 px-3 py-4 text-center transition duration-300 hover:-translate-y-0.5 hover:border-[#7db7ff]/24 hover:bg-white/[0.045] motion-reduce:transform-none">
-      <div className="grid h-10 w-10 place-items-center rounded-full border border-white/[0.10] bg-white/[0.06]">
+    <div
+      aria-hidden={ariaHidden}
+      className="inline-flex h-[52px] flex-none items-center gap-3 whitespace-nowrap rounded-full border border-white/[0.09] bg-white/[0.025] px-5 text-white/86"
+    >
+      <span
+        aria-hidden="true"
+        className="grid h-7 w-7 flex-none place-items-center overflow-hidden text-white/72"
+      >
         {provider.logo ? (
           <img
             src={provider.logo}
             alt=""
-            className="h-5 w-5 object-contain opacity-75 grayscale invert transition duration-300 group-hover:opacity-95"
             draggable={false}
+            className="block h-7 w-7 max-h-[28px] max-w-[28px] object-contain opacity-80 [filter:brightness(0)_invert(1)]"
           />
         ) : (
-          <span className="text-[10px] font-bold text-white/70">{provider.fallback}</span>
+          <span className="text-[10px] font-bold tracking-wide text-white/72">{provider.fallback}</span>
         )}
-      </div>
-      <p className="mt-2 text-[13px] font-semibold text-white/84">{provider.name}</p>
-      <span
-        className={`mt-2 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${
-          provider.status === 'Supported'
-            ? 'border-emerald-300/22 bg-emerald-400/[0.075] text-emerald-200/82'
-            : 'border-white/[0.10] bg-white/[0.035] text-white/42'
-        }`}
-      >
-        {provider.status}
       </span>
+      <span className="text-[14px] font-medium leading-none text-white/82">{provider.name}</span>
     </div>
   );
 }
@@ -363,51 +377,151 @@ function ColonyBridgeActionDiagram() {
   );
 }
 
+const SYSTEM_MAP_ROWS = [
+  { title: 'Colony Crew', icon: Users, accent: 'violet' as Accent, copy: 'Assembles specialist agents to solve complex work.', flow: ['Assemble team', 'Collaborate', 'Review', 'Deliverable'], output: 'Team output ready for review' },
+  { title: 'One-man Enterprise', icon: Building2, accent: 'blue' as Accent, copy: 'Creates an AI organization with roles and departments.', flow: ['Define org', 'Assign roles', 'Execute', 'Deliverable'], output: 'Org results with full visibility' },
+  { title: 'Automation', icon: Zap, accent: 'teal' as Accent, copy: 'Runs repeatable work through smart workflows.', flow: ['Trigger', 'Run workflow', 'Output', 'Deliverable'], output: 'Automated output delivered' },
+  { title: 'Colony Bridge', icon: MousePointer2, accent: 'amber' as Accent, copy: 'Connects AI Ant to approved tools and environments so plans can become real actions.', flow: ['Connect Context', 'Request Approval', 'Take Action', 'Deliverable'], output: 'Work completed with user control' },
+];
+
 export function SystemMapSection() {
-  const rows = [
-    { title: 'Colony Crew', icon: Users, accent: 'violet' as Accent, copy: 'Assembles specialist agents to solve complex work.', flow: ['Assemble team', 'Collaborate', 'Review', 'Deliverable'], output: 'Team output ready for review' },
-    { title: 'One-man Enterprise', icon: Building2, accent: 'blue' as Accent, copy: 'Creates an AI organization with roles and departments.', flow: ['Define org', 'Assign roles', 'Execute', 'Deliverable'], output: 'Org results with full visibility' },
-    { title: 'Automation', icon: Zap, accent: 'teal' as Accent, copy: 'Runs repeatable work through smart workflows.', flow: ['Trigger', 'Run workflow', 'Output', 'Deliverable'], output: 'Automated output delivered' },
-    { title: 'Colony Bridge', icon: MousePointer2, accent: 'amber' as Accent, copy: 'Connects AI Ant to approved tools and environments so plans can become real actions.', flow: ['Connect Context', 'Request Approval', 'Take Action', 'Deliverable'], output: 'Work completed with user control' },
-  ];
+  const rows = SYSTEM_MAP_ROWS;
+
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const aiAntRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [connectors, setConnectors] = useState<Array<{ d: string; color: string } | null>>(() => rows.map(() => null));
+  const [wrapperSize, setWrapperSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    let rafId = 0;
+    let stopAt = 0;
+    let prevSizeKey = '';
+    let prevConnectorKey = '';
+
+    const compute = () => {
+      const wrapper = wrapperRef.current;
+      const aiAnt = aiAntRef.current;
+      if (!wrapper || !aiAnt) return;
+      const wrapRect = wrapper.getBoundingClientRect();
+      const sizeKey = `${Math.round(wrapRect.width)}x${Math.round(wrapRect.height)}`;
+      if (sizeKey !== prevSizeKey) {
+        prevSizeKey = sizeKey;
+        setWrapperSize({ w: wrapRect.width, h: wrapRect.height });
+      }
+
+      const antRect = aiAnt.getBoundingClientRect();
+      const sx = antRect.right - wrapRect.left;
+      const sy = antRect.top + antRect.height / 2 - wrapRect.top;
+
+      const next = SYSTEM_MAP_ROWS.map((row, idx) => {
+        const rowEl = rowRefs.current[idx];
+        if (!rowEl) return null;
+        const rowRect = rowEl.getBoundingClientRect();
+        const ex = rowRect.left - wrapRect.left;
+        const ey = rowRect.top + rowRect.height / 2 - wrapRect.top;
+        const c1x = sx + (ex - sx) * 0.55;
+        const c2x = ex - (ex - sx) * 0.45;
+        return {
+          d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${c1x.toFixed(1)} ${sy.toFixed(1)}, ${c2x.toFixed(1)} ${ey.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`,
+          color: accentClasses[row.accent].line,
+        };
+      });
+      const connectorKey = next.map((c) => c?.d ?? '').join('|');
+      if (connectorKey !== prevConnectorKey) {
+        prevConnectorKey = connectorKey;
+        setConnectors(next);
+      }
+    };
+
+    const tick = () => {
+      compute();
+      if (performance.now() < stopAt) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+
+    compute();
+    stopAt = performance.now() + 1400;
+    rafId = requestAnimationFrame(tick);
+
+    const ro = new ResizeObserver(compute);
+    if (wrapperRef.current) ro.observe(wrapperRef.current);
+    if (aiAntRef.current) ro.observe(aiAntRef.current);
+    rowRefs.current.forEach((el) => el && ro.observe(el));
+    window.addEventListener('resize', compute);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+      window.removeEventListener('resize', compute);
+    };
+  }, []);
 
   return (
     <SectionShell id="product">
-      <GlassPanel className="p-5 md:p-7">
-        <div className="grid gap-8 lg:grid-cols-[0.9fr_1.8fr] lg:items-center">
-          <div>
-            <SectionHeader label="Visual System Map" title="From one prompt to an AI workforce." copy="AI Ant turns a goal into the right combination of specialists, workflows, tools, and review-ready deliverables." />
-            <div className="relative mt-10 flex justify-center lg:justify-start">
-              <div className="relative grid h-52 w-52 place-items-center rounded-full border border-[#7db7ff]/28 bg-[#7db7ff]/[0.055] shadow-[0_0_70px_rgba(125,183,255,0.16)]">
-                <div className="absolute inset-5 rounded-full border border-[#7db7ff]/18" />
-                <div className="text-center">
-                  <DiagramNode className="mx-auto h-16 w-16 bg-white/[0.08]"><Bot className="h-7 w-7" /></DiagramNode>
-                  <p className="mt-4 text-[16px] font-semibold text-white">AI Ant</p>
-                  <p className="mt-1 text-[12px] text-white/52">You describe the goal</p>
-                  <span className="mt-3 inline-flex rounded-full border border-[#7db7ff]/25 bg-[#7db7ff]/[0.09] px-2.5 py-1 text-[10px] font-bold text-[#bcd9ff]">Goal Received</span>
-                </div>
+      <div ref={wrapperRef} className="relative grid gap-8 lg:grid-cols-[0.9fr_1.8fr] lg:items-center">
+        {wrapperSize.w > 0 && (
+          <svg
+            className="pointer-events-none absolute inset-0 z-0 hidden lg:block"
+            width={wrapperSize.w}
+            height={wrapperSize.h}
+            viewBox={`0 0 ${wrapperSize.w} ${wrapperSize.h}`}
+            fill="none"
+            aria-hidden
+          >
+            {connectors.map((c, i) =>
+              c ? (
+                <path
+                  key={i}
+                  d={c.d}
+                  stroke={c.color}
+                  strokeOpacity="0.55"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              ) : null,
+            )}
+          </svg>
+        )}
+        <div className="relative z-10">
+          <SectionHeader label="Visual System Map" title="From one prompt to an AI workforce." copy="AI Ant turns a goal into the right combination of specialists, workflows, tools, and review-ready deliverables." />
+          <div className="relative mt-10 flex justify-center lg:justify-start">
+            <div ref={aiAntRef} className="relative grid h-52 w-52 place-items-center rounded-full border border-[#7db7ff]/28 bg-[#7db7ff]/[0.055] shadow-[0_0_70px_rgba(125,183,255,0.16)]">
+              <div className="absolute inset-5 rounded-full border border-[#7db7ff]/18" />
+              <div className="text-center">
+                <DiagramNode className="mx-auto h-16 w-16 bg-white/[0.08]"><Bot className="h-7 w-7" /></DiagramNode>
+                <p className="mt-4 text-[16px] font-semibold text-white">AI Ant</p>
+                <p className="mt-1 text-[12px] text-white/52">You describe the goal</p>
+                <span className="mt-3 inline-flex rounded-full border border-[#7db7ff]/25 bg-[#7db7ff]/[0.09] px-2.5 py-1 text-[10px] font-bold text-[#bcd9ff]">Goal Received</span>
               </div>
             </div>
           </div>
-          <div className="relative space-y-3">
-            <svg className="pointer-events-none absolute -left-12 top-16 hidden h-[72%] w-16 lg:block" viewBox="0 0 80 420" fill="none" aria-hidden>
-              {rows.map((row, index) => <path key={row.title} d={`M0 210 C 30 210, 28 ${48 + index * 104}, 80 ${48 + index * 104}`} stroke={accentClasses[row.accent].line} strokeOpacity=".5" strokeWidth="1.5" />)}
-            </svg>
-            {rows.map((row, index) => <SystemMapRow key={row.title} row={row} delay={index * 0.05} />)}
-            <div className="mx-auto mt-5 w-fit rounded-full border border-white/[0.08] bg-white/[0.035] px-4 py-2 text-center text-[12px] text-white/52">All modes are connected, share context, and keep you in control.</div>
-          </div>
         </div>
-      </GlassPanel>
+        <div className="relative z-10 space-y-3">
+          {rows.map((row, index) => (
+            <SystemMapRow
+              key={row.title}
+              row={row}
+              delay={index * 0.05}
+              rowRef={(el) => {
+                rowRefs.current[index] = el;
+              }}
+            />
+          ))}
+          <div className="mx-auto mt-5 w-fit rounded-full border border-white/[0.08] bg-white/[0.035] px-4 py-2 text-center text-[12px] text-white/52">All modes are connected, share context, and keep you in control.</div>
+        </div>
+      </div>
     </SectionShell>
   );
 }
 
-function SystemMapRow({ row, delay }: { row: { title: string; icon: React.ElementType; accent: Accent; copy: string; flow: string[]; output: string }; delay: number }) {
+function SystemMapRow({ row, delay, rowRef }: { row: { title: string; icon: React.ElementType; accent: Accent; copy: string; flow: string[]; output: string }; delay: number; rowRef?: (el: HTMLDivElement | null) => void }) {
   const accent = accentClasses[row.accent];
   const Icon = row.icon;
   return (
     <RevealOnScroll delay={delay} y={16}>
-      <div className={`grid gap-4 rounded-[18px] border ${accent.border} bg-[#060912]/72 p-4 sm:grid-cols-[1fr_1.5fr_0.95fr] sm:items-center`}>
+      <div ref={rowRef} className={`grid gap-4 rounded-[18px] border ${accent.border} bg-[#060912]/72 p-4 sm:grid-cols-[1fr_1.5fr_0.95fr] sm:items-center`}>
         <div className="flex items-center gap-3">
           <DiagramNode className={`h-12 w-12 ${accent.bg} ${accent.text}`}><Icon className="h-5 w-5" /></DiagramNode>
           <div><h3 className="text-[15px] font-semibold text-white">{row.title}</h3><p className="mt-1 text-[12px] leading-snug text-white/52">{row.copy}</p></div>

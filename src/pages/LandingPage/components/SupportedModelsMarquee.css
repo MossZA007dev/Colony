@@ -1,0 +1,43 @@
+.supported-models-marquee {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 6%,
+    #000 94%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 6%,
+    #000 94%,
+    transparent 100%
+  );
+}
+
+.supported-models-track {
+  display: flex;
+  flex-wrap: nowrap;
+  width: max-content;
+  gap: 18px;
+  align-items: center;
+  animation: supported-models-scroll 32s linear infinite;
+  will-change: transform;
+}
+
+.supported-models-marquee:hover .supported-models-track,
+.supported-models-marquee:focus-within .supported-models-track {
+  animation-play-state: paused;
+}
+
+@keyframes supported-models-scroll {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(calc(-50% - 9px), 0, 0);
+  }
+}
