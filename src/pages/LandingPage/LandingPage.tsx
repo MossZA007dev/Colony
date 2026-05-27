@@ -17,6 +17,7 @@ import {
 import { ColonyLogo } from '../../components/brand/BrandMarks';
 import { validateEmail } from '../../lib/auth/mockAuth';
 import { fetchWaitlistCount, submitWaitlistSignup } from '../../lib/waitlist/waitlistApi';
+import { currentAccessStageUi } from '../../lib/access/accessStage';
 import type { Page } from '../../types/navigation';
 import './LandingPage.css';
 
@@ -203,16 +204,16 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                   style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.22), 0 4px 28px rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.16)' }}
                   className="lp-btn-primary rounded-full px-7 py-3.5 text-[15px] font-semibold"
                 >
-                  Join Early Access
+                  {currentAccessStageUi.primaryCta}
                 </motion.button>
                 <motion.button
-                  onClick={() => document.getElementById('workflow-example')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() => document.getElementById('hero-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                   whileHover={reduce ? undefined : { y: -2 }}
                   whileTap={reduce ? undefined : { scale: 0.97 }}
                   transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
                   className="lp-btn-secondary rounded-full px-7 py-3.5 text-[15px] font-medium backdrop-blur-sm"
                 >
-                  View Product Demo
+                  See How It Works
                 </motion.button>
               </motion.div>
 
@@ -222,7 +223,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                 transition={{ duration: 0.7, delay: 0.6, ease: EASE_OUT_EXPO }}
                 className="mt-5 text-[12.5px] text-white/40"
               >
-                Early prototype &middot; Looking for pilot users
+                {currentAccessStageUi.availabilityText}
               </motion.p>
               <LiveWaitlistCounter count={waitlistCount} />
             </div>
@@ -375,17 +376,17 @@ function StickyNav({
 
           {/* Right: CTAs (desktop) + hamburger (mobile) */}
           <div className="flex items-center gap-2">
-            {!publicOnly && (
+            {!publicOnly && currentAccessStageUi.showPublicSignIn && (
               <button onClick={() => goTo('Login')} className="hidden rounded-md px-3 py-2 text-[13px] font-medium text-white/65 transition hover:text-white sm:block">
-                Sign In
+                {currentAccessStageUi.signInLabel}
               </button>
             )}
             <button
               onClick={scrollToPrimaryCta}
               className="lp-btn-navbar hidden items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-semibold sm:inline-flex"
             >
-              <span className="sm:hidden">Join</span>
-              <span className="hidden sm:inline">Join Early Access</span>
+              <span className="sm:hidden">{currentAccessStageUi.primaryCta.split(' ')[0]}</span>
+              <span className="hidden sm:inline">{currentAccessStageUi.primaryCta}</span>
               <span aria-hidden>→</span>
             </button>
             <button
@@ -434,12 +435,12 @@ function StickyNav({
                     <span aria-hidden className="text-white/30">→</span>
                   </button>
                 ))}
-                {!publicOnly && (
+                {!publicOnly && currentAccessStageUi.showPublicSignIn && (
                   <button
                     onClick={() => { setMobileOpen(false); goTo('Login'); }}
                     className="mt-1 flex items-center justify-between rounded-xl border-t border-white/[0.06] px-3 py-3 text-left text-[15px] font-medium text-white/65 transition hover:text-white"
                   >
-                    Sign In
+                    {currentAccessStageUi.signInLabel}
                     <span aria-hidden className="text-white/30">→</span>
                   </button>
                 )}
@@ -1107,17 +1108,22 @@ function EarlyAccessSection({
     }
   };
 
+  // TODO(BACKEND-ACCESS-GATE): Submitting this form must NOT grant product
+  // access. Server should: (1) persist the request with accessStatus="waitlisted",
+  // (2) require manual admin promotion to "invited" before the user may sign in,
+  // (3) gate every /api/* product route on accessStatus ∈ {internal, active_pilot},
+  // (4) refuse AI provider calls in guardAIRequest until access is granted.
   return (
     <section id="early-access" className="px-5 py-28 md:px-8">
       <RevealOnScroll className="mx-auto max-w-[1100px] overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.02] p-8 md:p-12">
         <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Early access</p>
+            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Pilot Access</p>
             <h2 className="mb-5 text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[44px]">
               Bring us one task you wish AI could handle better.
             </h2>
             <p className="max-w-xl text-[15px] leading-relaxed text-white/62 md:text-[16px]">
-              We are inviting founders and small teams to test the early Colony Bridge prototype and help shape the workflows we build next.
+              We are inviting a small number of founders and teams to test the early Colony Bridge prototype. Tell us what you would like AI Ant to handle, and we will contact selected pilot users with an invitation.
             </p>
           </div>
           <div>
@@ -1139,16 +1145,24 @@ function EarlyAccessSection({
                   <div className="grid h-12 w-12 place-items-center rounded-full bg-[#00d4aa]/15 text-[#00d4aa]">
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#00d4aa]/85">Request Received</p>
                   <p className="text-[16px] font-semibold text-white">
-                    {alreadyJoined ? 'You are already on the early access waitlist.' : 'You are on the early access waitlist.'}
+                    {alreadyJoined ? 'You are already on the pilot waitlist.' : 'Thanks for your interest in Colony Bridge.'}
                   </p>
-                  <p className="text-[13px] text-white/55">
+                  <p className="max-w-[360px] text-[13px] leading-relaxed text-white/55">
                     {alreadyJoined
                       ? 'We kept your original spot, so the public waitlist count was not increased.'
-                      : 'Your request was saved and the live waitlist count has been updated.'}
+                      : 'We are currently inviting a small number of pilot users. If your task matches what we are testing now, we will contact you with an invitation.'}
                   </p>
-                  <a href="mailto:hello@colonybridge.ai" className="lp-btn-secondary mt-2 rounded-full px-5 py-2 text-[13px] font-semibold">
-                    Contact the Team
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('product')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="lp-btn-secondary mt-2 rounded-full px-5 py-2 text-[13px] font-semibold"
+                  >
+                    Back to Product
+                  </button>
+                  <a href="mailto:hello@colonybridge.ai" className="mt-1 text-[12px] font-medium text-white/45 underline-offset-2 hover:text-white/72 hover:underline">
+                    Or email the team
                   </a>
                 </motion.div>
               ) : (
@@ -1217,14 +1231,8 @@ function EarlyAccessSection({
                       transition={{ duration: 0.25, ease: EASE_OUT_EXPO }}
                       className="lp-btn-primary flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold disabled:cursor-wait disabled:opacity-70"
                     >
-                      {submitting ? 'Joining...' : 'Request Early Access'} <span>{glyph.arrow}</span>
+                      {submitting ? 'Sending...' : 'Request Pilot Access'} <span>{glyph.arrow}</span>
                     </motion.button>
-                    <a
-                      href="mailto:hello@colonybridge.ai"
-                      className="lp-btn-secondary flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-medium hover:-translate-y-0.5"
-                    >
-                      Contact the Team
-                    </a>
                   </div>
                 </>
               )}
