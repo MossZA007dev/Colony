@@ -120,20 +120,21 @@ export function HeroInteractiveDemo() {
     'Workflow complete';
 
   return (
-    <div className="relative w-full max-w-full">
+    <div className="relative mx-auto w-full max-w-[760px] lg:max-w-[830px] xl:max-w-[890px]">
+      <HeroPreviewGlow reduce={!!reduce} />
       {/* Interactive indicator */}
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.4, ease: EASE_OUT_EXPO }}
-        className="mb-3 flex items-center gap-2 text-[11px] font-semibold text-white/55"
+        className="relative z-10 mb-3 ml-3 flex items-center gap-2 text-[11px] font-semibold text-white/60 sm:ml-5"
       >
         <span className="relative inline-flex h-1.5 w-1.5">
           {!reduce && <span className="absolute inset-0 animate-ping rounded-full bg-emerald-300/60" />}
           <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
         </span>
         <span className="uppercase tracking-[0.18em] text-white/60">Product Preview</span>
-        <span className="text-white/30">·</span>
+        <span className="text-white/30">/</span>
         <span className="text-white/55">AI Ant planning the work</span>
       </motion.div>
 
@@ -151,21 +152,40 @@ export function HeroInteractiveDemo() {
       <motion.div
         ref={cardRef}
         initial={{ opacity: 0, y: 32, filter: 'blur(8px)' }}
-        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        transition={{ duration: 0.9, delay: 0.55, ease: EASE_OUT_EXPO }}
+        animate={reduce ? { opacity: 1, y: 0, filter: 'blur(0px)' } : { opacity: 1, y: [0, -7, 0], filter: 'blur(0px)' }}
+        whileHover={reduce ? undefined : { y: -8, scale: 1.008 }}
+        transition={
+          reduce
+            ? { duration: 0.9, delay: 0.55, ease: EASE_OUT_EXPO }
+            : {
+                opacity: { duration: 0.9, delay: 0.55, ease: EASE_OUT_EXPO },
+                filter: { duration: 0.9, delay: 0.55, ease: EASE_OUT_EXPO },
+                y: { duration: 7.5, repeat: Infinity, ease: 'easeInOut' },
+                scale: { duration: 0.35, ease: EASE_OUT_EXPO },
+              }
+        }
         id="hero-demo"
-        className="w-full max-w-[calc(100vw-40px)] overflow-hidden rounded-[24px] border backdrop-blur-2xl lg:max-w-full"
+        className="relative z-10 w-full max-w-[calc(100vw-40px)] overflow-hidden rounded-[28px] backdrop-blur-2xl lg:max-w-full"
         style={{
-          background: 'linear-gradient(180deg, rgba(16,20,30,0.84) 0%, rgba(8,10,18,0.88) 100%)',
-          borderColor: 'rgba(255,255,255,0.10)',
+          background:
+            'linear-gradient(180deg, rgba(24,31,47,0.92) 0%, rgba(10,13,24,0.95) 44%, rgba(5,7,14,0.97) 100%)',
           boxShadow:
-            '0 36px 90px -16px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px rgba(255,255,255,0.04)',
+            '0 26px 72px rgba(37,99,235,0.14), 0 0 72px rgba(125,183,255,0.16), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(125,183,255,0.05)',
         }}
       >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            background:
+              'radial-gradient(80% 45% at 50% 0%, rgba(125,183,255,0.16), transparent 62%), linear-gradient(90deg, rgba(255,255,255,0.08), transparent 18%, transparent 82%, rgba(125,183,255,0.08))',
+          }}
+        />
+
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 md:px-5">
+        <div className="relative z-10 flex items-center justify-between border-b border-white/[0.07] bg-white/[0.025] px-4 py-3.5 md:px-5">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-white">
+            <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-white shadow-[0_0_24px_rgba(125,183,255,0.22)]">
               <img src="/assets/logos/ai ant black (2).png" alt="" width={16} height={16} draggable={false} />
             </span>
             <div className="min-w-0">
@@ -182,10 +202,10 @@ export function HeroInteractiveDemo() {
         </div>
 
         {/* Three-column body */}
-        <div className="grid gap-0 lg:grid-cols-[150px_minmax(0,1fr)_180px]">
+        <div className="relative z-10 grid gap-0 lg:grid-cols-[160px_minmax(0,1fr)_200px]">
           {/* Sidebar */}
-          <aside className="hidden flex-col gap-1 border-r border-white/[0.06] bg-[#070A12]/55 p-2.5 lg:flex">
-            <div className="mb-2 flex items-center gap-2 px-1.5">
+          <aside className="hidden flex-col gap-1 border-r border-white/[0.07] bg-[#070A12]/70 p-3 lg:flex">
+            <div className="mb-2.5 flex items-center gap-2 px-1.5">
               <ColonyLogo size={18} />
               <span className="font-heading text-[12px] font-extrabold tracking-tight text-white/88">Colony Bridge</span>
             </div>
@@ -205,7 +225,7 @@ export function HeroInteractiveDemo() {
           </aside>
 
           {/* Main */}
-          <div className="relative flex min-h-[440px] min-w-0 flex-col gap-4 p-5 md:p-6">
+          <div className="relative flex min-h-[460px] min-w-0 flex-col gap-4 bg-[radial-gradient(circle_at_50%_10%,rgba(125,183,255,0.055),transparent_44%)] p-5 md:p-6">
             <AnimatePresence mode="wait">
               {step === 'idle' ? (
                 <IdleState key="idle" onPick={pickPrompt} reduce={!!reduce} />
@@ -222,8 +242,8 @@ export function HeroInteractiveDemo() {
           </div>
 
           {/* Execution Plan */}
-          <aside className="hidden flex-col gap-3 border-l border-white/[0.06] bg-[#070A12]/55 p-3 lg:flex">
-            <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/30">Execution Plan</p>
+          <aside className="hidden flex-col gap-3 border-l border-white/[0.07] bg-[#070A12]/70 p-4 lg:flex">
+            <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/36">Execution Plan</p>
             <ul className="space-y-1.5">
               {CHECKLIST.map((item) => (
                 <ChecklistRow key={item.id} label={item.label} done={done.has(item.id)} />
@@ -232,13 +252,13 @@ export function HeroInteractiveDemo() {
             <div className="mt-auto space-y-1.5 rounded-[12px] border border-white/[0.07] bg-white/[0.025] px-3 py-2.5 text-[10px] text-white/55">
               <Metric label="Agents active" value={step === 'idle' ? '0' : step === 'complete' ? '0' : '3'} />
               <Metric label="Deliverable" value={step === 'complete' ? 'Ready' : 'In progress'} />
-              <Metric label="Routing" value="Auto · Balanced" />
+              <Metric label="Routing" value="Auto / Balanced" />
             </div>
           </aside>
         </div>
 
         {/* Footer */}
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2.5 md:px-5">
+        <div className="relative z-10 flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-black/[0.10] px-4 py-2.5 md:px-5">
           <StepIndicator step={step} />
           {step !== 'idle' && (
             <button
@@ -260,6 +280,38 @@ export function HeroInteractiveDemo() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────── */
+
+function HeroPreviewGlow({ reduce }: { reduce: boolean }) {
+  return (
+    <div className="pointer-events-none absolute -inset-x-10 -inset-y-14 -z-10 overflow-visible sm:-inset-x-16 lg:-inset-x-24 lg:-inset-y-20" aria-hidden>
+      <motion.div
+        className="absolute left-1/2 top-[42%] h-[74%] w-[118%] -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, rgba(125,183,255,0.28) 0%, rgba(79,158,255,0.14) 30%, rgba(124,92,252,0.09) 52%, transparent 74%)',
+          filter: 'blur(34px)',
+        }}
+        animate={reduce ? undefined : { opacity: [0.72, 1, 0.72], scale: [0.98, 1.03, 0.98] }}
+        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <div
+        className="absolute left-1/2 top-[48%] h-[92%] w-[112%] -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, rgba(219,238,255,0.12) 0%, rgba(125,183,255,0.08) 24%, rgba(5,5,8,0) 62%)',
+          filter: 'blur(10px)',
+        }}
+      />
+      <div
+        className="absolute -bottom-8 left-1/2 h-28 w-[78%] -translate-x-1/2 rounded-full"
+        style={{
+          background: 'radial-gradient(ellipse at center, rgba(37,99,235,0.20) 0%, rgba(125,183,255,0.08) 42%, transparent 72%)',
+          filter: 'blur(18px)',
+        }}
+      />
+    </div>
+  );
+}
 
 function IdleState({ onPick, reduce }: { onPick: (p: { chip: string; goal: string }) => void; reduce: boolean }) {
   return (
@@ -284,8 +336,11 @@ function IdleState({ onPick, reduce }: { onPick: (p: { chip: string; goal: strin
         Choose a prompt and watch AI Ant assemble a specialist crew.
       </p>
 
-      <div className="mt-5 w-full max-w-[280px] rounded-[14px] border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-left text-[13px] text-white/35 sm:max-w-[440px]">
-        Tell AI Ant what you want to accomplish…
+      <div
+        className="mt-5 w-full max-w-[280px] rounded-[16px] border border-white/[0.12] bg-white/[0.045] px-4 py-3 text-left text-[13px] text-white/42 sm:max-w-[440px]"
+        style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.055), 0 14px 34px rgba(0,0,0,0.16)' }}
+      >
+        Tell AI Ant what you want to accomplish...
         <span className="ml-0.5 inline-block h-[14px] w-[2px] -translate-y-[1px] animate-pulse bg-white/45 align-middle" />
       </div>
 
@@ -294,7 +349,7 @@ function IdleState({ onPick, reduce }: { onPick: (p: { chip: string; goal: strin
           <button
             key={p.chip}
             onClick={() => onPick(p)}
-            className="group inline-flex items-center gap-1.5 rounded-full border border-white/[0.10] bg-white/[0.045] px-3 py-1.5 text-[12px] font-semibold text-white/72 transition hover:border-violet-300/35 hover:bg-violet-500/12 hover:text-white"
+            className="group inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.055] px-3 py-1.5 text-[12px] font-semibold text-white/76 transition hover:border-violet-300/35 hover:bg-violet-500/12 hover:text-white"
           >
             <Sparkles className="h-3 w-3 text-violet-200/80 transition group-hover:text-violet-100" />
             {p.chip}
@@ -333,8 +388,8 @@ function WorkingArea({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: EASE_OUT_EXPO }}
-        className="rounded-[16px] border border-white/[0.09] bg-white/[0.03] px-4 py-3.5"
-        style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}
+        className="rounded-[18px] border border-white/[0.11] bg-white/[0.045] px-4 py-3.5"
+        style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.16)' }}
       >
         <p
           className="text-[11px] font-medium uppercase tracking-[0.22em] text-white/45"
@@ -342,7 +397,7 @@ function WorkingArea({
         >
           Goal
         </p>
-        <p className="mt-1.5 text-[14.5px] leading-[1.55] text-white/92">{goal}</p>
+        <p className="mt-1.5 text-[15px] leading-[1.55] text-white/94">{goal}</p>
       </motion.div>
 
       {/* Status */}
@@ -358,7 +413,7 @@ function WorkingArea({
               className="flex items-center gap-2.5 text-[13px] text-white/72"
             >
               <DotsLoader />
-              <span>AI Ant is planning the work…</span>
+              <span>AI Ant is planning the work...</span>
             </motion.div>
           )}
           {step === 'team' && (
@@ -428,19 +483,19 @@ function WorkingArea({
                   initial={{ opacity: 0, y: 14, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ duration: 0.55, delay: idx * 0.18, ease: EASE_OUT_EXPO }}
-                  className="relative overflow-hidden rounded-[14px] border border-white/[0.09] bg-white/[0.03] p-3"
-                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}
+                  className="relative overflow-hidden rounded-[15px] border border-white/[0.10] bg-white/[0.045] p-3"
+                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.055), 0 10px 24px rgba(0,0,0,0.14)' }}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="grid h-8 w-8 place-items-center rounded-[10px] bg-violet-500/15 text-violet-200 ring-1 ring-violet-300/22">
+                    <div className="grid h-8 w-8 place-items-center rounded-[10px] bg-violet-500/18 text-violet-100 ring-1 ring-violet-300/28">
                       <agent.icon className="h-4 w-4" />
                     </div>
                     <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] ${statusTone}`}>
                       {statusLabel}
                     </span>
                   </div>
-                  <p className="mt-2 text-[12.5px] font-bold text-white/90">{agent.name}</p>
-                  <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-white/45">{agent.role}</p>
+                  <p className="mt-2 text-[12.5px] font-bold text-white/92">{agent.name}</p>
+                  <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-snug text-white/52">{agent.role}</p>
                   {/* Running pulse line */}
                   {isRunning && !reduce && (
                     <motion.div

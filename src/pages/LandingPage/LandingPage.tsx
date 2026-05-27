@@ -24,6 +24,16 @@ import { RevealOnScroll, AmbientGlow, EASE_OUT_EXPO } from './components/motion'
 import { HeroInteractiveDemo } from './components/HeroInteractiveDemo';
 import { StarBorder } from './components/StarBorder';
 import { LiveWaitlistCounter } from './components/LiveWaitlistCounter';
+import {
+  AboutUsSection,
+  ApprovalFirstControlSection,
+  FAQSection,
+  FeatureSystemSection,
+  HowColonyWorksInfographic,
+  NewComparisonSection,
+  NewRoadmapSection,
+  SystemMapSection,
+} from './components/LandingInfographics';
 
 const glyph = {
   arrow: '->',
@@ -51,7 +61,7 @@ const NAV_LINKS: NavLink[] = [
   { label: 'Product', id: 'product' },
   { label: 'How It Works', id: 'how-it-works' },
   { label: 'Features', id: 'features' },
-  { label: 'Early Access', id: 'early-access' },
+  { label: 'Roadmap', id: 'roadmap' },
   { label: 'About', id: 'team' },
 ];
 
@@ -132,11 +142,11 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
         {/* Hero content — two-column on lg+, stacked on smaller */}
         <motion.div
           style={{ y: heroContentY, opacity: heroContentOpacity }}
-          className="relative z-[2] mx-auto flex min-h-screen w-full max-w-[1320px] flex-col justify-center px-5 pb-20 pt-[120px] md:px-8 lg:pt-[140px]"
+          className="relative z-[2] mx-auto flex min-h-screen w-full max-w-[1320px] flex-col justify-center px-5 pb-20 pt-[112px] md:px-8 lg:pb-14 lg:pt-[118px]"
         >
-          <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,42%)_minmax(0,58%)] lg:gap-10">
+          <div className="flex flex-col items-center gap-9 lg:gap-8">
             {/* ── Left: marketing copy ───────────────────────── */}
-            <div className="min-w-0 text-center lg:text-left">
+            <div className="min-w-0 text-center">
               <motion.div
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -173,7 +183,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                 initial={{ opacity: 0, y: 22, filter: 'blur(6px)' }}
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 transition={{ duration: 0.9, delay: 0.28, ease: EASE_OUT_EXPO }}
-                className="mx-auto mb-8 max-w-[330px] text-[16px] font-normal leading-[1.65] text-white/68 sm:max-w-[520px] md:text-[17px] lg:mx-0"
+                className="mx-auto mb-8 max-w-[330px] text-[16px] font-normal leading-[1.65] text-white/68 sm:max-w-[620px] md:text-[17px]"
               >
                 Colony Bridge helps founders and small teams turn one goal into an AI crew that researches, plans, and produces review-ready work you can control.
               </motion.p>
@@ -182,7 +192,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.75, delay: 0.44, ease: EASE_OUT_EXPO }}
-                className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start"
+                className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
               >
                 <motion.button
                   onClick={scrollToPrimaryCta}
@@ -216,7 +226,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
               <LiveWaitlistCounter count={waitlistCount} />
             </div>
 
-            {/* ── Right: interactive product demo ────────────── */}
+            {/* ── Center: interactive product demo showcase ───── */}
             <div className="min-w-0 w-full">
               <HeroInteractiveDemo />
             </div>
@@ -228,14 +238,14 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
 
       {/* ── Content ── */}
       <div className="relative bg-[#050508]">
-        <ProblemSection />
-        <WorkflowExampleSection />
-        <ProductModelSection />
-        <TestingNowSection />
-        <ApprovalControlSection />
-        <ComparisonSection />
-        <BuildersSection />
-        <RoadmapSection />
+        <HowColonyWorksInfographic />
+        <FeatureSystemSection />
+        <SystemMapSection />
+        <ApprovalFirstControlSection />
+        <NewComparisonSection />
+        <NewRoadmapSection />
+        <AboutUsSection />
+        <FAQSection />
         {!publicOnly && <EarlyAccessSection goTo={goTo} onWaitlistCountChange={setWaitlistCount} />}
       </div>
 
@@ -254,6 +264,9 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                 {link.label}
               </a>
             ))}
+            <a href="#faq" className="transition-colors hover:text-white/65">
+              FAQ
+            </a>
           </div>
           <p>(c) 2026 Colony Bridge</p>
         </div>
