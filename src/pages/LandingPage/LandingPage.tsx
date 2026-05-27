@@ -32,6 +32,7 @@ import {
   HowColonyWorksInfographic,
   NewComparisonSection,
   NewRoadmapSection,
+  SupportedModelsSection,
   SystemMapSection,
 } from './components/LandingInfographics';
 
@@ -238,6 +239,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
 
       {/* ── Content ── */}
       <div className="relative bg-[#050508]">
+        <SupportedModelsSection />
         <HowColonyWorksInfographic />
         <FeatureSystemSection />
         <SystemMapSection />

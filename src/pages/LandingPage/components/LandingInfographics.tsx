@@ -8,8 +8,10 @@ import {
   ClipboardCheck,
   Cloud,
   Database,
+  FileText,
   Globe2,
   LockKeyhole,
+  MousePointer2,
   Mail,
   MessageSquare,
   Minus,
@@ -76,6 +78,96 @@ function FeatureIconBadge({ icon }: { icon: React.ReactNode }) {
   );
 }
 
+type ModelProvider = {
+  name: string;
+  status: 'Supported' | 'Planned';
+  logo?: string;
+  fallback: string;
+};
+
+const modelProviders: ModelProvider[] = [
+  { name: 'OpenAI', status: 'Supported', logo: '/assets/Ai logo/OpenAI.svg', fallback: 'AI' },
+  { name: 'Claude', status: 'Supported', logo: '/assets/Ai logo/Claude.svg', fallback: 'CL' },
+  { name: 'Gemini', status: 'Supported', logo: '/assets/Ai logo/Gemini.svg', fallback: 'GM' },
+  { name: 'DeepSeek', status: 'Supported', logo: '/assets/Ai logo/DeepSeek.svg', fallback: 'DS' },
+  { name: 'Perplexity', status: 'Supported', logo: '/assets/Ai logo/Perplexity.svg', fallback: 'PX' },
+  { name: 'Mistral', status: 'Planned', logo: '/assets/Ai logo/Mistral AI.svg', fallback: 'MI' },
+  { name: 'Groq', status: 'Planned', fallback: 'GQ' },
+  { name: 'Cohere', status: 'Planned', logo: '/assets/Ai logo/Cohere.svg', fallback: 'CO' },
+  { name: 'Llama', status: 'Planned', logo: '/assets/Ai logo/Meta.svg', fallback: 'LA' },
+  { name: 'xAI / Grok', status: 'Planned', logo: '/assets/Ai logo/Grok.svg', fallback: 'XA' },
+];
+
+export function SupportedModelsSection() {
+  const capabilities = ['Research', 'Reasoning', 'Writing', 'Image', 'Video'];
+
+  return (
+    <SectionShell id="supported-models" compact>
+      <GlassPanel className="p-5 md:p-8">
+        <SectionHeader
+          center
+          label="Supported Models"
+          title="Works with the models you already use."
+          copy="Colony Bridge helps route each task to the right AI model for reasoning, research, writing, multimodal work, and media generation - all inside one coordinated workspace."
+        />
+
+        <RevealOnScroll delay={0.08} y={18}>
+          <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+            {modelProviders.map((provider) => (
+              <ModelProviderCard key={provider.name} provider={provider} />
+            ))}
+          </div>
+        </RevealOnScroll>
+
+        <RevealOnScroll delay={0.14} y={14}>
+          <div className="mx-auto mt-7 flex max-w-3xl flex-wrap items-center justify-center gap-2">
+            {capabilities.map((capability) => (
+              <span
+                key={capability}
+                className="rounded-full border border-white/[0.09] bg-white/[0.035] px-3 py-1.5 text-[11px] font-semibold text-white/58"
+              >
+                {capability}
+              </span>
+            ))}
+          </div>
+          <p className="mx-auto mt-4 max-w-2xl text-center text-[12.5px] leading-relaxed text-white/42">
+            Designed to support leading model providers as Colony Bridge expands routing, evaluation, and capability-based model selection.
+          </p>
+        </RevealOnScroll>
+      </GlassPanel>
+    </SectionShell>
+  );
+}
+
+function ModelProviderCard({ provider }: { provider: ModelProvider }) {
+  return (
+    <div className="group flex min-h-[104px] flex-col items-center justify-center rounded-[18px] border border-white/[0.075] bg-[#060912]/70 px-3 py-4 text-center transition duration-300 hover:-translate-y-0.5 hover:border-[#7db7ff]/24 hover:bg-white/[0.045] motion-reduce:transform-none">
+      <div className="grid h-10 w-10 place-items-center rounded-full border border-white/[0.10] bg-white/[0.06]">
+        {provider.logo ? (
+          <img
+            src={provider.logo}
+            alt=""
+            className="h-5 w-5 object-contain opacity-75 grayscale invert transition duration-300 group-hover:opacity-95"
+            draggable={false}
+          />
+        ) : (
+          <span className="text-[10px] font-bold text-white/70">{provider.fallback}</span>
+        )}
+      </div>
+      <p className="mt-2 text-[13px] font-semibold text-white/84">{provider.name}</p>
+      <span
+        className={`mt-2 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${
+          provider.status === 'Supported'
+            ? 'border-emerald-300/22 bg-emerald-400/[0.075] text-emerald-200/82'
+            : 'border-white/[0.10] bg-white/[0.035] text-white/42'
+        }`}
+      >
+        {provider.status}
+      </span>
+    </div>
+  );
+}
+
 function DiagramNode({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <div className={`grid place-items-center rounded-full border border-white/[0.12] bg-white/[0.06] text-white shadow-[0_0_22px_rgba(125,183,255,0.10)] ${className}`}>{children}</div>;
 }
@@ -127,18 +219,21 @@ export function FeatureSystemSection() {
     { n: '02', label: 'Team', title: 'Colony Crew', copy: 'Builds a specialist AI team for complex work.', status: 'Specialists aligned', accent: 'violet' as Accent, diagram: <CrewDiagram /> },
     { n: '03', label: 'Organization', title: 'One-man Enterprise', copy: 'Creates a visible AI organization with roles and departments.', status: 'Org chart created', accent: 'blue' as Accent, diagram: <EnterpriseDiagram /> },
     { n: '04', label: 'Automation', title: 'Automation', copy: 'Turns repeatable work into controlled workflows.', status: 'Workflow active', accent: 'teal' as Accent, diagram: <AutomationDiagram /> },
-    { n: '05', label: 'Infrastructure', title: 'Secure Tool Layer', copy: 'Securely connects files, apps, browsers, and tools with approval-first control.', status: 'Connection secured', accent: 'amber' as Accent, diagram: <SecureToolsDiagram /> },
+    { n: '05', label: 'Action Layer', title: 'Colony Bridge', copy: 'Turns AI decisions into approved actions across your tools, browser, files, and apps.', status: 'Connected with approval', accent: 'amber' as Accent, diagram: <ColonyBridgeActionDiagram /> },
   ];
 
   return (
     <SectionShell id="features">
       <GlassPanel className="p-4 md:p-5">
         <div className="p-2 md:p-3">
-          <SectionHeader label="Feature System" title="One coordinator. Different ways to get work done." copy="AI Ant is your starting point. It selects the best structure for each goal while keeping context, execution, and approval in one workspace." />
+          <SectionHeader label="Feature System" title="One coordinator. Different ways to get work done." copy="Colony Bridge gives you five connected ways to turn a goal into real work: coordinate with AI Ant, assemble specialist crews, build an AI organization, automate repeatable workflows, or take approved action across your tools." />
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {features.map((feature, index) => <FeatureModeCard key={feature.title} feature={feature} delay={index * 0.05} />)}
         </div>
+        <p className="mt-5 text-center text-[12.5px] text-white/46">
+          AI Ant coordinates the work. Colony Bridge connects it safely to real-world action.
+        </p>
       </GlassPanel>
     </SectionShell>
   );
@@ -155,7 +250,7 @@ function FeatureModeCard({ feature, delay }: { feature: { n: string; label: stri
         </div>
         <h3 className="text-[17px] font-semibold text-white">{feature.title}</h3>
         <p className="mt-2 min-h-[58px] text-[12.5px] leading-relaxed text-white/58">{feature.copy}</p>
-        <div className="my-5 flex min-h-[138px] flex-1 items-center justify-center">{feature.diagram}</div>
+        <div className="my-5 flex min-h-[156px] flex-1 items-center justify-center">{feature.diagram}</div>
         <div className={`mt-auto inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${accent.border} ${accent.bg} ${accent.text}`}>
           <CheckCircle2 className="h-3 w-3" /> {feature.status}
         </div>
@@ -196,14 +291,16 @@ function CrewDiagram() {
 
 function EnterpriseDiagram() {
   return (
-    <div className="relative h-[138px] w-full text-center">
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 180 138" fill="none" aria-hidden>
-        <path d="M90 28 V58 M55 86 V72 H125 V86 M35 108 V96 H145 V108" stroke="#7db7ff" strokeOpacity=".5" />
+    <div className="relative h-[156px] w-full text-center">
+      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 180 156" fill="none" aria-hidden>
+        <path d="M90 28 V55 M90 75 V91 M40 116 V102 H140 V116" stroke="#7db7ff" strokeOpacity=".5" />
       </svg>
       <div className="absolute left-1/2 top-0 -translate-x-1/2"><DiagramChip>Founder</DiagramChip></div>
-      <DiagramNode className="absolute left-1/2 top-10 h-10 w-10 -translate-x-1/2 bg-[#7db7ff]/[0.12]"><Building2 className="h-4 w-4" /></DiagramNode>
-      <div className="absolute left-1/2 top-[82px] -translate-x-1/2"><DiagramChip>Director</DiagramChip></div>
-      <div className="absolute bottom-0 left-0 right-0 flex flex-wrap justify-center gap-1.5">{['Research', 'Strategy', 'Ops', 'Creative'].map((item) => <DiagramChip key={item}>{item}</DiagramChip>)}</div>
+      <DiagramNode className="absolute left-1/2 top-[38px] h-10 w-10 -translate-x-1/2 bg-[#7db7ff]/[0.12]"><Building2 className="h-4 w-4" /></DiagramNode>
+      <div className="absolute left-1/2 top-[83px] -translate-x-1/2"><DiagramChip>Director</DiagramChip></div>
+      <div className="absolute inset-x-0 bottom-0 grid grid-cols-2 gap-1.5 px-1">
+        {['Research', 'Strategy', 'Ops', 'Creative'].map((item) => <DiagramChip key={item}>{item}</DiagramChip>)}
+      </div>
     </div>
   );
 }
@@ -225,15 +322,43 @@ function AutomationDiagram() {
   );
 }
 
-function SecureToolsDiagram() {
-  const tools = [Cloud, Database, Mail, Globe2];
+function ColonyBridgeActionDiagram() {
+  const tools: [React.ElementType, string, string][] = [
+    [Globe2, 'Browser', 'left-1 top-1'],
+    [FileText, 'Files', 'left-[52px] top-1'],
+    [Mail, 'Mail', 'right-[52px] top-1'],
+    [Cloud, 'Drive', 'right-1 top-1'],
+  ];
   return (
-    <div className="relative h-[138px] w-full">
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 180 138" fill="none" aria-hidden>
-        <path d="M28 32 C44 88 65 96 90 96 C115 96 136 88 152 32" stroke="#f5c842" strokeOpacity=".45" strokeDasharray="3 4" />
+    <div className="relative h-[156px] w-full">
+      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 180 156" fill="none" aria-hidden>
+        <path d="M22 28 C40 54 62 60 80 69" stroke="#f5c842" strokeOpacity=".48" strokeDasharray="3 4" />
+        <path d="M68 28 C74 46 78 57 84 69" stroke="#f5c842" strokeOpacity=".48" strokeDasharray="3 4" />
+        <path d="M112 28 C106 46 102 57 96 69" stroke="#f5c842" strokeOpacity=".48" strokeDasharray="3 4" />
+        <path d="M158 28 C140 54 118 60 100 69" stroke="#f5c842" strokeOpacity=".48" strokeDasharray="3 4" />
+        <path d="M90 91 V111" stroke="#f5c842" strokeOpacity=".55" strokeDasharray="3 4" />
+        <path d="M90 130 V139" stroke="#f5c842" strokeOpacity=".55" strokeDasharray="3 4" />
       </svg>
-      <div className="absolute inset-x-3 top-2 flex justify-between">{tools.map((Icon, index) => <DiagramNode key={index} className="h-9 w-9 bg-amber-400/[0.08] text-amber-100"><Icon className="h-4 w-4" /></DiagramNode>)}</div>
-      <DiagramNode className="absolute bottom-4 left-1/2 h-12 w-12 -translate-x-1/2 bg-amber-400/[0.12] text-amber-100"><Shield className="h-5 w-5" /></DiagramNode>
+      {tools.map(([Icon, label, pos]) => (
+        <div key={label} className={`absolute ${pos} text-center`}>
+          <DiagramNode className="mx-auto h-8 w-8 bg-amber-400/[0.08] text-amber-100"><Icon className="h-3.5 w-3.5" /></DiagramNode>
+          <p className="mt-1 text-[9px] font-semibold text-white/46">{label}</p>
+        </div>
+      ))}
+      <div className="absolute left-1/2 top-[55px] -translate-x-1/2">
+        <div className="rounded-[12px] border border-amber-300/25 bg-amber-400/[0.10] px-3 py-2 text-center shadow-[0_0_28px_rgba(245,200,66,0.13)]">
+          <div className="mx-auto mb-1 grid h-7 w-7 place-items-center rounded-full bg-white/[0.07] text-amber-100">
+            <MousePointer2 className="h-3.5 w-3.5" />
+          </div>
+          <p className="whitespace-nowrap text-[10px] font-bold text-amber-100">Colony Bridge</p>
+        </div>
+      </div>
+      <div className="absolute bottom-[19px] left-1/2 -translate-x-1/2">
+        <DiagramChip>Approval</DiagramChip>
+      </div>
+      <span className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-full border border-amber-300/25 bg-amber-400/[0.08] px-2.5 py-0.5 text-[9px] font-bold text-amber-100">
+        Action ready
+      </span>
     </div>
   );
 }
@@ -243,7 +368,7 @@ export function SystemMapSection() {
     { title: 'Colony Crew', icon: Users, accent: 'violet' as Accent, copy: 'Assembles specialist agents to solve complex work.', flow: ['Assemble team', 'Collaborate', 'Review', 'Deliverable'], output: 'Team output ready for review' },
     { title: 'One-man Enterprise', icon: Building2, accent: 'blue' as Accent, copy: 'Creates an AI organization with roles and departments.', flow: ['Define org', 'Assign roles', 'Execute', 'Deliverable'], output: 'Org results with full visibility' },
     { title: 'Automation', icon: Zap, accent: 'teal' as Accent, copy: 'Runs repeatable work through smart workflows.', flow: ['Trigger', 'Run workflow', 'Output', 'Deliverable'], output: 'Automated output delivered' },
-    { title: 'Secure Tool Layer', icon: Shield, accent: 'amber' as Accent, copy: 'Connects tools and data with approval controls.', flow: ['Connect', 'Secure & Route', 'Approve', 'Deliverable'], output: 'Trusted data and approvals' },
+    { title: 'Colony Bridge', icon: MousePointer2, accent: 'amber' as Accent, copy: 'Connects AI Ant to approved tools and environments so plans can become real actions.', flow: ['Connect Context', 'Request Approval', 'Take Action', 'Deliverable'], output: 'Work completed with user control' },
   ];
 
   return (
