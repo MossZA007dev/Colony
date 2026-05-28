@@ -10,6 +10,7 @@ export function createInitialRuntime(scenarioId: string, taskText = ''): Operato
     scenarioId,
     state: 'idle',
     taskText,
+    followUps: [],
     startedAt: null,
     completedAt: null,
     approvalsGranted: [],
@@ -50,6 +51,19 @@ export function operatorReducer(
   switch (event.type) {
     case 'INPUT_TASK':
       return { ...runtime, taskText: event.text };
+
+    case 'FOLLOW_UP':
+      return {
+        ...runtime,
+        followUps: [
+          ...runtime.followUps,
+          {
+            id: `follow-${Date.now()}-${runtime.followUps.length + 1}`,
+            text: event.text,
+            createdAt: Date.now(),
+          },
+        ],
+      };
 
     case 'START_ANALYSIS':
       return {

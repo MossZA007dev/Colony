@@ -199,6 +199,7 @@ export interface OperatorRuntime {
   scenarioId: string;
   state: OperatorState;
   taskText: string;
+  followUps: { id: string; text: string; createdAt: number }[];
   startedAt: number | null;
   completedAt: number | null;
   approvalsGranted: string[];
@@ -208,6 +209,7 @@ export interface OperatorRuntime {
 
 export type OperatorEvent =
   | { type: 'INPUT_TASK'; text: string }
+  | { type: 'FOLLOW_UP'; text: string }
   | { type: 'START_ANALYSIS' }
   | { type: 'REQUIREMENTS_RESOLVED' }
   | { type: 'OPEN_REQUIREMENT_PROMPT' }

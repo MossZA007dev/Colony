@@ -38,6 +38,45 @@ function isLabEnabled(): boolean {
   return false;
 }
 
+function normalizeOperatorState(session: BridgeSession): OperatorState {
+  const statusFromOperatorState = session.operatorState
+    ? operatorStateToSessionStatus(session.operatorState)
+    : null;
+  if (
+    session.operatorState &&
+    statusFromOperatorState === session.status &&
+    !(session.operatorState === 'idle' && session.taskPrompt)
+  ) {
+    return session.operatorState;
+  }
+  switch (session.status) {
+    case 'waiting_approval':
+      return 'approval_required';
+    case 'completed':
+      return 'completed';
+    case 'paused':
+      return 'paused';
+    case 'failed':
+      return 'failed';
+    case 'setup':
+      return session.taskPrompt ? 'plan_ready' : 'idle';
+    case 'running':
+    default:
+      return session.taskPrompt ? 'running' : 'idle';
+  }
+}
+
+function commandStatusLabel(state: OperatorState, scenario: OperatorScenario): string {
+  if (state === 'approval_required') return 'Approval required';
+  if (state === 'completed') return 'Completed';
+  if (state === 'paused') return 'Paused';
+  if (state === 'running') return 'Working';
+  if (scenario.riskLevel === 'read_only') return 'Read only';
+  if (scenario.riskLevel === 'draft_only') return 'Draft only';
+  if (scenario.riskLevel === 'manual_required') return 'Manual review';
+  return 'Approval first';
+}
+
 interface BridgeOperatorPageProps {
   session?: BridgeSession | null;
   onBackToConversation?: (conversationId: string) => void;
@@ -62,7 +101,7 @@ export function BridgeOperatorPage({
       if (s) {
         return {
           ...base,
-          state: s.operatorState ?? 'running',
+          state: normalizeOperatorState(s),
           taskText: s.taskPrompt,
           startedAt: s.createdAt,
         };
@@ -115,8 +154,7 @@ export function BridgeOperatorPage({
       send({ type: 'START_ANALYSIS' });
       return;
     }
-    // Follow-up command during a running task. Stays as in-line note.
-    send({ type: 'INPUT_TASK', text: text });
+    send({ type: 'FOLLOW_UP', text });
   };
 
   const labEnabled = isLabEnabled();
@@ -174,7 +212,13 @@ export function BridgeOperatorPage({
           state={runtime.state}
           onResolveCapability={() => send({ type: 'OPEN_REQUIREMENT_PROMPT' })}
         />
-        <LiveWorkspacePanel scenario={scenario} runtime={runtime} />
+        <LiveWorkspacePanel
+          scenario={scenario}
+          runtime={runtime}
+          onStart={() => send({ type: 'PLAN_CONFIRMED' })}
+          onApprove={() => send({ type: 'APPROVE' })}
+          onReject={() => send({ type: 'REJECT' })}
+        />
         <ControlCenterPanel
           scenario={scenario}
           runtime={runtime}
@@ -187,11 +231,15 @@ export function BridgeOperatorPage({
 
       <OperatorCommandBar
         placeholder={
-          runtime.state === 'idle'
-            ? 'Describe a task involving browser, files, apps, or devices…'
-            : 'Tell Colony Bridge what to change…'
+          runtime.state === 'completed'
+            ? 'Ask Colony Bridge about this result...'
+            : 'Tell Colony Bridge what to change or do next...'
         }
+        state={runtime.state}
+        statusLabel={commandStatusLabel(runtime.state, scenario)}
         onSubmit={startTaskFromInput}
+        onPause={() => send({ type: 'PAUSE' })}
+        onResume={() => send({ type: 'RESUME' })}
         disabled={runtime.state === 'failed' || runtime.state === 'blocked'}
       />
 
