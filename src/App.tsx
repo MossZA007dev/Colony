@@ -51,6 +51,7 @@ import {
   Laptop,
   Lightbulb,
   Download,
+  Mic,
   Upload,
   BarChart3,
   Bot,
@@ -15518,10 +15519,10 @@ type NodeInstruction = {
 };
 
 const MODEL_ROUTING_OPTIONS: Array<{ value: ModelRoutingPreference; label: string; shortLabel: string; description: string }> = [
-  { value: 'auto', label: 'Auto routing', shortLabel: 'Auto', description: 'Let Colony choose the best model for this task.' },
-  { value: 'fast', label: 'Fast', shortLabel: 'Fast', description: 'Faster response, lower cost.' },
-  { value: 'balanced', label: 'Balanced', shortLabel: 'Balanced', description: 'Good quality and speed.' },
-  { value: 'best_quality', label: 'Best Quality', shortLabel: 'Best Quality', description: 'Use stronger models for complex reasoning.' },
+  { value: 'auto', label: 'Auto', shortLabel: 'Auto', description: 'Let Colony Bridge choose a suitable model preference.' },
+  { value: 'fast', label: 'Fast', shortLabel: 'Fast', description: 'Quicker responses for simple tasks.' },
+  { value: 'balanced', label: 'Balanced', shortLabel: 'Balanced', description: 'A practical mix of speed and quality.' },
+  { value: 'best_quality', label: 'Deep Reasoning', shortLabel: 'Deep Reasoning', description: 'More thorough analysis and planning.' },
 ];
 
 const MANUAL_MODEL_GROUPS: Array<{ capability: AgentCapability; label: string; models: Array<{ provider: ModelProvider | string; modelId: string; label: string }> }> = [
@@ -17237,34 +17238,42 @@ const AGENT_MODE_LABEL: Record<AgentInputMode, string> = {
   Device: 'Colony Bridge',
 };
 
+const AGENT_MODE_SHORT_LABEL: Record<AgentInputMode, string> = {
+  Auto: 'Auto',
+  Chat: 'Chat',
+  Agent: 'Crew',
+  'Colony Crew': 'Crew',
+  'Deep Research': 'Crew',
+  'One-man Enterprise': 'Enterprise',
+  Workflow: 'Automation',
+  Device: 'Operator',
+};
+
 const AGENT_MODE_OPTIONS: Array<{ mode: AgentInputMode; description: string; icon: React.ElementType }> = [
-  { mode: 'Auto', description: 'AI Ant decides the best way to help.', icon: Sparkles },
-  { mode: 'Chat', description: 'Ask AI Ant directly.', icon: MessageSquare },
-  { mode: 'Colony Crew', description: 'Assemble a specialist AI crew for one task.', icon: Users },
-  { mode: 'One-man Enterprise', description: 'Create an AI company-style workspace for a bigger project.', icon: Building2 },
-  { mode: 'Workflow', description: 'Turn repeatable work into an automation.', icon: Workflow },
-  { mode: 'Device', description: 'Bridge AI Ant to files, apps, browser, and connected tools after approval.', icon: Laptop },
+  { mode: 'Auto', description: 'Let AI Ant recommend the right way to handle the task.', icon: Sparkles },
+  { mode: 'Chat', description: 'Get a direct answer or draft.', icon: MessageSquare },
+  { mode: 'Colony Crew', description: 'Assemble specialists for one complex task.', icon: Users },
+  { mode: 'Workflow', description: 'Turn recurring work into a reusable workflow.', icon: Workflow },
+  { mode: 'One-man Enterprise', description: 'Organize long-term work into an AI operating workspace.', icon: Building2 },
+  { mode: 'Device', description: 'Work through approved files, browser, or connected tools.', icon: Laptop },
 ];
 
 const ANT_PROMPT_SUGGESTIONS = [
-  { label: 'Summarize the latest report', mode: 'Chat' as AgentInputMode },
-  { label: 'Build an AI team for this task', mode: 'Colony Crew' as AgentInputMode },
   { label: 'Research competitors', mode: 'Colony Crew' as AgentInputMode },
-  { label: 'Turn this into a workflow', mode: 'Workflow' as AgentInputMode },
-  { label: 'Draft a weekly sales summary', mode: 'Chat' as AgentInputMode },
-  { label: 'Create a market analysis', mode: 'Colony Crew' as AgentInputMode },
+  { label: 'Summarize a report', mode: 'Chat' as AgentInputMode },
+  { label: 'Create a workflow', mode: 'Workflow' as AgentInputMode },
 ];
 
 function AntPromptSuggestions({ onPick }: { onPick: (suggestion: { label: string; mode: AgentInputMode }) => void }) {
   return (
-    <div className="rounded-[22px] border border-white/[0.06] bg-white/[0.018] px-4 py-3.5">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <span className="pr-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/26">Suggestions</span>
+    <div className="ant-quick-starts">
+      <span className="ant-quick-starts-label">Try asking</span>
+      <div className="ant-quick-starts-row">
         {ANT_PROMPT_SUGGESTIONS.map((suggestion) => (
           <button
             key={suggestion.label}
             onClick={() => onPick(suggestion)}
-            className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-[12px] font-medium text-white/54 transition hover:border-white/[0.14] hover:bg-white/[0.055] hover:text-white/82"
+            className="ant-quick-chip"
           >
             {suggestion.label}
           </button>
@@ -17375,6 +17384,21 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
     setAddMenuOpen(false);
     onChange(prompt ? `${prompt}\n@tool ` : '@tool ');
   };
+  const handleCreateWorkflow = () => {
+    setAddMenuOpen(false);
+    setAgentMode('Workflow');
+    onChange(prompt || 'Create a repeatable workflow for ');
+  };
+  const handleBuildCrew = () => {
+    setAddMenuOpen(false);
+    setAgentMode('Colony Crew');
+    onChange(prompt || 'Build a Colony Crew to ');
+  };
+  const handleOneManEnterprise = () => {
+    setAddMenuOpen(false);
+    setAgentMode('One-man Enterprise');
+    onChange(prompt || 'Set up a one-man enterprise for ');
+  };
   const placeholderByMode: Record<AgentInputMode, string> = {
     Auto: 'Tell AI Ant what you want to accomplish...',
     Chat: 'Ask AI Ant anything...',
@@ -17385,10 +17409,46 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
     Workflow: 'Describe the recurring process you want AI Ant to automate…',
     Device: 'Describe what AI Ant should do across your files, apps, browser, or tools...',
   };
+  const currentModelPreference = MODEL_ROUTING_OPTIONS.find((option) => option.value === modelRoutingPreference) ?? MODEL_ROUTING_OPTIONS[0];
+  const modelPreferenceOptions = MODEL_ROUTING_OPTIONS.filter((option) => ['auto', 'fast', 'balanced', 'best_quality'].includes(option.value));
+  const showModelChip = modelRoutingPreference !== 'auto';
+  const addControl = (
+    <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={`ant-ctrl-neutral ant-add-trigger flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-full ${addMenuOpen ? 'is-active-violet' : ''}`}
+          title="Add to task"
+          aria-label="Add to task"
+        >
+          <Plus className={`h-4 w-4 transition-transform duration-200 ${addMenuOpen ? 'rotate-45' : ''}`} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={large ? 'bottom' : 'top'}
+        align="start"
+        sideOffset={8}
+        className="ant-popover-surface !w-[min(360px,calc(100vw-32px))] max-h-[min(620px,calc(100vh-140px))] overflow-y-auto !rounded-[18px] !p-2"
+      >
+        <p className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/38">Add to your task</p>
+        <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/28">Context</p>
+        <AddMenuItem icon={Upload} label="Upload files" description="Add documents, images, or project materials." onClick={handleAddFiles} />
+        <AddMenuItem icon={FolderOpen} label="Use project context" description="Reference files and instructions from a project." onClick={handleAddFromProject} />
+        <AddMenuItem icon={Plug} label="Connect a tool" description="Use approved sources or connected apps." onClick={handleConnectTool} />
+        <div className="my-1.5 mx-2 h-px bg-white/[0.06]" />
+        <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/28">Create</p>
+        <AddMenuItem icon={ImageIcon} label="Create an image" description="Generate a visual asset for your work." comingSoon />
+        <AddMenuItem icon={Workflow} label="Create a workflow" description="Turn repeatable work into an automation." onClick={handleCreateWorkflow} />
+        <AddMenuItem icon={Users} label="Build a Colony Crew" description="Assemble specialist agents for a task." onClick={handleBuildCrew} />
+        <div className="my-1.5 mx-2 h-px bg-white/[0.06]" />
+        <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/28">Advanced</p>
+        <AddMenuItem icon={Building2} label="One-man Enterprise" description="Create a longer-term AI operating workspace." onClick={handleOneManEnterprise} />
+      </PopoverContent>
+    </Popover>
+  );
   return (
     <BorderGlow
       backgroundColor="#0b101c"
-      borderRadius={large ? 26 : 20}
+      borderRadius={large ? 999 : 20}
       edgeSensitivity={22}
       glowColor="265 95 72"
       glowRadius={38}
@@ -17399,21 +17459,22 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
       // share the exact same flat surface (no purple tint bleeding through
       // the prompt half of the composer).
       fillOpacity={0}
-      className={`ant-composer relative ${large ? 'p-4' : 'p-3'} shadow-[0_22px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl`}
+      className={`ant-composer relative ${large ? 'ant-composer-large p-2' : 'p-3'} shadow-[0_22px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl`}
     >
-      <div className={large ? 'px-1 pt-1' : 'px-1 pt-0.5'}>
+      {large && addControl}
+      <div className={`ant-composer-input-wrap ${large ? 'px-2' : 'px-1 pt-0.5'}`}>
         <textarea
           value={prompt}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(prompt); } }}
-          placeholder={placeholderByMode[visibleAgentMode]}
+          placeholder={large ? 'Ask anything...' : placeholderByMode[visibleAgentMode]}
           rows={1}
-          className="ant-composer-textarea block w-full resize-none overflow-hidden border-0 bg-transparent text-[16px] font-normal leading-[1.6] text-white/85 caret-violet-200 outline-none focus:outline-none focus:ring-0"
-          style={{ maxHeight: large ? 168 : 140, minHeight: large ? 96 : 42 }}
-          onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, large ? 180 : 140) + 'px'; }}
+          className="ant-composer-textarea block w-full resize-none overflow-hidden border-0 bg-transparent text-[16px] font-normal leading-[1.55] text-white/85 caret-violet-200 outline-none focus:outline-none focus:ring-0"
+          style={{ maxHeight: large ? 118 : 140, minHeight: large ? 40 : 42 }}
+          onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, large ? 118 : 140) + 'px'; }}
         />
       </div>
-      <div className="ant-composer-toolbar mt-3 flex flex-wrap items-center gap-2 pt-3">
+      <div className={`ant-composer-toolbar ${large ? 'ant-composer-toolbar-large' : 'mt-5'} flex flex-wrap items-center gap-2.5`}>
         <input
           ref={fileInputRef}
           type="file"
@@ -17422,47 +17483,23 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
           className="hidden"
           onChange={handleFilesChosen}
         />
-        <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
-          <PopoverTrigger asChild>
-            <button
-              className={`ant-ctrl-neutral flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-[12px] ${addMenuOpen ? 'is-active-violet' : ''}`}
-              title="Add to prompt"
-            >
-              <Plus className={`h-4 w-4 transition-transform duration-200 ${addMenuOpen ? 'rotate-45' : ''}`} />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            side={large ? 'bottom' : 'top'}
-            align="start"
-            sideOffset={6}
-            className="!w-[260px] overflow-hidden !rounded-[14px] !p-1.5"
-          >
-            <p className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/35">Add to prompt</p>
-            <AddMenuItem icon={Upload} label="Upload files or images" onClick={handleAddFiles} />
-            <AddMenuItem icon={FolderOpen} label="Add from project" onClick={handleAddFromProject} />
-            <AddMenuItem icon={Plug} label="Connect a tool" onClick={handleConnectTool} />
-            <AddMenuItem icon={LinkIcon} label="Add a link" onClick={handleAddLink} />
-            <div className="my-1.5 mx-2 h-px bg-white/[0.06]" />
-            <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Generation</p>
-            <AddMenuItem icon={ImageIcon} label="Generate image" comingSoon />
-            <AddMenuItem icon={VideoIcon} label="Create video" comingSoon />
-          </PopoverContent>
-        </Popover>
+        {!large && addControl}
 
         <Popover open={modeOpen} onOpenChange={setModeOpen}>
           <PopoverTrigger asChild>
             <button className="ant-ctrl-accent flex h-10 items-center gap-2 rounded-full px-3.5 text-xs font-semibold">
               <SelectedIcon className="h-3.5 w-3.5" />
-              {AGENT_MODE_LABEL[visibleAgentMode]}
+              {large ? AGENT_MODE_SHORT_LABEL[visibleAgentMode] : AGENT_MODE_LABEL[visibleAgentMode]}
               <ChevronDown className={`h-3.5 w-3.5 transition ${modeOpen ? 'rotate-180' : ''}`} />
             </button>
           </PopoverTrigger>
           <PopoverContent
             side={large ? 'bottom' : 'top'}
             align="start"
-            sideOffset={6}
-            className="!w-[min(310px,calc(100vw-32px))] max-h-[min(520px,calc(100vh-140px))] overflow-y-auto !rounded-[16px] !bg-[#111827] !p-1.5"
+            sideOffset={8}
+            className="ant-popover-surface !w-[min(390px,calc(100vw-32px))] max-h-[min(620px,calc(100vh-140px))] overflow-y-auto !rounded-[18px] !p-2"
           >
+            <p className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/38">How should AI Ant help?</p>
             {AGENT_MODE_OPTIONS.map(({ mode, description, icon: Icon }) => (
               <button
                 key={mode}
@@ -17476,32 +17513,50 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
                 </span>
               </button>
             ))}
+            <div className="my-2 mx-2 h-px bg-white/[0.06]" />
+            <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/28">Model preference</div>
+            {modelPreferenceOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setModelRoutingPreference(option.value)}
+                className={`flex w-full items-start gap-3 rounded-[12px] px-3 py-2.5 text-left transition ${modelRoutingPreference === option.value ? 'bg-cyan-500/12 text-white' : 'text-white/65 hover:bg-white/[0.06] hover:text-white'}`}
+              >
+                <Brain className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200/75" />
+                <span>
+                  <span className="block text-[13px] font-bold">{option.label}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-white/38">{option.description}</span>
+                </span>
+              </button>
+            ))}
+            <div className="mx-3 mt-2 rounded-[12px] border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-[11px] text-white/38">
+              Usage remaining: 39 messages
+            </div>
           </PopoverContent>
         </Popover>
 
-        <ModelRoutingSelector
-          value={modelRoutingPreference}
-          onChange={setModelRoutingPreference}
-          manualSelection={manualModelSelection}
-          onManualSelection={setManualModelSelection}
-          large={large}
-        />
-
-        <span className="ant-ctrl-chip hidden h-10 items-center rounded-full px-3 text-[11px] font-semibold text-white/40 sm:inline-flex">39 left</span>
-        <div className="min-w-[12px] flex-1" />
+        {showModelChip && (
+          <button
+            type="button"
+            className="ant-ctrl-chip ant-model-chip hidden h-10 items-center rounded-full px-3 text-[11px] font-semibold sm:inline-flex"
+            onClick={() => setModelRoutingPreference('auto')}
+            title="Clear model preference"
+          >
+            {currentModelPreference.shortLabel}
+            <X className="ml-1.5 h-3 w-3 opacity-60" />
+          </button>
+        )}
+        {!large && <div className="min-w-[12px] flex-1" />}
 
         <button onClick={onToggleVoice}
-          className={`ant-ctrl-neutral relative flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-[12px] ${voiceActive ? 'is-active-violet' : ''}`}
+          className={`ant-ctrl-neutral relative flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-full ${voiceActive ? 'is-active-violet' : ''}`}
           title="Voice">
-          {voiceActive && <span className="absolute inset-0 animate-ping rounded-[12px] bg-violet-500/24" />}
-          <span className="text-sm">{voiceActive ? '🎙️' : '🎤'}</span>
-        </button>
-        <button className={`ant-ctrl-neutral flex ${large ? 'h-10 w-10' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-[12px]`} title="Attach file">
-          <Upload className="h-4 w-4" />
+          {voiceActive && <span className="absolute inset-0 animate-ping rounded-full bg-violet-500/24" />}
+          <Mic className="h-4 w-4" />
         </button>
         <button onClick={() => onSubmit(prompt)} disabled={!prompt.trim()}
-          className={`ant-ctrl-send group flex ${large ? 'h-10 min-w-[88px] px-[18px]' : 'h-9 min-w-[78px] px-4'} shrink-0 items-center justify-center gap-2 rounded-full text-xs font-semibold ${prompt.trim() ? 'is-armed' : 'is-disabled'}`}>
-          <span>Send</span>
+          aria-label="Send message"
+          className={`ant-ctrl-send group flex ${large ? 'h-10 w-10 px-0' : 'h-9 min-w-[78px] px-4'} shrink-0 items-center justify-center gap-2 rounded-full text-xs font-semibold ${prompt.trim() ? 'is-armed' : 'is-disabled'}`}>
+          {!large && <span>Send</span>}
           <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
       </div>
@@ -17509,9 +17564,10 @@ function AntPromptInput({ prompt, onChange, onSubmit, voiceActive, onToggleVoice
   );
 }
 
-function AddMenuItem({ icon: Icon, label, onClick, comingSoon }: {
+function AddMenuItem({ icon: Icon, label, description, onClick, comingSoon }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  description?: string;
   onClick?: () => void;
   comingSoon?: boolean;
 }) {
@@ -17528,7 +17584,10 @@ function AddMenuItem({ icon: Icon, label, onClick, comingSoon }: {
       }`}
     >
       <Icon className={`h-4 w-4 shrink-0 ${comingSoon ? 'text-white/25' : 'text-violet-200/75'}`} />
-      <span className="flex-1 truncate">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold">{label}</span>
+        {description && <span className="mt-0.5 block truncate text-[11px] font-normal text-white/35">{description}</span>}
+      </span>
       {comingSoon && (
         <span className="rounded-full border border-white/[0.10] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-white/40">
           Coming soon
@@ -17551,7 +17610,7 @@ function ModelRoutingSelector({ value, onChange, manualSelection, onManualSelect
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="flex h-10 items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.03] px-3.5 text-xs font-semibold text-white/62 transition hover:border-white/[0.16] hover:bg-white/[0.07] hover:text-white">
+        <button className={`ant-ctrl-model flex h-10 items-center gap-2 rounded-full px-3.5 text-xs font-semibold ${open ? 'is-active-cyan' : ''}`}>
           <Brain className="h-3.5 w-3.5 text-cyan-200/75" />
           <span className="hidden sm:inline">Model:</span> {current.shortLabel}
           <ChevronDown className={`h-3.5 w-3.5 transition ${open ? 'rotate-180' : ''}`} />
@@ -24019,7 +24078,7 @@ function AIAntPage({
   const [view, setView] = React.useState<'home' | 'chat' | 'search' | 'graph' | 'knowledge' | 'project' | 'crew' | 'workflow-builder'>('home');
   const [mode, setMode] = React.useState<AntMode>('approval');
   const [agentInputMode, setAgentInputMode] = React.useState<AgentInputMode>('Auto');
-  const [modelRoutingPreference, setModelRoutingPreference] = React.useState<ModelRoutingPreference>('balanced');
+  const [modelRoutingPreference, setModelRoutingPreference] = React.useState<ModelRoutingPreference>('auto');
   const [manualModelSelection, setManualModelSelection] = React.useState<ManualModelSelection | null>({ capability: 'text_reasoning', provider: 'deepseek', modelId: 'deepseek-v3' });
   const [prompt, setAntPrompt] = React.useState('');
   const [voiceActive, setVoiceActive] = React.useState(false);
@@ -26126,10 +26185,6 @@ function AIAntPage({
           </div>
 
           <div className="mx-auto mb-10 w-full max-w-[800px] px-4">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[12px] font-bold text-white/58">Quick starts</p>
-              <button onClick={() => setPage('Templates')} className="text-xs font-semibold text-violet-300/70 transition hover:text-violet-200">Template Community</button>
-            </div>
             <AntPromptSuggestions onPick={handlePromptSuggestionPick} />
           </div>
 

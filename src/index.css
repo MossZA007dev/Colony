@@ -744,6 +744,52 @@ input {
    toolbar divider, and child controls so the composer reads
    as a single component instead of several stacked frames.    */
 
+.ant-composer {
+  transition: box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.ant-composer-large {
+  min-height: 58px;
+  background: rgba(255, 255, 255, 0.055) !important;
+  border-radius: 999px !important;
+  box-shadow:
+    0 18px 54px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055) !important;
+}
+
+.ant-composer-large > .border-glow-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ant-composer:focus-within {
+  box-shadow:
+    0 22px 80px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(125, 183, 255, 0.18),
+    0 0 36px rgba(124, 92, 252, 0.12);
+}
+
+.ant-composer-large:focus-within {
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(125, 183, 255, 0.14),
+    0 0 28px rgba(124, 92, 252, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.065) !important;
+}
+
+.ant-composer-input-wrap {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ant-composer-large .ant-composer-input-wrap {
+  display: flex;
+  align-items: center;
+  flex: 1 1 160px;
+}
+
 .ant-composer-textarea,
 .ant-composer-textarea:hover,
 .ant-composer-textarea:focus,
@@ -774,28 +820,51 @@ input {
    intentionally dimmer so it never reads brighter than the
    composer edge. */
 .ant-composer-toolbar {
-  border-top: 1px solid rgba(120, 135, 165, 0.12);
+  border-top: 0;
+}
+
+.ant-composer-toolbar-large {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.ant-popover-surface {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(16, 22, 34, 0.98) !important;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.46) !important;
+  backdrop-filter: blur(18px);
 }
 
 /* Neutral toolbar control: one shared border opacity, height,
    and dark surface across Add / Voice / Upload / etc.
    Tokens come from the unified composer/decision-card system. */
-.ant-ctrl-neutral {
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background-color: rgba(255, 255, 255, 0.025);
+.ant-ctrl-neutral,
+.ant-ctrl-accent,
+.ant-ctrl-model {
+  border: 1px solid transparent;
+  background-color: transparent;
   color: rgba(226, 232, 240, 0.78);
-  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease, transform 0.18s ease;
   cursor: pointer;
 }
-.ant-ctrl-neutral:hover {
-  border-color: rgba(148, 163, 184, 0.32);
+.ant-ctrl-neutral:hover,
+.ant-ctrl-accent:hover,
+.ant-ctrl-model:hover {
+  border-color: rgba(255, 255, 255, 0.06);
   background-color: rgba(255, 255, 255, 0.06);
   color: #ffffff;
 }
+.ant-ctrl-neutral:focus-visible,
+.ant-ctrl-accent:focus-visible,
+.ant-ctrl-model:focus-visible,
+.ant-ctrl-send:focus-visible {
+  outline: 2px solid rgba(125, 183, 255, 0.42);
+  outline-offset: 3px;
+}
 .ant-ctrl-neutral:disabled {
   cursor: not-allowed;
-  border-color: rgba(148, 163, 184, 0.10);
-  background-color: rgba(255, 255, 255, 0.03);
+  border-color: transparent;
+  background-color: transparent;
   color: rgba(148, 163, 184, 0.40);
 }
 
@@ -803,7 +872,7 @@ input {
    violet tint — kept compatible with the neutral border so
    the toolbar still reads as one row. */
 .ant-ctrl-neutral.is-active-violet {
-  border-color: rgba(167, 139, 250, 0.32);
+  border-color: rgba(167, 139, 250, 0.12);
   background-color: rgba(124, 92, 252, 0.14);
   color: rgba(216, 200, 255, 0.95);
 }
@@ -812,23 +881,37 @@ input {
    doesn't dominate the rest of the toolbar — never brighter than
    the primary CTA. */
 .ant-ctrl-accent {
-  border: 1px solid rgba(139, 104, 255, 0.35);
-  background-color: rgba(124, 77, 255, 0.10);
+  background-color: rgba(124, 77, 255, 0.12);
   color: rgba(226, 218, 255, 0.92);
-  transition: border-color 0.18s ease, background-color 0.18s ease;
-  cursor: pointer;
 }
 .ant-ctrl-accent:hover {
-  border-color: rgba(139, 104, 255, 0.50);
+  border-color: rgba(167, 139, 250, 0.14);
   background-color: rgba(124, 77, 255, 0.16);
+}
+
+.ant-ctrl-model.is-active-cyan {
+  border-color: rgba(125, 211, 252, 0.12);
+  background-color: rgba(34, 211, 238, 0.10);
+  color: rgba(224, 251, 255, 0.94);
 }
 
 /* Read-only chip (credits left): muted, never competes with
    actions. */
 .ant-ctrl-chip {
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background-color: rgba(255, 255, 255, 0.025);
+  border: 1px solid transparent;
+  background-color: rgba(255, 255, 255, 0.018);
   color: rgba(148, 163, 184, 0.55);
+}
+
+.ant-model-chip {
+  background-color: rgba(34, 211, 238, 0.08);
+  color: rgba(224, 251, 255, 0.72);
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.ant-model-chip:hover {
+  background-color: rgba(34, 211, 238, 0.12);
+  color: rgba(224, 251, 255, 0.92);
 }
 
 /* Send button — armed = unified off-white primary (matches the
@@ -841,21 +924,22 @@ input {
 }
 .ant-ctrl-send.is-armed {
   border-color: transparent;
-  background-color: #F5F6F8;
+  background: linear-gradient(135deg, rgba(245, 246, 248, 0.98), rgba(217, 226, 255, 0.94));
   color: #0A0D14;
-  box-shadow: 0 4px 18px rgba(245, 246, 248, 0.18);
+  box-shadow: 0 8px 24px rgba(125, 183, 255, 0.16);
 }
 .ant-ctrl-send.is-armed:hover {
-  background-color: #FFFFFF;
-  box-shadow: 0 6px 22px rgba(255, 255, 255, 0.24);
+  background: linear-gradient(135deg, #ffffff, rgba(230, 237, 255, 0.98));
+  box-shadow: 0 10px 28px rgba(125, 183, 255, 0.22);
+  transform: translateY(-1px);
 }
 .ant-ctrl-send.is-armed:active {
   transform: scale(0.98);
 }
 .ant-ctrl-send.is-disabled {
   cursor: not-allowed;
-  border: 1px solid rgba(148, 163, 184, 0.10);
-  background-color: rgba(255, 255, 255, 0.03);
+  border-color: transparent;
+  background-color: rgba(255, 255, 255, 0.035);
   color: rgba(148, 163, 184, 0.40);
   box-shadow: none;
 }
@@ -863,3 +947,121 @@ input {
   background-color: rgba(255, 255, 255, 0.03);
 }
 
+.ant-quick-starts {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  align-items: center;
+  color: rgba(148, 163, 184, 0.44);
+}
+
+.ant-quick-starts-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ant-quick-starts-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.ant-quick-chip {
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.45rem 0.8rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.62);
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.ant-quick-chip:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(255, 255, 255, 0.86);
+  transform: translateY(-1px);
+}
+
+@media (min-width: 720px) {
+  .ant-composer-large {
+    min-height: 58px;
+  }
+
+  .ant-composer-large > .border-glow-inner {
+    gap: 0.35rem;
+  }
+
+  .ant-composer-large .ant-composer-toolbar-large {
+    flex-wrap: nowrap;
+    gap: 0.35rem;
+  }
+
+  .ant-composer-large .ant-ctrl-neutral,
+  .ant-composer-large .ant-ctrl-accent,
+  .ant-composer-large .ant-ctrl-model,
+  .ant-composer-large .ant-ctrl-chip,
+  .ant-composer-large .ant-ctrl-send {
+    height: 40px;
+  }
+}
+
+@media (max-width: 719px) {
+  .ant-composer-large {
+    border-radius: 28px !important;
+    padding: 0.85rem !important;
+  }
+
+  .ant-composer-large > .border-glow-inner {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .ant-composer-large .ant-composer-toolbar-large {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .ant-composer-large .ant-composer-input-wrap {
+    flex: 0 0 auto;
+  }
+
+  .ant-composer-large .ant-ctrl-send {
+    min-width: 88px;
+  }
+
+  .ant-quick-starts {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.45rem;
+    overflow: hidden;
+  }
+
+  .ant-quick-starts-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .ant-quick-chip {
+    flex: 0 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ant-composer,
+  .ant-ctrl-neutral,
+  .ant-ctrl-accent,
+  .ant-ctrl-model,
+  .ant-ctrl-send {
+    transition: none;
+  }
+}
