@@ -186,6 +186,14 @@ import { KnowledgeOSPage } from './pages/knowledge/KnowledgeOSPage';
 import { BossIntake } from './pages/one-man-enterprse/BossIntake';
 import { EnterpriseOrgPreviewPanel } from './pages/one-man-enterprse/oneManEnterprise';
 import { BridgeOperatorPage } from './pages/bridge/BridgeOperatorPage';
+import { BridgeSetupCard, type BridgeSetupCardData } from './pages/bridge/BridgeSetupCard';
+import {
+  loadBridgeSessions,
+  upsertBridgeSession,
+  type BridgeSession,
+} from './lib/bridge/bridgeSessionStore';
+import { createBridgeSessionFromTask } from './lib/bridge/bridgeIntake';
+import { buildWorkItems, WORK_ITEM_TYPE_LABEL, WORK_ITEM_TYPE_TONE, type WorkItem } from './lib/work/workItems';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
@@ -1445,6 +1453,7 @@ function KimiStyleSidebar({
   onNavigate, onNewChat, onOpenWsChat, onRenameChat, onTogglePinChat, onArchiveChat, onDeleteChat,
   onRenameWsProject, onArchiveWsProject, onDeleteWsProject,
   onNewWsProject, onOpenSettings, onSignOut,
+  bridgeSessions, activeBridgeSessionId, onOpenBridgeSession,
 }: {
   page: Page;
   profile: UserProfile;
@@ -1467,6 +1476,9 @@ function KimiStyleSidebar({
   onNewWsProject: (name: string, goal: string) => void;
   onOpenSettings: (tab?: string) => void;
   onSignOut: () => void | Promise<void>;
+  bridgeSessions: BridgeSession[];
+  activeBridgeSessionId: string | null;
+  onOpenBridgeSession: (sessionId: string) => void;
 }) {
   const [contextMenu, setContextMenu] = React.useState<
     | { type: 'chat'; id: string; x: number; y: number }
@@ -1523,7 +1535,6 @@ function KimiStyleSidebar({
     { label: 'Template Community', icon: Layers3, page: 'Templates' },
     { label: 'Connectors', icon: Plug, page: 'Connectors' },
     { label: 'Knowledge', icon: StickyNote, page: 'Knowledge' },
-    { label: 'Approvals', icon: ClipboardCheck, page: 'Approvals' },
   ];
   const planTone: Record<string, string> = {
     free: 'border-white/[0.10] bg-white/[0.04] text-white/45',
@@ -1581,24 +1592,6 @@ function KimiStyleSidebar({
           )}
         </AnimatePresence>
         <nav className="space-y-0.5">
-          <SidebarNavButton
-            key="AI Ant"
-            label="AI Ant"
-            Icon={Bot}
-            active={page === 'AI Ant'}
-            collapsed={collapsed}
-            order={0}
-            onClick={() => onNavigate('AI Ant')}
-          />
-          <SidebarNavButton
-            key="Colony Bridge"
-            label="Colony Bridge"
-            Icon={Network}
-            active={page === 'Bridge'}
-            collapsed={collapsed}
-            order={1}
-            onClick={() => onNavigate('Bridge')}
-          />
           <SidebarProjectsSection
             active={page === 'Projects'}
             collapsed={collapsed}
@@ -1606,7 +1599,7 @@ function KimiStyleSidebar({
             onToggleExpanded={() => setProjectsExpanded((v) => !v)}
             onNavigateProjects={() => onNavigate('Projects')}
             onNewProject={openNewProject}
-            order={2}
+            order={0}
           />
           <SidebarNavButton
             key="Deliverables"
@@ -1614,8 +1607,17 @@ function KimiStyleSidebar({
             Icon={FileText}
             active={page === 'Deliverables'}
             collapsed={collapsed}
-            order={3}
+            order={1}
             onClick={() => onNavigate('Deliverables')}
+          />
+          <SidebarNavButton
+            key="Approvals"
+            label="Approvals"
+            Icon={ClipboardCheck}
+            active={page === 'Approvals'}
+            collapsed={collapsed}
+            order={2}
+            onClick={() => onNavigate('Approvals')}
           />
         </nav>
 
@@ -1641,7 +1643,7 @@ function KimiStyleSidebar({
                 Icon={Icon}
                 active={active}
                 collapsed={collapsed}
-                order={4 + idx}
+                order={3 + idx}
                 onClick={() => onNavigate(targetPage)}
               />
             );
@@ -1668,7 +1670,7 @@ function KimiStyleSidebar({
                 Icon={Terminal}
                 active={page === 'Admin'}
                 collapsed={collapsed}
-                order={4 + libraryItems.length}
+                order={3 + libraryItems.length}
                 onClick={() => onNavigate('Admin')}
               />
             </nav>
@@ -1733,9 +1735,43 @@ function KimiStyleSidebar({
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: 0.05 }}
               >
                 <div className="mb-1.5 flex items-center justify-between px-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/24">Chat History</p>
-                  <button className="text-[11px] font-semibold text-violet-300/60 transition hover:text-violet-200">All Chats</button>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/24">Recent Work</p>
+                  <button className="text-[11px] font-semibold text-violet-300/60 transition hover:text-violet-200">All</button>
                 </div>
+                {bridgeSessions.length > 0 && (
+                  <div className="mb-2 space-y-0.5">
+                    {bridgeSessions.slice(0, 6).map((session) => {
+                      const active = page === 'Bridge' && activeBridgeSessionId === session.id;
+                      const statusTone =
+                        session.status === 'waiting_approval' ? 'text-amber-200/85'
+                          : session.status === 'completed' ? 'text-emerald-200/75'
+                            : session.status === 'failed' ? 'text-red-200/80'
+                              : 'text-violet-200/80';
+                      return (
+                        <button
+                          key={session.id}
+                          type="button"
+                          onClick={() => onOpenBridgeSession(session.id)}
+                          className={`flex w-full items-start gap-2 rounded-[10px] px-2 py-2 text-left text-[12px] transition-colors ${active ? 'bg-violet-500/[0.12] text-white ring-1 ring-violet-400/20' : 'text-white/55 hover:bg-white/[0.045] hover:text-white/85'}`}
+                        >
+                          <Network className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-300/85" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[12px] font-medium">{session.title}</span>
+                            <span className={`mt-0.5 block truncate text-[10.5px] ${statusTone}`}>
+                              <span className="font-semibold uppercase tracking-[0.06em]">Bridge</span>
+                              <span className="mx-1 opacity-40">·</span>
+                              {session.status === 'waiting_approval' ? 'Approval required'
+                                : session.status === 'completed' ? 'Completed'
+                                  : session.status === 'failed' ? 'Interrupted'
+                                    : session.status === 'paused' ? 'Paused'
+                                      : 'Running'}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {(() => {
                   const recent = visibleChats.slice(0, 12);
                   const pinnedChats = recent.filter((chat) => chat.isPinned);
@@ -17595,34 +17631,34 @@ function normalizeAgentInputMode(mode: AgentInputMode): AgentInputMode {
 // Visible display labels for each mode. Internal keys (AgentInputMode) stay
 // as 'Workflow'/'Device' for backward compatibility with classifier + handlers.
 const AGENT_MODE_LABEL: Record<AgentInputMode, string> = {
-  Auto: 'Auto',
+  Auto: 'Recommend for me',
   Chat: 'Chat',
   Agent: 'Colony Crew',
   'Colony Crew': 'Colony Crew',
   'Deep Research': 'Colony Crew',
   'One-man Enterprise': 'One-man Enterprise',
   Workflow: 'Automation',
-  Device: 'Colony Bridge',
+  Device: 'Colony Bridge Operator',
 };
 
 const AGENT_MODE_SHORT_LABEL: Record<AgentInputMode, string> = {
-  Auto: 'Auto',
+  Auto: 'Recommend',
   Chat: 'Chat',
   Agent: 'Crew',
   'Colony Crew': 'Crew',
   'Deep Research': 'Crew',
   'One-man Enterprise': 'Enterprise',
   Workflow: 'Automation',
-  Device: 'Operator',
+  Device: 'Bridge Operator',
 };
 
 const AGENT_MODE_OPTIONS: Array<{ mode: AgentInputMode; description: string; icon: React.ElementType }> = [
-  { mode: 'Auto', description: 'Let AI Ant recommend the right way to handle the task.', icon: Sparkles },
-  { mode: 'Chat', description: 'Get a direct answer or draft.', icon: MessageSquare },
-  { mode: 'Colony Crew', description: 'Assemble specialists for one complex task.', icon: Users },
+  { mode: 'Chat', description: 'Get a direct answer, draft, or explanation.', icon: MessageSquare },
+  { mode: 'Device', description: 'Let AI work across browser, files, apps, or devices.', icon: Network },
+  { mode: 'Colony Crew', description: 'Assemble specialist agents for a complex task.', icon: Users },
   { mode: 'Workflow', description: 'Turn recurring work into a reusable workflow.', icon: Workflow },
-  { mode: 'One-man Enterprise', description: 'Organize long-term work into an AI operating workspace.', icon: Building2 },
-  { mode: 'Device', description: 'Work through approved files, browser, or connected tools.', icon: Laptop },
+  { mode: 'One-man Enterprise', description: 'Create a long-term AI operating workspace.', icon: Building2 },
+  { mode: 'Auto', description: 'AI Ant suggests the best workspace before anything runs.', icon: Sparkles },
 ];
 
 const ANT_PROMPT_SUGGESTIONS = [
@@ -24317,7 +24353,7 @@ function colonyDeliverableToApp(d: ColonyDeliverable, chatTitle?: string): AppDe
 }
 
 function AIAntPage({
-  setPage, safetyMode, activeChat, currentUserId, onEnsureChat, onPersistChatMessages, onAutoTitleChat, onPublishDeliverable,
+  setPage, safetyMode, activeChat, currentUserId, onEnsureChat, onPersistChatMessages, onAutoTitleChat, onPublishDeliverable, onLaunchBridgeSession,
 }: {
   setPage: (p: Page) => void;
   safetyMode: boolean;
@@ -24327,6 +24363,7 @@ function AIAntPage({
   onPersistChatMessages: (id: string, messages: WorkspaceMessage[]) => void;
   onAutoTitleChat: (id: string, message: string) => void;
   onPublishDeliverable?: (d: AppDeliverable) => void;
+  onLaunchBridgeSession: (taskText: string, sourceConversationId?: string) => void;
 }) {
   const [view, setView] = React.useState<'home' | 'chat' | 'search' | 'graph' | 'knowledge' | 'project' | 'crew' | 'workflow-builder'>('home');
   const [mode, setMode] = React.useState<AntMode>('approval');
@@ -24488,6 +24525,7 @@ function AIAntPage({
   React.useEffect(() => () => clearCrewTimers(), [clearCrewTimers]);
   // ── Device mode: action / permission flow ─────────────────────────────────
   const [deviceReq, setDeviceReq] = React.useState<DeviceActionRequest | null>(null);
+  const [bridgeSetupCard, setBridgeSetupCard] = React.useState<BridgeSetupCardData | null>(null);
   const [deviceProjectApproved, setDeviceProjectApproved] = React.useState(false);
   const deviceTimersRef = React.useRef<number[]>([]);
   const clearDeviceTimers = React.useCallback(() => {
@@ -25463,9 +25501,8 @@ function AIAntPage({
       }
     }
 
-    // Device mode is an action/permission flow — never a project/team flow.
-    // It runs when the user selected Device mode, or the task clearly needs a
-    // file/app/browser/device/source. Returns before any project/team cards.
+    // Device mode now opens the Colony Bridge Operator flow via a setup card.
+    // User reviews capabilities + risk, then approves before any Bridge work begins.
     if (inputMode === 'Device' || decision.mode === 'device_action' || decision.mode === 'approval_sensitive') {
       setProjectIntent(null);
       setTeamProposal(null);
@@ -25473,7 +25510,12 @@ function AIAntPage({
       setExecutionDecision(null);
       setColonyDeliverables([]);
       setApproval(null);
-      startDeviceAction(trimmed);
+      setDeviceReq(null);
+      setBridgeSetupCard({
+        id: `bridge-setup-${Date.now()}`,
+        taskText: trimmed,
+        status: 'pending',
+      });
       return;
     }
 
@@ -26831,17 +26873,16 @@ function AIAntPage({
                 />
               </div>
             )}
-            {deviceReq && (
+            {bridgeSetupCard && (
               <div className="flex justify-start">
-                <DeviceActionFlowCard
-                  req={deviceReq}
-                  onApproveOnce={() => approveDeviceAction(false)}
-                  onApproveProject={() => approveDeviceAction(true)}
-                  onReject={rejectDeviceAction}
-                  onSaveScope={saveDeviceScope}
-                  onStop={stopDeviceAction}
-                  onRetry={retryDeviceAction}
-                  onCreateDeliverable={createDeviceDeliverable}
+                <BridgeSetupCard
+                  data={bridgeSetupCard}
+                  onApprove={() => {
+                    const text = bridgeSetupCard.taskText;
+                    setBridgeSetupCard((prev) => prev ? { ...prev, status: 'approved' } : prev);
+                    onLaunchBridgeSession(text, activeChat?.id);
+                  }}
+                  onCancel={() => setBridgeSetupCard(null)}
                 />
               </div>
             )}
@@ -28590,6 +28631,33 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
   const [activeProjectId, setActiveProjectId] = useState('daily-sales');
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('dark');
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
+  const [bridgeSessions, setBridgeSessions] = useState<BridgeSession[]>(() => loadBridgeSessions());
+  const [activeBridgeSessionId, setActiveBridgeSessionId] = useState<string | null>(null);
+
+  const refreshBridgeSessions = useCallback(() => {
+    setBridgeSessions(loadBridgeSessions());
+  }, []);
+
+  const launchBridgeSession = useCallback((taskText: string, sourceConversationId?: string) => {
+    const session = createBridgeSessionFromTask({ taskText, sourceConversationId });
+    upsertBridgeSession(session);
+    refreshBridgeSessions();
+    setActiveBridgeSessionId(session.id);
+    setPage('Bridge');
+    return session;
+  }, [refreshBridgeSessions, setPage]);
+
+  const handleBridgeSessionUpdate = useCallback((updated: BridgeSession) => {
+    setBridgeSessions((prev) => {
+      const without = prev.filter((s) => s.id !== updated.id);
+      return [updated, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
+    });
+  }, []);
+
+  const openBridgeSession = useCallback((sessionId: string) => {
+    setActiveBridgeSessionId(sessionId);
+    setPage('Bridge');
+  }, [setPage]);
   const [connectors, setConnectors] = useState<AppConnector[]>(INITIAL_CONNECTORS);
   const [safetyMode, setSafetyMode] = useState(true);
   const [usageState, setUsageState] = useState<UsageState>(DEFAULT_USAGE_STATE);
@@ -28842,6 +28910,9 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
         onNewWsProject={(name, goal) => { createWsProject(name, goal); setPage('Projects'); setDrawerView(null); }}
         onOpenSettings={(tab) => { setSettingsInitialTab(tab); setPage('Settings'); setDrawerView(null); }}
         onSignOut={onSignOut}
+        bridgeSessions={bridgeSessions}
+        activeBridgeSessionId={activeBridgeSessionId}
+        onOpenBridgeSession={openBridgeSession}
       />
       <AppDrawer
         view={drawerView || (isMobileOpen ? 'more' : null)}
@@ -28899,6 +28970,9 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
               onPersistChatMessages={updateWsChatMessages}
               onAutoTitleChat={autoTitleWsChat}
               onPublishDeliverable={publishDeliverable}
+              onLaunchBridgeSession={(taskText, sourceConversationId) => {
+                launchBridgeSession(taskText, sourceConversationId ?? activeWsChatId ?? undefined);
+              }}
             />
           )}
           {page === 'Projects' && (
@@ -28911,7 +28985,18 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
               deleteWsProject={deleteWsProjectRaw}
             />
           )}
-          {page === 'Bridge' && <BridgeOperatorPage />}
+          {page === 'Bridge' && (
+            <BridgeOperatorPage
+              session={bridgeSessions.find((s) => s.id === activeBridgeSessionId) ?? null}
+              onBackToConversation={(conversationId) => {
+                setActiveWsChatId(conversationId);
+                setActiveBridgeSessionId(null);
+                setPage('AI Ant');
+              }}
+              onSessionUpdate={handleBridgeSessionUpdate}
+              onStartFromHome={() => { setActiveBridgeSessionId(null); setPage('AI Ant'); }}
+            />
+          )}
           {page === 'AI Teams' && <TeamsOSPage setPage={setPage} />}
           {page === 'Workflows' && <WorkflowsOSPage setPage={setPage} />}
           {page === 'Deliverables' && (
