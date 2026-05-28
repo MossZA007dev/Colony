@@ -6,24 +6,34 @@ export function AIAntPage({ goTo, currentPage }: { goTo: (page: Page) => void; c
     <FeatureDetailLayout
       goTo={goTo}
       currentPage={currentPage}
-      eyebrow="AI Ant · Coordinator"
-      title="The coordinator that picks the right way to work."
-      subtitle="AI Ant reads your goal, detects what kind of task it is, and routes it to the best Colony Bridge mode. You stay in one workspace; the work changes shape behind the scenes."
+      eyebrow="AI Ant Chat"
+      title="Talk directly. Choose the right depth for the answer."
+      subtitle="AI Ant Chat is the fastest way to ask questions, summarize information, draft content, and think through ideas inside Colony Bridge."
       accent="blue"
-      whatItDoes="AI Ant analyses the goal you describe and decides whether a specialist crew, an automation, an AI organization, or a connected action layer is the right approach."
-      whenToUse={[
-        'You want to describe a goal once and have the right structure assembled around it.',
-        'You are not sure which mode to use yourself.',
-        'You want a single coordinator instead of switching between tools.',
-      ]}
+      status={{ label: 'Testing now', copy: 'Direct chat and goal routing are being tested first. Model preference controls are presented as an interface concept where backend routing is still evolving.' }}
+      problem={{ title: 'Quick help should still stay controllable.', copy: 'AI tools are useful for quick help, but users should still control the response style and decide when a conversation needs to become structured work.' }}
+      whenToUse={['Quick questions', 'Drafting and rewriting', 'Summarizing a document', 'Brainstorming an idea', 'Clarifying a task before creating a crew or workflow']}
       howItWorks={[
-        { title: 'Read the goal', copy: 'AI Ant parses what you wrote and the project context around it.' },
-        { title: 'Detect task signals', copy: 'Multi-step? Recurring? External tool access? Long-term operation? Each signal narrows the routing.' },
-        { title: 'Pick the best mode', copy: 'Colony Crew, Automation, One-man Enterprise, or AI Ant + Colony Bridge for connected actions.' },
-        { title: 'Hand off and stay coordinator', copy: 'AI Ant remains visible, tracks progress, and surfaces approval moments before anything sensitive runs.' },
+        { title: 'Write a prompt', copy: 'Start in a familiar chat-first composer with a clear goal or question.' },
+        { title: 'Choose model preference', copy: 'Keep Auto selected or choose Fast, Balanced, or Deep Reasoning depending on the task.' },
+        { title: 'Receive a response', copy: 'AI Ant answers directly with useful structure and next-step suggestions when appropriate.' },
+        { title: 'Continue or expand', copy: 'Keep chatting, save useful output, or turn the request into a crew, workflow, or project.' },
       ]}
-      output="A routed plan with the selected mode, execution steps, and approval points."
-      outputBullets={['Mode + reason', 'Execution checklist', 'Approval surface for sensitive steps']}
+      scenario={{
+        goal: 'Summarize my latest project notes and recommend next actions.',
+        setup: 'The user needs quick synthesis before deciding whether the work deserves a larger structure.',
+        steps: ['Paste or attach the notes.', 'Choose Balanced or leave the preference on Auto.', 'AI Ant returns a summary and risk list.', 'The user can save the response or expand it into structured work.'],
+        finalOutput: 'Chat response with optional next-step suggestions.',
+      }}
+      output={{ title: 'A direct answer that can become structured work.', copy: 'AI Ant Chat keeps lightweight requests fast, while preserving a path into the broader workspace when the task grows.', bullets: ['Chat response', 'Suggested next actions', 'Option to continue, save, or expand'] }}
+      configuration={{ title: 'Choose how deeply AI responds.', copy: 'Model preference should feel simple for normal users and adjustable for deeper planning or analysis.', options: ['Auto', 'Fast', 'Balanced', 'Deep Reasoning'] }}
+      relations={['AI Ant Chat can clarify a task before creating Colony Crew.', 'Useful responses can become deliverables inside Projects.', 'If tool access is needed, the work can move into Colony Bridge Operator with approval.']}
+      preview={{ title: 'Chat-first input with mode and model preference', flow: ['Prompt', 'Preference', 'AI Ant response', 'Save or expand'] }}
+      mvpSlots={[
+        { title: 'Chat home screen', description: 'Replace with the real AI Ant chat home screen.', futureContentLabel: 'AI Ant chat landing and composer', aspect: 'square', status: 'Testing now' },
+        { title: 'Model selector in composer', description: 'Replace with the real model preference selector once stable.', futureContentLabel: 'Auto, Fast, Balanced, Deep Reasoning controls', aspect: 'square', status: 'Interface concept' },
+        { title: 'AI response actions', description: 'Replace with response actions for save, continue, or expand.', futureContentLabel: 'Save, create crew, turn into workflow actions', aspect: 'square', status: 'MVP preview' },
+      ]}
     />
   );
 }

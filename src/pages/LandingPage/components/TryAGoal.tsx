@@ -80,7 +80,7 @@ export function TryAGoal() {
     <section id="try-a-goal" className="px-5 py-28 md:px-8 md:py-36">
       <div className="mx-auto max-w-[1200px]">
         <RevealOnScroll>
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Try a goal</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Example workflow</p>
           <h2 className="max-w-3xl text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[52px]">
             Describe a goal. See what Colony builds.
           </h2>
@@ -121,7 +121,7 @@ export function TryAGoal() {
               })}
             </div>
 
-            {/* Demo stage */}
+            {/* Product flow stage */}
             <div className="relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.01] p-5 shadow-[0_40px_120px_rgba(0,0,0,0.45)] md:p-7">
               <div className="absolute inset-0 -z-0 overflow-hidden" aria-hidden>
                 <div
@@ -249,7 +249,7 @@ export function TryAGoal() {
             </div>
           </div>
           <p className="mt-5 text-[12px] text-white/35">
-            Interactive demo — no AI calls are made on the landing page.
+            Product walkthrough. This preview shows structure and routing, not live AI execution on the landing page.
           </p>
         </RevealOnScroll>
       </div>

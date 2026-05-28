@@ -19,11 +19,11 @@ type Tier = {
 const TIERS: Tier[] = [
   {
     id: 'pilot',
-    name: 'Pilot',
+    name: 'Early Access',
     tagline: 'Free invitation for selected founders and small teams.',
     price: 'By invitation',
     priceNote: 'No card required',
-    ctaLabel: 'Request Pilot Access',
+    ctaLabel: 'Request Early Access',
     audience: 'Founders & small teams',
     features: [
       'AI Ant goal routing',
@@ -36,14 +36,14 @@ const TIERS: Tier[] = [
   {
     id: 'founders',
     name: 'Founders',
-    tagline: 'Everything in Pilot plus deeper automations and connected actions.',
+    tagline: 'Everything in Early Access plus deeper automations and connected actions.',
     price: 'Coming soon',
     priceNote: 'Pricing announced before public launch',
     ctaLabel: 'Join the waitlist',
     highlight: true,
-    audience: 'Operators going from prototype to product',
+    audience: 'Operators shaping the product',
     features: [
-      'Everything in Pilot',
+      'Everything in Early Access',
       'Automation workflows',
       'Colony Bridge approved actions',
       'Workspace deliverables',
@@ -55,7 +55,7 @@ const TIERS: Tier[] = [
     name: 'Team',
     tagline: 'For small teams running multiple AI organizations.',
     price: 'Coming soon',
-    priceNote: 'Designed alongside our first pilot customers',
+    priceNote: 'Designed alongside our first early customers',
     ctaLabel: 'Talk to us',
     audience: 'Small teams & studios',
     features: [
@@ -78,8 +78,8 @@ export function PricingPage({ goTo, currentPage }: { goTo: (page: Page) => void;
     <MarketingShell goTo={goTo} currentPage={currentPage}>
       <PageHero
         eyebrow="Pricing"
-        title="Designed with our first pilot users."
-        subtitle="Colony Bridge is in private prototype. Pricing is intentionally lightweight while we test with selected founders and teams. Public plans will be announced before launch."
+        title="Designed with our first early users."
+        subtitle="Colony Bridge pricing is intentionally lightweight while we shape the product with selected founders and teams. Public plans will be announced before launch."
         accent="amber"
       />
 
@@ -132,7 +132,7 @@ export function PricingPage({ goTo, currentPage }: { goTo: (page: Page) => void;
         </div>
 
         <p className="mx-auto mt-8 max-w-[760px] text-center text-[12.5px] leading-relaxed text-white/40">
-          Public pricing will be finalized with our first pilot users so it matches how Colony Bridge is actually used. No automatic billing today.
+          Public pricing will be finalized with our first early users so it matches how Colony Bridge is actually used. No automatic billing today.
         </p>
       </section>
 
@@ -142,13 +142,13 @@ export function PricingPage({ goTo, currentPage }: { goTo: (page: Page) => void;
         <div className="mx-auto max-w-[1100px] rounded-[24px] border border-white/[0.08] bg-white/[0.025] p-8 text-center md:p-10">
           <h3 className="text-[22px] font-semibold tracking-tight text-white md:text-[26px]">Want to influence the public plans?</h3>
           <p className="mx-auto mt-3 max-w-[560px] text-[14px] text-white/55">
-            Pilot users help us shape pricing and the feature mix before public launch.
+            Early users help us shape pricing and the feature mix before public launch.
           </p>
           <button
             onClick={goEarly}
             className="lp-btn-primary mt-6 inline-flex items-center gap-2 rounded-full px-6 py-3 text-[14px] font-semibold"
           >
-            Request Pilot Access <ArrowRight className="h-3.5 w-3.5" />
+            Request Early Access <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
       </section>

@@ -129,7 +129,7 @@ export function HowColonyWorks() {
                 className="mt-2 inline-flex items-center gap-1.5 self-start rounded-full border border-white/[0.10] bg-white/[0.04] px-3.5 py-2 text-[12.5px] font-semibold text-white/72 transition hover:border-white/[0.18] hover:bg-white/[0.07] hover:text-white"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                Replay demo
+                Replay flow
               </button>
             )}
 
@@ -143,8 +143,8 @@ export function HowColonyWorks() {
             </div>
           </div>
 
-          {/* App demo */}
-          <DemoApp step={step} onPreview={() => setPreviewOpen(true)} reduce={!!reduce} />
+          {/* Product flow */}
+          <ProductFlowApp step={step} onPreview={() => setPreviewOpen(true)} reduce={!!reduce} />
         </div>
       </div>
 
@@ -155,9 +155,9 @@ export function HowColonyWorks() {
   );
 }
 
-/* ─── App-style demo panel ───────────────────────────────────────────── */
+/* Product-style flow panel */
 
-function DemoApp({ step, onPreview, reduce }: { step: WorkflowStep; onPreview: () => void; reduce: boolean }) {
+function ProductFlowApp({ step, onPreview, reduce }: { step: WorkflowStep; onPreview: () => void; reduce: boolean }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 30, filter: 'blur(8px)' }}
@@ -607,7 +607,7 @@ function DeliverablePreviewModal({ onClose }: { onClose: () => void }) {
             <p className="text-[13px] leading-snug text-white/72">Differentiate through coordinated AI work execution.</p>
           </PreviewSection>
           <PreviewSection number="03" title="Recommended Launch Actions">
-            <p className="text-[13px] leading-snug text-white/72">Validate with early users and publish initial demo.</p>
+            <p className="text-[13px] leading-snug text-white/72">Validate with early users and publish the initial product walkthrough.</p>
           </PreviewSection>
         </div>
 

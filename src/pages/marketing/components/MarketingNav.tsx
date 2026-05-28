@@ -19,11 +19,11 @@ const NAV_ROUTES: NavRoute[] = [
     label: 'Features',
     page: 'MarketingFeatures',
     children: [
-      { label: 'AI Ant', page: 'MarketingFeatureAIAnt', description: 'The coordinator. Picks the right mode for each goal.' },
-      { label: 'Colony Crew', page: 'MarketingFeatureColonyCrew', description: 'Specialist AI team for complex one-off work.' },
-      { label: 'One-man Enterprise', page: 'MarketingFeatureOneManEnterprise', description: 'A visible AI organization with roles and departments.' },
+      { label: 'AI Ant Chat', page: 'MarketingFeatureAIAnt', description: 'Direct conversation, model preference, and quick structured help.' },
+      { label: 'Colony Crew', page: 'MarketingFeatureColonyCrew', description: 'Specialist AI team for one complex task.' },
       { label: 'Automation', page: 'MarketingFeatureAutomation', description: 'Repeatable workflows for recurring work.' },
-      { label: 'Colony Bridge', page: 'MarketingFeatureColonyBridge', description: 'The approved action layer for real-world tools.' },
+      { label: 'One-man Enterprise', page: 'MarketingFeatureOneManEnterprise', description: 'AI organization with roles and long-term workstreams.' },
+      { label: 'Colony Bridge Operator', page: 'MarketingFeatureColonyBridge', description: 'Approved operator actions across tools and files.' },
     ],
   },
   { label: 'Pricing', page: 'MarketingPricing' },
@@ -152,7 +152,7 @@ export function MarketingNav({ goTo, currentPage }: { goTo: (page: Page) => void
                             role="menuitem"
                           >
                             <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#bcd9ff]">All {route.label}</span>
-                            <p className="mt-0.5 text-[12px] text-white/45">Overview of every Colony Bridge mode.</p>
+                            <p className="mt-0.5 text-[12px] text-white/45">Overview of AI Ant working modes and support systems.</p>
                           </button>
                           <div className="my-1 h-px bg-white/[0.06]" />
                           {route.children?.map((child) => (

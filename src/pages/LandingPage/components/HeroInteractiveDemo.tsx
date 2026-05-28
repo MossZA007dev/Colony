@@ -289,12 +289,12 @@ export function HeroInteractiveDemo() {
           {!reduce && <span className="absolute inset-0 animate-ping rounded-full bg-emerald-300/60" />}
           <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
         </span>
-        <span className="uppercase tracking-[0.18em] text-white/65">Interactive Prototype</span>
+        <span className="uppercase tracking-[0.18em] text-white/65">Product Preview</span>
         <span className="text-white/30">/</span>
-        <span className="text-white/55">Preview how Colony Bridge is designed to work</span>
-        <span className="hidden text-white/25 sm:inline">·</span>
+        <span className="text-white/55">Illustrative workflow for how Colony Bridge structures work</span>
+        <span className="hidden text-white/25 sm:inline">/</span>
         <span className="hidden text-[10px] font-medium uppercase tracking-[0.16em] text-white/38 sm:inline">
-          Simulated, no real actions
+          Approval-first product flow
         </span>
       </motion.div>
 
@@ -327,7 +327,7 @@ export function HeroInteractiveDemo() {
         }
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
-        id="hero-demo"
+        id="hero-preview"
         className="relative z-10 w-full max-w-[calc(100vw-40px)] overflow-hidden rounded-[28px] backdrop-blur-2xl lg:max-w-full"
         style={{
           background:
@@ -703,7 +703,7 @@ function ApprovalStage({ scenario }: { scenario: DemoScenario }) {
               Approve Send
             </button>
           </div>
-          <p className="mt-3 text-[10.5px] text-white/40">Prototype simulation · no real email is sent.</p>
+          <p className="mt-3 text-[10.5px] text-white/40">Illustrative workflow. External actions stay approval-first.</p>
         </div>
       </div>
     );
@@ -1011,7 +1011,7 @@ function Footer({ stage, onReplay }: { stage: DemoStage; onReplay: () => void })
         className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.10] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition hover:border-white/[0.18] hover:bg-white/[0.08] hover:text-white"
       >
         <RotateCcw className="h-3 w-3" />
-        Replay demo
+        Replay flow
       </button>
     </div>
   );

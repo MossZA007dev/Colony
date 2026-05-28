@@ -26,7 +26,7 @@ export function AboutPage({ goTo, currentPage }: { goTo: (page: Page) => void; c
             onClick={() => goTo('MarketingEarlyAccess')}
             className="lp-btn-primary mt-6 inline-flex items-center gap-2 rounded-full px-6 py-3 text-[14px] font-semibold"
           >
-            Request Pilot Access <ArrowRight className="h-3.5 w-3.5" />
+            Request Early Access <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
       </section>

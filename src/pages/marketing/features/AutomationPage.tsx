@@ -6,24 +6,34 @@ export function AutomationPage({ goTo, currentPage }: { goTo: (page: Page) => vo
     <FeatureDetailLayout
       goTo={goTo}
       currentPage={currentPage}
-      eyebrow="Automation · Repeatable workflows"
-      title="Repeatable work, on a schedule, with approval before send."
-      subtitle="Automation turns recurring tasks into workflows that fire on a trigger, pull from approved data sources, prepare output, and wait for your approval."
+      eyebrow="Automation"
+      title="Repeat useful work without rebuilding it every time."
+      subtitle="Automation turns recurring tasks into workflows that can be understood, tested, reviewed, and reused."
       accent="teal"
-      whatItDoes="Sets up a scheduled or event-driven workflow that runs without manual setup each time, while keeping sensitive output gated by approval."
-      whenToUse={[
-        'The task happens on a recurring schedule (weekly, monthly, event-driven).',
-        'You want the same shape of work without rebuilding it each cycle.',
-        'External data needs to be pulled and shaped into a report or action.',
-      ]}
+      status={{ label: 'In development', copy: 'Workflow automation is presented as an in-development capability. The page describes the intended structure without claiming fully live scheduling or connected execution.' }}
+      problem={{ title: 'Repeated tasks should not require repeated setup.', copy: 'Many tasks are repeated weekly or daily, but recreating prompts and manually organizing outputs wastes time.' }}
+      whenToUse={['Weekly reporting', 'Repeated file summaries', 'Scheduled monitoring', 'Content pipelines', 'Recurring business analysis']}
       howItWorks={[
-        { title: 'Define the trigger', copy: 'Schedule (every Monday morning) or event (new ticket filed).' },
-        { title: 'Connect approved sources', copy: 'Colony Bridge supplies the approved data connections (Sheets, Drive, etc.).' },
-        { title: 'Prepare the output', copy: 'AI summarises, reshapes, or analyses the data into the expected deliverable.' },
-        { title: 'Request approval', copy: 'Anything that will leave the workspace pauses for your approval.' },
+        { title: 'Describe repeated task', copy: 'Name the work that comes back on a schedule or trigger.' },
+        { title: 'Choose trigger and source', copy: 'Select manual, scheduled, file, sheet, or approved connector inputs.' },
+        { title: 'Configure AI steps', copy: 'Add cleaning, analysis, summary, and output preparation steps.' },
+        { title: 'Review history', copy: 'Set approval rules, choose output, test the workflow, and inspect runs.' },
       ]}
-      output="A scheduled workflow that ships review-ready output every time it runs."
-      outputBullets={['Trigger configuration', 'Connected data sources', 'Approval-gated delivery']}
+      scenario={{
+        goal: 'Every Monday, summarize my weekly sales performance and prepare a report.',
+        setup: 'The task has a predictable input, recurring schedule, and consistent reporting output.',
+        steps: ['Create a Monday reporting trigger.', 'Select the approved sales source.', 'Add analysis and summary steps.', 'Require approval before the report is sent or saved.'],
+        finalOutput: 'Reusable weekly reporting workflow.',
+      }}
+      output={{ title: 'A reusable workflow with approval checkpoints.', copy: 'Automation preserves the structure of successful repeated work so the next run is easier to review.', bullets: ['Trigger definition', 'AI processing steps', 'Run history and approval state'] }}
+      configuration={{ title: 'Workflow controls.', copy: 'Automation needs clear trigger, source, AI step, approval, and output configuration.', options: ['Manual / Scheduled trigger', 'File / Sheet / Connector source', 'AI processing steps', 'Approval rule'] }}
+      relations={['AI Ant can suggest Automation when it detects recurring work.', 'Colony Crew outputs can become repeatable workflows.', 'Colony Bridge Operator can support approved sources or destinations in future workflows.']}
+      preview={{ title: 'Recurring task to reusable workflow', flow: ['Repeated task', 'Trigger', 'AI steps', 'Approval'] }}
+      mvpSlots={[
+        { title: 'Workflow builder', description: 'Replace with the real workflow builder canvas.', futureContentLabel: 'Workflow nodes, trigger, source, output', aspect: 'square', status: 'In development' },
+        { title: 'Node detail prompt-edit panel', description: 'Replace with node configuration and prompt editing UI.', futureContentLabel: 'Prompt step, data source, approval rule controls', aspect: 'square', status: 'Prototype preview' },
+        { title: 'Run log / approval state', description: 'Replace with workflow run history and approval panel.', futureContentLabel: 'Run status, output, approve or revise state', aspect: 'square', status: 'In development' },
+      ]}
     />
   );
 }

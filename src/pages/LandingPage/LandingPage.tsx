@@ -26,9 +26,10 @@ import type { Page } from '../../types/navigation';
 import './LandingPage.css';
 
 import { RevealOnScroll, AmbientGlow, EASE_OUT_EXPO } from './components/motion';
-import { HeroInteractiveDemo } from './components/HeroInteractiveDemo';
 import { StarBorder } from './components/StarBorder';
 import { LiveWaitlistCounter } from './components/LiveWaitlistCounter';
+import { MarketingNav } from '../marketing/components/MarketingNav';
+import { MarketingFooter } from '../marketing/components/MarketingFooter';
 import {
   AboutUsSection,
   ApprovalFirstControlSection,
@@ -111,13 +112,15 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
     };
   }, []);
 
+  const onPrimaryCta = publicOnly ? scrollToPrimaryCta : () => goTo('MarketingEarlyAccess');
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#050508] text-white" style={{ fontFamily: "'Inter', 'DM Sans', sans-serif" }}>
-      <StickyNav navLinks={navLinks} goTo={goTo} publicOnly={publicOnly} scrollToPrimaryCta={scrollToPrimaryCta} />
+      <MarketingNav goTo={goTo} currentPage="Landing" />
 
       {/* ── Hero ── */}
       <section ref={heroRef} className="relative min-h-screen overflow-hidden bg-[#050508]">
-        {/* Background video — dimmed so the product demo dominates */}
+        {/* Background video */}
         <motion.div
           className="absolute inset-0 z-0"
           style={{ y: videoBgY, opacity: 0.45 }}
@@ -128,7 +131,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
           <video autoPlay loop muted playsInline className="h-full w-full object-cover" src={VIDEO_BG_URL} />
         </motion.div>
 
-        {/* Gradient overlays — stronger so the demo card reads above the planet */}
+        {/* Gradient overlays */}
         <div className="pointer-events-none absolute inset-0 z-[1]">
           <div className="absolute inset-0 bg-[#050508]/82" />
           <div
@@ -201,7 +204,7 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                 className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
               >
                 <motion.button
-                  onClick={scrollToPrimaryCta}
+                  onClick={onPrimaryCta}
                   whileHover={reduce ? undefined : { y: -2, boxShadow: '0 0 0 1px rgba(255,255,255,0.38), 0 6px 44px rgba(255,255,255,0.3), 0 2px 12px rgba(0,0,0,0.22)' }}
                   whileTap={reduce ? undefined : { scale: 0.97 }}
                   transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
@@ -211,13 +214,13 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
                   {currentAccessStageUi.primaryCta}
                 </motion.button>
                 <motion.button
-                  onClick={() => document.getElementById('hero-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() => goTo('MarketingFeatures')}
                   whileHover={reduce ? undefined : { y: -2 }}
                   whileTap={reduce ? undefined : { scale: 0.97 }}
                   transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
                   className="lp-btn-secondary rounded-full px-7 py-3.5 text-[15px] font-medium backdrop-blur-sm"
                 >
-                  See How It Works
+                  Explore features
                 </motion.button>
               </motion.div>
 
@@ -232,10 +235,6 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
               <LiveWaitlistCounter count={waitlistCount} />
             </div>
 
-            {/* ── Center: interactive product demo showcase ───── */}
-            <div className="min-w-0 w-full">
-              <HeroInteractiveDemo />
-            </div>
           </div>
         </motion.div>
 
@@ -245,19 +244,50 @@ export function LandingPage({ goTo, publicOnly = false }: { goTo: (page: Page) =
       {/* ── Content ── */}
       <div className="relative bg-[#050508]">
         <SupportedModelsSection />
-        <HowColonyWorksInfographic />
         <FeatureSystemSection />
-        <SystemMapSection />
-        <ApprovalFirstControlSection />
-        <NewComparisonSection />
         <NewRoadmapSection />
-        <AboutUsSection />
-        <FAQSection />
-        {!publicOnly && <EarlyAccessSection goTo={goTo} onWaitlistCountChange={setWaitlistCount} />}
+        <HomeCtaStrip goTo={goTo} />
+        {publicOnly && <EarlyAccessSection goTo={goTo} onWaitlistCountChange={setWaitlistCount} />}
       </div>
 
-      <LandingFooter navLinks={navLinks} scrollToPrimaryCta={scrollToPrimaryCta} />
+      <MarketingFooter goTo={goTo} />
     </div>
+  );
+}
+
+function HomeCtaStrip({ goTo }: { goTo: (page: Page) => void }) {
+  return (
+    <section className="px-5 py-20 md:px-8">
+      <RevealOnScroll className="mx-auto max-w-[1100px] overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.025] p-8 text-center md:p-12">
+        <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Early access</p>
+        <h2 className="mb-4 text-[28px] font-semibold leading-tight tracking-tight text-white md:text-[36px]">
+          Bring us one task you wish AI could handle better.
+        </h2>
+        <p className="mx-auto mb-7 max-w-[560px] text-[14px] leading-relaxed text-white/60 md:text-[15px]">
+          We are inviting a small number of founders and teams to shape the early Colony Bridge workspace with real workflows.
+        </p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            onClick={() => {
+              goTo('MarketingEarlyAccess');
+              window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+            }}
+            className="lp-btn-primary rounded-full px-6 py-3 text-[14px] font-semibold"
+          >
+            Request Early Access →
+          </button>
+          <button
+            onClick={() => {
+              goTo('MarketingHowItWorks');
+              window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+            }}
+            className="lp-btn-secondary rounded-full px-6 py-3 text-[14px] font-medium"
+          >
+            See How It Works
+          </button>
+        </div>
+      </RevealOnScroll>
+    </section>
   );
 }
 
@@ -436,7 +466,7 @@ function StickyNav({
   );
 }
 
-// ── Breathing frame — subtle scale loop around hero demo ─────────────────────
+// Breathing frame, subtle scale loop around hero preview.
 function BreathingFrame({ children }: { children: React.ReactNode }) {
   const reduce = useReducedMotion();
   return (
@@ -551,7 +581,7 @@ function WorkflowExampleSection() {
               onClick={() => document.getElementById('early-access')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
               className="lp-btn-secondary inline-flex items-center justify-center rounded-full px-5 py-2.5 text-[13px] font-semibold"
             >
-              Join the pilot program
+              Join Early Access
             </button>
           </div>
         </RevealOnScroll>
@@ -586,7 +616,7 @@ function ProductModelSection() {
     },
     {
       title: 'Automation',
-      label: 'Prototype preview',
+      label: 'In development',
       copy:
         'Repeatable AI workflows for recurring work with review checkpoints before important actions.',
       icon: <Workflow className="h-[18px] w-[18px]" />,
@@ -759,7 +789,7 @@ function BuildersSection() {
       name: 'Moss',
       role: 'Frontend, Business Development & Product Strategy',
       description:
-        'Designing the product experience, shaping the business direction, and finding the first pilot users for Colony Bridge.',
+        'Designing the product experience, shaping the business direction, and finding the first early users for Colony Bridge.',
       focus: ['Product Strategy', 'Frontend', 'Business Development', 'User Research'],
     },
     {
@@ -1068,7 +1098,7 @@ export function EarlyAccessSection({
       return;
     }
     if (!willingToTest) {
-      setError('Please confirm that you are willing to test an early prototype.');
+      setError('Please confirm that you are willing to test an early product experience.');
       return;
     }
     setError('');
@@ -1101,12 +1131,12 @@ export function EarlyAccessSection({
       <RevealOnScroll className="mx-auto max-w-[1100px] overflow-hidden rounded-[28px] border border-white/[0.08] bg-white/[0.02] p-8 md:p-12">
         <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Pilot Access</p>
+            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#00d4aa]">Early Access</p>
             <h2 className="mb-5 text-[34px] font-semibold leading-[1.08] tracking-tight text-white md:text-[44px]">
               Bring us one task you wish AI could handle better.
             </h2>
             <p className="max-w-xl text-[15px] leading-relaxed text-white/62 md:text-[16px]">
-              We are inviting a small number of founders and teams to test the early Colony Bridge prototype. Tell us what you would like AI Ant to handle, and we will contact selected pilot users with an invitation.
+              We are inviting a small number of founders and teams to shape the early Colony Bridge workspace. Tell us what you would like AI Ant to handle, and we will contact selected users with an invitation.
             </p>
           </div>
           <div>
@@ -1135,7 +1165,7 @@ export function EarlyAccessSection({
                   <p className="max-w-[360px] text-[13px] leading-relaxed text-white/55">
                     {alreadyJoined
                       ? 'We kept your original spot, so the public waitlist count was not increased.'
-                      : 'We are currently inviting a small number of pilot users. If your task matches what we are testing now, we will contact you with an invitation.'}
+                      : 'We are currently inviting a small number of early users. If your task matches what we are testing now, we will contact you with an invitation.'}
                   </p>
                   <button
                     type="button"
@@ -1201,7 +1231,7 @@ export function EarlyAccessSection({
                       onChange={(e) => setWillingToTest(e.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0b0d12] accent-[#00d4aa]"
                     />
-                    <span>I am willing to test an early prototype and share feedback.</span>
+                    <span>I am willing to test an early product experience and share feedback.</span>
                   </label>
                   {error ? <p className="mt-3 text-[12px] font-medium text-rose-200">{error}</p> : null}
 
@@ -1214,7 +1244,7 @@ export function EarlyAccessSection({
                       transition={{ duration: 0.25, ease: EASE_OUT_EXPO }}
                       className="lp-btn-primary flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold disabled:cursor-wait disabled:opacity-70"
                     >
-                      {submitting ? 'Sending...' : 'Request Pilot Access'} <span>{glyph.arrow}</span>
+                      {submitting ? 'Sending...' : 'Request Early Access'} <span>{glyph.arrow}</span>
                     </motion.button>
                   </div>
                 </>
@@ -1262,7 +1292,7 @@ function LandingFooter({
 
   const accessLinks: FooterLinkItem[] = [
     { label: 'Request Early Access', onClick: scrollToPrimaryCta },
-    { label: 'Pilot Program', onClick: scrollToPrimaryCta },
+    { label: 'Early Access', onClick: scrollToPrimaryCta },
     { label: 'Contact the Team', href: 'mailto:hello@colonybridge.ai', external: true },
     { label: 'Blog', placeholder: true },
   ];
@@ -1313,7 +1343,7 @@ function LandingFooter({
             </p>
             <p className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.025] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
               <span className="h-1.5 w-1.5 rounded-full bg-violet-300/85 shadow-[0_0_10px_rgba(167,139,250,0.65)]" />
-              Private prototype · Invitation only
+              Private early access / Invitation only
             </p>
           </div>
 

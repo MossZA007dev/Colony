@@ -896,7 +896,7 @@ function EarlyAccessSection({ goTo }: { goTo: (page: Page) => void }) {
                 </button>
                 <button type="button" onClick={() => goTo('Login')}
                   className="lp-btn-secondary flex flex-1 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-medium hover:-translate-y-0.5">
-                  Open Demo
+                  Open Product Preview
                 </button>
               </div>
             </form>

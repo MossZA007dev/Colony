@@ -1,129 +1,115 @@
 import type { Page } from '../../types/navigation';
 import { MarketingShell } from './components/MarketingShell';
 import { PageHero } from './components/PageHero';
-import { Bot, Users, Building2, Workflow, MousePointer2, ArrowRight } from 'lucide-react';
+import { Bot, Users, Building2, Workflow, MousePointer2, ArrowRight, FolderKanban, FileText, Brain, ShieldCheck, PlugZap } from 'lucide-react';
 
 type FeatureCard = {
   page: Page;
-  title: string;
-  short: string;
-  bullets: string[];
-  accent: 'blue' | 'violet' | 'amber' | 'teal';
+  name: string;
+  promise: string;
+  useWhen: string;
+  output: string;
+  status: string;
   icon: typeof Bot;
 };
 
 const FEATURES: FeatureCard[] = [
   {
     page: 'MarketingFeatureAIAnt',
-    title: 'AI Ant',
-    short: 'The coordinator. Picks the right mode for every goal.',
-    bullets: ['Goal routing', 'Mode recommendation', 'Stays inside Colony Bridge'],
-    accent: 'blue',
+    name: 'AI Ant Chat',
+    promise: 'Direct conversation with model preference control.',
+    useWhen: 'Use when you need quick help, drafting, summarization, or a place to clarify the task.',
+    output: 'Chat response with optional next steps',
+    status: 'Testing now',
     icon: Bot,
   },
   {
     page: 'MarketingFeatureColonyCrew',
-    title: 'Colony Crew',
-    short: 'A specialist AI team assembled for complex one-off work.',
-    bullets: ['Multi-agent coordination', 'Research → strategy → output', 'Review-ready deliverable'],
-    accent: 'violet',
+    name: 'Colony Crew',
+    promise: 'Specialist AI roles assembled around one complex task.',
+    useWhen: 'Use when research, strategy, writing, and review need to come together.',
+    output: 'Review-ready deliverable',
+    status: 'Testing now',
     icon: Users,
   },
   {
-    page: 'MarketingFeatureOneManEnterprise',
-    title: 'One-man Enterprise',
-    short: 'A visible AI organization with roles and departments for long-term goals.',
-    bullets: ['Director + project manager + roles', 'Cross-department coordination', 'Operating workspace'],
-    accent: 'blue',
-    icon: Building2,
-  },
-  {
     page: 'MarketingFeatureAutomation',
-    title: 'Automation',
-    short: 'Repeatable workflows for recurring work.',
-    bullets: ['Scheduled triggers', 'Connected data sources', 'Approval before send'],
-    accent: 'teal',
+    name: 'Automation',
+    promise: 'Repeatable workflows for recurring work.',
+    useWhen: 'Use when the same task happens weekly, daily, or after a trigger.',
+    output: 'Reusable workflow',
+    status: 'In development',
     icon: Workflow,
   },
   {
+    page: 'MarketingFeatureOneManEnterprise',
+    name: 'One-man Enterprise',
+    promise: 'A structured AI organization for long-term goals.',
+    useWhen: 'Use when a project needs roles, ownership, coordination, and continuity over time.',
+    output: 'AI organization workspace',
+    status: 'Prototype preview',
+    icon: Building2,
+  },
+  {
     page: 'MarketingFeatureColonyBridge',
-    title: 'Colony Bridge',
-    short: 'The approved action layer for real-world tools, files, and the browser.',
-    bullets: ['Approved tool access', 'Files / browser / Gmail / Drive', 'Approval-first execution'],
-    accent: 'amber',
+    name: 'Colony Bridge Operator',
+    promise: 'Approved operator actions across browser, files, and connected apps.',
+    useWhen: 'Use when AI needs to collect, prepare, save, or send work through external tools.',
+    output: 'Completed operator task with evidence',
+    status: 'Future capability',
     icon: MousePointer2,
   },
 ];
 
-const ACCENT_CARD: Record<string, { border: string; bg: string; text: string; glow: string }> = {
-  blue: {
-    border: 'border-[#7db7ff]/30',
-    bg: 'bg-[#7db7ff]/[0.08]',
-    text: 'text-[#bcd9ff]',
-    glow: '0 0 26px rgba(125,183,255,0.18)',
-  },
-  violet: {
-    border: 'border-violet-300/30',
-    bg: 'bg-violet-500/[0.10]',
-    text: 'text-violet-100',
-    glow: '0 0 26px rgba(167,139,250,0.18)',
-  },
-  amber: {
-    border: 'border-amber-300/30',
-    bg: 'bg-amber-400/[0.08]',
-    text: 'text-amber-100',
-    glow: '0 0 26px rgba(252,211,77,0.18)',
-  },
-  teal: {
-    border: 'border-emerald-300/30',
-    bg: 'bg-emerald-400/[0.08]',
-    text: 'text-emerald-100',
-    glow: '0 0 26px rgba(110,231,183,0.18)',
-  },
-};
+const workspaceCapabilities = [
+  ['Projects', 'Keep goals, chats, instructions, files, workflows, and outputs together.', FolderKanban],
+  ['Deliverables', 'Collect reports, plans, summaries, and workflow results in reviewable form.', FileText],
+  ['Knowledge', 'Give each work mode useful context without making users repeat themselves.', Brain],
+  ['Approvals', 'Keep sensitive actions visible, reviewable, and controlled.', ShieldCheck],
+  ['Connectors', 'Prepare the bridge to files, apps, and external tools as capabilities mature.', PlugZap],
+];
 
 export function FeaturesPage({ goTo, currentPage }: { goTo: (page: Page) => void; currentPage: Page }) {
+  const open = (page: Page) => {
+    goTo(page);
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  };
+
   return (
     <MarketingShell goTo={goTo} currentPage={currentPage}>
       <PageHero
         eyebrow="Features"
-        title="Five connected ways to turn a goal into real work."
-        subtitle="Colony Bridge is built around five modes. AI Ant routes between them; Colony Bridge handles every real-world action with approval."
+        title="Choose how AI helps you work."
+        subtitle="From direct conversation to long-term AI operations, Colony Bridge provides different working experiences for different kinds of goals."
       />
 
       <section className="px-5 pb-20 md:px-8">
-        <div className="mx-auto grid max-w-[1200px] gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mx-auto grid max-w-[1200px] gap-4 md:grid-cols-2 xl:grid-cols-5">
           {FEATURES.map((feature) => {
-            const tone = ACCENT_CARD[feature.accent];
             const Icon = feature.icon;
             return (
               <button
                 key={feature.page}
-                onClick={() => {
-                  goTo(feature.page);
-                  window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-                }}
-                className="group relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-[#070A12]/72 p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-white/[0.16] hover:bg-white/[0.035] motion-reduce:transform-none"
+                onClick={() => open(feature.page)}
+                className="group flex h-full flex-col rounded-[22px] border border-white/[0.08] bg-[#070A12]/72 p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-[#7db7ff]/28 hover:bg-white/[0.035] motion-reduce:transform-none"
               >
-                <div className="mb-5 flex items-start justify-between">
-                  <div
-                    className={`grid h-12 w-12 place-items-center rounded-2xl border ${tone.border} ${tone.bg} ${tone.text}`}
-                    style={{ boxShadow: tone.glow }}
-                  >
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl border border-[#7db7ff]/24 bg-[#7db7ff]/[0.08] text-[#bcd9ff]">
                     <Icon className="h-5 w-5" />
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-white/40 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white" />
+                  </span>
+                  <span className="rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-white/50">
+                    {feature.status}
+                  </span>
                 </div>
-                <h3 className="text-[18px] font-semibold tracking-tight text-white">{feature.title}</h3>
-                <p className="mt-2 text-[13px] leading-relaxed text-white/55">{feature.short}</p>
-                <ul className="mt-4 space-y-1.5">
-                  {feature.bullets.map((b) => (
-                    <li key={b} className="flex items-center gap-2 text-[12px] text-white/60">
-                      <span className={`h-1 w-1 rounded-full ${tone.text}`} />
-                      {b}
-                    </li>
-                  ))}
-                </ul>
+                <h3 className="text-[18px] font-semibold tracking-tight text-white">{feature.name}</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-white/56">{feature.promise}</p>
+                <div className="mt-5 space-y-3 border-t border-white/[0.06] pt-4">
+                  <Info label="Use when" value={feature.useWhen} />
+                  <Info label="Output" value={feature.output} />
+                </div>
+                <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-[12.5px] font-semibold text-[#bcd9ff]">
+                  Learn more <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+                </span>
               </button>
             );
           })}
@@ -131,22 +117,35 @@ export function FeaturesPage({ goTo, currentPage }: { goTo: (page: Page) => void
       </section>
 
       <section className="px-5 pb-24 md:px-8">
-        <div className="mx-auto max-w-[1100px] rounded-[24px] border border-white/[0.08] bg-white/[0.025] p-8 text-center md:p-10">
-          <h3 className="text-[22px] font-semibold tracking-tight text-white md:text-[26px]">All modes share one workspace.</h3>
-          <p className="mx-auto mt-3 max-w-[560px] text-[14px] text-white/55">
-            AI Ant picks the right mode for each goal. Switching is automatic and approval stays with you.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <button onClick={() => goTo('MarketingHowItWorks')} className="lp-btn-secondary rounded-full px-5 py-2.5 text-[13px] font-semibold">
-              See How It Works
-            </button>
-            <button onClick={() => goTo('MarketingEarlyAccess')} className="lp-btn-primary rounded-full px-5 py-2.5 text-[13px] font-semibold">
-              Request Early Access →
-            </button>
+        <div className="mx-auto max-w-[1200px] rounded-[28px] border border-white/[0.08] bg-white/[0.025] p-6 md:p-8">
+          <div className="max-w-[760px]">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#7db7ff]">Workspace capabilities</p>
+            <h2 className="mt-3 text-[30px] font-semibold leading-tight tracking-tight text-white md:text-[40px]">Support systems around every working mode.</h2>
+            <p className="mt-4 text-[14px] leading-relaxed text-white/58 md:text-[15px]">
+              Projects, deliverables, knowledge, approvals, and connectors are not separate modes. They support the ways users work with AI Ant.
+            </p>
+          </div>
+          <div className="mt-8 grid gap-3 md:grid-cols-5">
+            {workspaceCapabilities.map(([title, copy, Icon]) => (
+              <div key={title as string} className="rounded-[18px] border border-white/[0.08] bg-[#070A12]/70 p-4">
+                <Icon className="mb-4 h-4 w-4 text-[#bcd9ff]" />
+                <h3 className="text-[15px] font-semibold text-white">{title as string}</h3>
+                <p className="mt-2 text-[12px] leading-relaxed text-white/52">{copy as string}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
     </MarketingShell>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/34">{label}</p>
+      <p className="mt-1 text-[12px] leading-relaxed text-white/66">{value}</p>
+    </div>
   );
 }
 

@@ -28,7 +28,7 @@ export function MarketingFooter({ goTo }: { goTo: (page: Page) => void }) {
 
   const accessLinks: FooterLinkItem[] = [
     { label: 'Request Early Access', page: 'MarketingEarlyAccess' },
-    { label: 'Pilot Program', page: 'MarketingEarlyAccess' },
+    { label: 'Early Access', page: 'MarketingEarlyAccess' },
     { label: 'Pricing', page: 'MarketingPricing' },
     { label: 'Contact the Team', href: 'mailto:hello@colonybridge.ai', external: true },
     { label: 'Blog', placeholder: true },
@@ -125,7 +125,7 @@ export function MarketingFooter({ goTo }: { goTo: (page: Page) => void }) {
             </p>
             <p className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.025] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
               <span className="h-1.5 w-1.5 rounded-full bg-violet-300/85 shadow-[0_0_10px_rgba(167,139,250,0.65)]" />
-              Private prototype · Invitation only
+              Private early access / Invitation only
             </p>
           </div>
 

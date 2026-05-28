@@ -34,7 +34,7 @@ const FEATURES: FeatureItem[] = [
   { key: 'ai-ant', label: 'Start with a goal', tagline: 'Describe what you need. AI Ant recommends the best way to organize the work.', icon: Bot },
   { key: 'agent-teams', label: 'Build a specialist crew', tagline: 'Assemble AI agents for research, analysis, writing, and review around one task.', icon: Users },
   { key: 'projects', label: 'Keep context together', tagline: 'Store related chats, instructions, files, workflows, and final outputs in one workspace.', icon: FolderKanban },
-  { key: 'automation', label: 'Repeat successful work', tagline: 'Design repeatable AI workflows for recurring tasks with review checkpoints.', status: 'Prototype preview', icon: Workflow },
+  { key: 'automation', label: 'Repeat successful work', tagline: 'Design repeatable AI workflows for recurring tasks with review checkpoints.', status: 'In development', icon: Workflow },
   { key: 'approvals', label: 'Stay in control', tagline: 'Connect tools safely while keeping sensitive actions under user approval.', status: 'In development', icon: ShieldCheck },
   { key: 'enterprise', label: 'Build a long-term AI workspace', tagline: 'Organize agents and workflows around a business or long-term goal.', status: 'Concept preview', icon: Building2 },
 ];
@@ -200,7 +200,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
         <motion.div {...wrap} className="relative">
           <PreviewHeader label="Start with a goal" subtitle="Testing now" />
           <AIAntPreview />
-          <PreviewFooter cta="See product demo" />
+          <PreviewFooter cta="See workflow preview" />
         </motion.div>
       );
     case 'agent-teams':
@@ -208,15 +208,15 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
         <motion.div {...wrap}>
           <PreviewHeader label="Build a specialist crew" subtitle="Testing now" />
           <AgentTeamsPreview />
-          <PreviewFooter cta="See product demo" />
+          <PreviewFooter cta="See workflow preview" />
         </motion.div>
       );
     case 'automation':
       return (
         <motion.div {...wrap}>
-          <PreviewHeader label="Repeat successful work" subtitle="Prototype preview" />
+          <PreviewHeader label="Repeat successful work" subtitle="In development" />
           <AutomationPreview />
-          <PreviewFooter cta="See product demo" />
+          <PreviewFooter cta="See workflow preview" />
         </motion.div>
       );
     case 'projects':
@@ -224,7 +224,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
         <motion.div {...wrap}>
           <PreviewHeader label="Keep context together" subtitle="Testing now" />
           <ProjectsPreview />
-          <PreviewFooter cta="See product demo" />
+          <PreviewFooter cta="See workflow preview" />
         </motion.div>
       );
     case 'approvals':
@@ -232,7 +232,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
         <motion.div {...wrap}>
           <PreviewHeader label="Stay in control" subtitle="In development" />
           <ApprovalsPreview />
-          <PreviewFooter cta="See product demo" />
+          <PreviewFooter cta="See workflow preview" />
         </motion.div>
       );
     case 'enterprise':
@@ -240,7 +240,7 @@ function FeaturePreview({ active }: { active: FeatureKey }) {
         <motion.div {...wrap}>
           <PreviewHeader label="Long-term AI workspace" subtitle="Concept preview" />
           <EnterprisePreview />
-          <PreviewFooter cta="See product demo" />
+          <PreviewFooter cta="See workflow preview" />
         </motion.div>
       );
   }
@@ -580,7 +580,7 @@ function PreviewFooter({ cta }: { cta: string }) {
     <div className="mt-5 flex items-center justify-end">
       <button
         type="button"
-        onClick={() => document.getElementById('hero-demo')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        onClick={() => document.getElementById('hero-preview')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
         className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-violet-200/85 transition hover:text-violet-100"
       >
         {cta}
