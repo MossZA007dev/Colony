@@ -10,6 +10,7 @@ export interface BridgeSetupCardData {
   id: string;
   taskText: string;
   status: 'pending' | 'approved' | 'cancelled';
+  sourceConversationId?: string;
 }
 
 const ICON_TONE: Record<'permission' | 'ready' | 'risk', string> = {

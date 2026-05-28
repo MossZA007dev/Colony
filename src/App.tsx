@@ -193,7 +193,7 @@ import {
   type BridgeSession,
 } from './lib/bridge/bridgeSessionStore';
 import { createBridgeSessionFromTask } from './lib/bridge/bridgeIntake';
-import { buildWorkItems, WORK_ITEM_TYPE_LABEL, WORK_ITEM_TYPE_TONE, type WorkItem } from './lib/work/workItems';
+import { type WorkItemStatus, type WorkItemType } from './lib/work/workItems';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
@@ -1190,14 +1190,24 @@ function Sidebar({
               <div className="space-y-0.5">
                 {wsChats.slice(0, 8).map((c) => {
                   const isActive = page === 'AI Ant' && activeWsChatId === c.id;
+                  const type = resolveWorkItemType(c);
+                  const meta = WORK_TYPE_META[type];
+                  const Icon = meta.icon;
+                  const status = resolveChatWorkStatus(c);
                   return (
                     <button
                       key={c.id}
                       onClick={() => { onOpenWsChat(c.id); setIsMobileOpen(false); }}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-all duration-200 ${isActive ? 'bg-accent/15 font-medium text-ink ring-1 ring-accent/20' : 'font-normal text-muted hover:bg-surface2 hover:text-ink'}`}
+                      className={`flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-all duration-200 ${isActive ? 'bg-accent/15 font-medium text-ink ring-1 ring-accent/20' : 'font-normal text-muted hover:bg-surface2 hover:text-ink'}`}
                     >
-                      <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                      <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                      <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.tone}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{c.title}</span>
+                        <span className={`mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold uppercase tracking-[0.06em] ${meta.tone}`}>
+                          <span>{meta.label}</span>
+                          {status && <><span className="opacity-40">·</span><span className="normal-case tracking-normal">{WORK_STATUS_LABELS[status]}</span></>}
+                        </span>
+                      </span>
                     </button>
                   );
                 })}
@@ -1450,6 +1460,7 @@ type AppDrawerView = 'ai-ant' | 'projects' | 'more';
 
 function KimiStyleSidebar({
   page, profile, usageState, wsChats, wsProjects, activeWsChatId, collapsed, setCollapsed,
+  activeWorkItemId,
   onNavigate, onNewChat, onOpenWsChat, onRenameChat, onTogglePinChat, onArchiveChat, onDeleteChat,
   onRenameWsProject, onArchiveWsProject, onDeleteWsProject,
   onNewWsProject, onOpenSettings, onSignOut,
@@ -1461,6 +1472,7 @@ function KimiStyleSidebar({
   wsChats: WorkspaceChat[];
   wsProjects: WorkspaceProject[];
   activeWsChatId: string | null;
+  activeWorkItemId: string | null;
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
   onNavigate: (page: Page) => void;
@@ -1741,7 +1753,7 @@ function KimiStyleSidebar({
                 {bridgeSessions.length > 0 && (
                   <div className="mb-2 space-y-0.5">
                     {bridgeSessions.slice(0, 6).map((session) => {
-                      const active = page === 'Bridge' && activeBridgeSessionId === session.id;
+                      const active = activeWorkItemId === `bridge-${session.id}` || (page === 'Bridge' && activeBridgeSessionId === session.id);
                       const statusTone =
                         session.status === 'waiting_approval' ? 'text-amber-200/85'
                           : session.status === 'completed' ? 'text-emerald-200/75'
@@ -1778,7 +1790,11 @@ function KimiStyleSidebar({
                   const unpinnedChats = recent.filter((chat) => !chat.isPinned).slice(0, 8);
 
                   const renderChatRow = (chat: WorkspaceChat) => {
-                    const active = page === 'AI Ant' && activeWsChatId === chat.id;
+                    const active = activeWorkItemId === chat.id || (page === 'AI Ant' && activeWsChatId === chat.id);
+                    const type = resolveWorkItemType(chat);
+                    const meta = WORK_TYPE_META[type];
+                    const Icon = meta.icon;
+                    const status = resolveChatWorkStatus(chat);
                     return (
                       <motion.div
                         key={chat.id}
@@ -1789,9 +1805,20 @@ function KimiStyleSidebar({
                         className="group relative"
                       >
                         <button onClick={() => onOpenWsChat(chat.id)}
-                          className={`flex w-full items-center gap-2 rounded-[10px] px-2 py-2 pr-14 text-left text-[12px] transition-colors ${active ? 'bg-white/[0.075] text-white' : 'text-white/42 hover:bg-white/[0.045] hover:text-white/75'}`}>
-                          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                          className={`flex w-full items-start gap-2 rounded-[10px] px-2 py-2 pr-14 text-left text-[12px] transition-colors ${active ? 'bg-white/[0.075] text-white' : 'text-white/42 hover:bg-white/[0.045] hover:text-white/75'}`}>
+                          <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.tone}`} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[12px] font-medium">{chat.title}</span>
+                            <span className={`mt-0.5 flex min-w-0 items-center gap-1 truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] ${meta.tone}`}>
+                              <span>{meta.label}</span>
+                              {status && (
+                                <>
+                                  <span className="opacity-40">·</span>
+                                  <span className="normal-case tracking-normal">{WORK_STATUS_LABELS[status]}</span>
+                                </>
+                              )}
+                            </span>
+                          </span>
                         </button>
                         <motion.button
                           onClick={(e) => { e.stopPropagation(); onTogglePinChat(chat.id); }}
@@ -2390,11 +2417,21 @@ function AppDrawer({
                 <div className="space-y-1">
                   {wsChats.slice(0, 10).map((chat) => {
                     const active = page === 'AI Ant' && activeWsChatId === chat.id;
+                    const type = resolveWorkItemType(chat);
+                    const meta = WORK_TYPE_META[type];
+                    const Icon = meta.icon;
+                    const status = resolveChatWorkStatus(chat);
                     return (
                       <button key={chat.id} onClick={() => { onOpenWsChat(chat.id); onClose(); }}
-                        className={`flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-left text-[13px] transition ${active ? 'bg-violet-500/15 text-white ring-1 ring-violet-400/20' : 'text-white/55 hover:bg-white/[0.05] hover:text-white/85'}`}>
-                        <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                        className={`flex w-full items-start gap-2.5 rounded-[10px] px-3 py-2 text-left text-[13px] transition ${active ? 'bg-violet-500/15 text-white ring-1 ring-violet-400/20' : 'text-white/55 hover:bg-white/[0.05] hover:text-white/85'}`}>
+                        <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.tone}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{chat.title}</span>
+                          <span className={`mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold uppercase tracking-[0.06em] ${meta.tone}`}>
+                            <span>{meta.label}</span>
+                            {status && <><span className="opacity-40">·</span><span className="normal-case tracking-normal">{WORK_STATUS_LABELS[status]}</span></>}
+                          </span>
+                        </span>
                       </button>
                     );
                   })}
@@ -3663,6 +3700,27 @@ type ChatMode =
   | 'ai_team_task' | 'one_man_enterprise' | 'workflow_task'
   | 'tool_device_action' | 'approval_sensitive_action';
 
+const WORK_STATUS_LABELS: Record<WorkItemStatus, string> = {
+  draft: 'Draft',
+  active: 'Active',
+  setup: 'Setup',
+  assembling: 'Assembling',
+  running: 'Running',
+  waiting_approval: 'Approval required',
+  scheduled: 'Scheduled',
+  paused: 'Paused',
+  completed: 'Completed',
+  failed: 'Failed',
+};
+
+const WORK_TYPE_META: Record<WorkItemType, { label: string; icon: React.ElementType; tone: string }> = {
+  chat: { label: 'CHAT', icon: MessageSquare, tone: 'text-white/45' },
+  bridge: { label: 'BRIDGE', icon: Network, tone: 'text-violet-200/80' },
+  crew: { label: 'CREW', icon: Users, tone: 'text-fuchsia-200/78' },
+  automation: { label: 'AUTOMATION', icon: Workflow, tone: 'text-emerald-200/78' },
+  enterprise: { label: 'ENTERPRISE', icon: Building2, tone: 'text-sky-200/78' },
+};
+
 interface WorkspaceMessage {
   id: string;
   role: 'user' | 'ant';
@@ -3680,8 +3738,51 @@ export interface WorkspaceChat {
   isPinned?: boolean;
   isArchived?: boolean;
   userRenamed?: boolean;
+  workType?: WorkItemType;
+  workStatus?: WorkItemStatus;
+  sourceConversationId?: string;
+  sessionId?: string;
+  enterpriseWorkspace?: EnterpriseWorkspaceProject;
   createdAt: number;
   updatedAt: number;
+}
+
+function normalizeWorkItemType(value: unknown): WorkItemType | undefined {
+  return value === 'chat' || value === 'bridge' || value === 'crew' || value === 'automation' || value === 'enterprise'
+    ? value
+    : undefined;
+}
+
+function normalizeWorkItemStatus(value: unknown): WorkItemStatus | undefined {
+  return value === 'draft' || value === 'active' || value === 'setup' || value === 'assembling' || value === 'running'
+    || value === 'waiting_approval' || value === 'scheduled' || value === 'paused' || value === 'completed' || value === 'failed'
+    ? value
+    : undefined;
+}
+
+function resolveWorkItemType(item: Pick<WorkspaceChat, 'workType'>): WorkItemType {
+  return item.workType ?? 'chat';
+}
+
+function resolveChatWorkStatus(chat: WorkspaceChat): WorkItemStatus | undefined {
+  if (chat.workStatus) return chat.workStatus;
+  if (resolveWorkItemType(chat) === 'chat' && chat.title === 'New chat' && chat.messages.length === 0) return 'draft';
+  return undefined;
+}
+
+function isEmptyDraftStandaloneChat(chat: WorkspaceChat | null | undefined) {
+  return Boolean(
+    chat
+    && resolveWorkItemType(chat) === 'chat'
+    && chat.title === 'New chat'
+    && chat.messages.length === 0
+    && !chat.userRenamed
+  );
+}
+
+function sourceConversationForFeature(chat: WorkspaceChat | null | undefined) {
+  if (!chat || isEmptyDraftStandaloneChat(chat) || resolveWorkItemType(chat) !== 'chat') return undefined;
+  return chat.id;
 }
 
 interface WorkspaceSource {
@@ -3832,6 +3933,9 @@ const SEED_WS_PROJECTS: WorkspaceProject[] = [
 const SEED_WS_CHATS: WorkspaceChat[] = [
   { id: 'wsc-1', projectId: null, title: 'Summarize this quarter', mode: 'simple_chat', messages: [], createdAt: Date.now() - 36e5, updatedAt: Date.now() - 36e5 },
   { id: 'wsc-2', projectId: 'wsp-sales', title: 'Build the sales report team', mode: 'ai_team_task', messages: [], createdAt: Date.now() - 72e5, updatedAt: Date.now() - 50e5 },
+  { id: 'wsc-seed-crew', projectId: 'wsp-launch', title: 'Launch strategy report', mode: 'ai_team_task', messages: [], workType: 'crew', workStatus: 'completed', sessionId: 'crew-run-001', createdAt: Date.now() - 9e6, updatedAt: Date.now() - 9e6 },
+  { id: 'wsc-seed-automation', projectId: 'wsp-content', title: 'Weekly sales summary', mode: 'workflow_task', messages: [], workType: 'automation', workStatus: 'scheduled', sessionId: 'wf-weekly-sales', createdAt: Date.now() - 12e6, updatedAt: Date.now() - 12e6 },
+  { id: 'wsc-seed-enterprise', projectId: 'wsp-sales', title: 'Online store operations', mode: 'one_man_enterprise', messages: [], workType: 'enterprise', workStatus: 'active', sessionId: 'enterprise-online-store', createdAt: Date.now() - 16e6, updatedAt: Date.now() - 16e6 },
 ];
 
 function generateChatTitle(message: string): string {
@@ -3961,10 +4065,77 @@ function saveAppDeliverables(items: AppDeliverable[]) {
   try { localStorage.setItem(APP_DELIVERABLES_KEY, JSON.stringify(items)); } catch { /* ignore */ }
 }
 
+function repairWorkspaceChats(items: WorkspaceChat[]): WorkspaceChat[] {
+  const sorted = [...items].sort((a, b) => b.updatedAt - a.updatedAt);
+  const seenFeatureKeys = new Set<string>();
+  const recentFeatureByTitle = new Map<string, WorkspaceChat>();
+  const kept: WorkspaceChat[] = [];
+  const enterpriseItems: WorkspaceChat[] = [];
+
+  for (const item of sorted) {
+    const type = resolveWorkItemType(item);
+    if (type !== 'chat') {
+      const key = `${type}:${item.sessionId ?? item.sourceConversationId ?? item.title.toLowerCase()}`;
+      const titleKey = `${type}:${item.title.trim().toLowerCase()}`;
+      const recentSameTitle = recentFeatureByTitle.get(titleKey);
+      const sameLaunchWindow = recentSameTitle
+        ? Math.abs(item.createdAt - recentSameTitle.createdAt) < 5 * 60 * 1000 || Math.abs(item.updatedAt - recentSameTitle.updatedAt) < 5 * 60 * 1000
+        : false;
+      if (sameLaunchWindow) continue;
+      if (seenFeatureKeys.has(key)) continue;
+      seenFeatureKeys.add(key);
+      const normalized = type === 'enterprise' && item.workStatus === 'setup' && item.enterpriseWorkspace
+        ? { ...item, workStatus: 'running' as WorkItemStatus }
+        : item;
+      kept.push(normalized);
+      recentFeatureByTitle.set(titleKey, normalized);
+      if (type === 'enterprise') enterpriseItems.push(normalized);
+      continue;
+    }
+    kept.push(item);
+  }
+
+  const enterpriseTitles = new Map(enterpriseItems.map((item) => [item.title.trim().toLowerCase(), item]));
+  return kept
+    .filter((item) => {
+      if (resolveWorkItemType(item) !== 'chat') return true;
+      const enterprise = enterpriseTitles.get(item.title.trim().toLowerCase());
+      if (!enterprise) return true;
+      const closeInTime = Math.abs(item.createdAt - enterprise.createdAt) < 5 * 60 * 1000 || Math.abs(item.updatedAt - enterprise.updatedAt) < 5 * 60 * 1000;
+      return !(item.workStatus === 'active' && !item.userRenamed && closeInTime);
+    })
+    .sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)) || b.updatedAt - a.updatedAt);
+}
+
 function loadWorkspaceChats(): WorkspaceChat[] {
   try {
     const raw = localStorage.getItem(WS_CHATS_KEY);
-    if (raw) return JSON.parse(raw) as WorkspaceChat[];
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<WorkspaceChat>[];
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.map((chat, index) => {
+          const now = Date.now();
+          return {
+            id: typeof chat.id === 'string' ? chat.id : `wsc-migrated-${now}-${index}`,
+            projectId: chat.projectId ?? null,
+            title: typeof chat.title === 'string' && chat.title.trim() ? chat.title : 'New chat',
+            mode: chat.mode ?? 'simple_chat',
+            messages: Array.isArray(chat.messages) ? chat.messages : [],
+            isPinned: chat.isPinned,
+            isArchived: chat.isArchived,
+            userRenamed: chat.userRenamed,
+            workType: normalizeWorkItemType(chat.workType),
+            workStatus: normalizeWorkItemStatus(chat.workStatus),
+            sourceConversationId: typeof chat.sourceConversationId === 'string' ? chat.sourceConversationId : undefined,
+            sessionId: typeof chat.sessionId === 'string' ? chat.sessionId : undefined,
+            enterpriseWorkspace: chat.enterpriseWorkspace,
+            createdAt: typeof chat.createdAt === 'number' ? chat.createdAt : now,
+            updatedAt: typeof chat.updatedAt === 'number' ? chat.updatedAt : (typeof chat.createdAt === 'number' ? chat.createdAt : now),
+          };
+        });
+        return repairWorkspaceChats(normalized);
+      }
+    }
   } catch { /* ignore */ }
   return SEED_WS_CHATS;
 }
@@ -24353,7 +24524,7 @@ function colonyDeliverableToApp(d: ColonyDeliverable, chatTitle?: string): AppDe
 }
 
 function AIAntPage({
-  setPage, safetyMode, activeChat, currentUserId, onEnsureChat, onPersistChatMessages, onAutoTitleChat, onPublishDeliverable, onLaunchBridgeSession,
+  setPage, safetyMode, activeChat, currentUserId, onEnsureChat, onPersistChatMessages, onAutoTitleChat, onPublishDeliverable, onLaunchBridgeSession, onMarkChatWork, onCreateFeatureWorkItem, onUpdateWorkItem, onDiscardDraftChat,
 }: {
   setPage: (p: Page) => void;
   safetyMode: boolean;
@@ -24364,6 +24535,10 @@ function AIAntPage({
   onAutoTitleChat: (id: string, message: string) => void;
   onPublishDeliverable?: (d: AppDeliverable) => void;
   onLaunchBridgeSession: (taskText: string, sourceConversationId?: string) => void;
+  onMarkChatWork: (id: string, type: WorkItemType, status?: WorkItemStatus) => void;
+  onCreateFeatureWorkItem: (input: { type: Exclude<WorkItemType, 'chat' | 'bridge'>; title: string; status: WorkItemStatus; sourceConversationId?: string; sessionId?: string; replaceChatId?: string; enterpriseWorkspace?: EnterpriseWorkspaceProject }) => string;
+  onUpdateWorkItem: (id: string, patch: Partial<Pick<WorkspaceChat, 'title' | 'workStatus' | 'sourceConversationId' | 'sessionId' | 'enterpriseWorkspace'>>) => void;
+  onDiscardDraftChat: (id: string) => void;
 }) {
   const [view, setView] = React.useState<'home' | 'chat' | 'search' | 'graph' | 'knowledge' | 'project' | 'crew' | 'workflow-builder'>('home');
   const [mode, setMode] = React.useState<AntMode>('approval');
@@ -24459,6 +24634,7 @@ function AIAntPage({
     return null;
   });
   const enterpriseTimersRef = React.useRef<number[]>([]);
+  const enterpriseWorkItemIdRef = React.useRef<string | null>(null);
   const clearEnterpriseTimers = React.useCallback(() => {
     enterpriseTimersRef.current.forEach((t) => window.clearTimeout(t));
     enterpriseTimersRef.current = [];
@@ -24474,6 +24650,20 @@ function AIAntPage({
       else localStorage.removeItem(ENTERPRISE_SETUP_STORAGE_KEY);
     } catch { /* ignore */ }
   }, [enterpriseSetup]);
+
+  React.useEffect(() => {
+    if (!activeChat || resolveWorkItemType(activeChat) !== 'enterprise') return;
+    if (activeChat.workStatus === 'setup' && enterpriseSetup) return;
+    enterpriseWorkItemIdRef.current = activeChat.id;
+    const restored = activeChat.enterpriseWorkspace
+      ?? { ...buildEnterpriseWorkspaceProject(activeChat.title), id: activeChat.sessionId ?? activeChat.id, name: activeChat.title };
+    setActiveEnterpriseProject(restored);
+    setEnterpriseSetup(null);
+    setView('project');
+    if (activeChat.workStatus !== 'running') {
+      onUpdateWorkItem(activeChat.id, { workStatus: 'running', enterpriseWorkspace: restored, sessionId: restored.id });
+    }
+  }, [activeChat?.id, enterpriseSetup]);
   const [activeCrewRun, setActiveCrewRun] = React.useState<CrewRun | null>(null);
   const [executionDecision, setExecutionDecision] = React.useState<ExecutionDecision | null>(null);
   const [routingDecision, setRoutingDecision] = React.useState<RoutingDecision | null>(null);
@@ -24716,6 +24906,15 @@ function AIAntPage({
       resultMsgId: null,
     });
     setCrewPanelOpen(true);
+    const crewSessionId = `crew-${Date.now()}`;
+    onCreateFeatureWorkItem({
+      type: 'crew',
+      title: generateChatTitle(task),
+      status: 'assembling',
+      sourceConversationId: sourceConversationForFeature(activeChat),
+      replaceChatId: isEmptyDraftStandaloneChat(activeChat) ? activeChat!.id : undefined,
+      sessionId: crewSessionId,
+    });
 
     // Start optimistic progress loop
     let stepCount = 0;
@@ -24763,11 +24962,25 @@ function AIAntPage({
         timestamp: tnow(), confidence: 0.96, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general',
         actionType: 'DATA_ANALYSIS',
       }]);
+      onCreateFeatureWorkItem({
+        type: 'crew',
+        title: generateChatTitle(task),
+        status: 'completed',
+        sourceConversationId: sourceConversationForFeature(activeChat),
+        sessionId: crewSessionId,
+      });
       window.setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
     }).catch((err) => {
       pushActivity(`Crew error: ${err.message}`);
+      onCreateFeatureWorkItem({
+        type: 'crew',
+        title: generateChatTitle(task),
+        status: 'failed',
+        sourceConversationId: sourceConversationForFeature(activeChat),
+        sessionId: crewSessionId,
+      });
     });
-  }, [clearCrewTimers, ctlMsg]);
+  }, [activeChat, clearCrewTimers, ctlMsg, onCreateFeatureWorkItem]);
 
   // ── Crew Control: talk to / redirect / reassign agents ────────────────────
   const aMsg = React.useCallback((sender: 'user' | 'agent', text: string): AgentInstructionMessage => ({
@@ -25002,9 +25215,21 @@ function AIAntPage({
     });
   }, []);
 
-  const launchEnterpriseSetup = React.useCallback((goal: string, sourceAgents?: EnterpriseAgent[]) => {
+  const launchEnterpriseSetup = React.useCallback((goal: string, sourceAgents?: EnterpriseAgent[], options?: { createWorkItem?: boolean; sourceConversationId?: string; replaceChatId?: string }) => {
     clearEnterpriseTimers();
-    setEnterpriseSetup(buildEnterpriseSetup(goal, sourceAgents));
+    const setup = buildEnterpriseSetup(goal, sourceAgents);
+    if (options?.createWorkItem !== false) enterpriseRestoredRef.current = true;
+    setEnterpriseSetup(setup);
+    if (options?.createWorkItem !== false) {
+      enterpriseWorkItemIdRef.current = onCreateFeatureWorkItem({
+        type: 'enterprise',
+        title: titleFromGoal(goal),
+        status: 'setup',
+        sourceConversationId: options?.sourceConversationId,
+        replaceChatId: options?.replaceChatId,
+        sessionId: setup.projectId,
+      });
+    }
     const total = ENTERPRISE_SETUP_BLUEPRINT.length; // 6
     // Step i completes after ~(i+1)*900ms; an agent is revealed alongside steps 0..5.
     for (let i = 0; i < total; i++) {
@@ -25030,12 +25255,12 @@ function AIAntPage({
         } : p);
       }, (i + 1) * 900));
     }
-  }, [clearEnterpriseTimers]);
+  }, [clearEnterpriseTimers, onCreateFeatureWorkItem]);
 
   React.useEffect(() => {
     if (enterpriseRestoredRef.current || !enterpriseSetup || enterpriseSetup.status === 'ready') return;
     enterpriseRestoredRef.current = true;
-    launchEnterpriseSetup(enterpriseSetup.goal, enterpriseSetup.agents);
+    launchEnterpriseSetup(enterpriseSetup.goal, enterpriseSetup.agents, { createWorkItem: false });
   }, [enterpriseSetup, launchEnterpriseSetup]);
 
   const openEnterpriseWorkspace = React.useCallback(() => {
@@ -25049,6 +25274,14 @@ function AIAntPage({
         setMatchedAgents([]);
         setOrchAgents([]);
         setView('project');
+        if (enterpriseWorkItemIdRef.current) {
+          onUpdateWorkItem(enterpriseWorkItemIdRef.current, {
+            title: project.name,
+            workStatus: 'running',
+            sessionId: project.id,
+            enterpriseWorkspace: project,
+          });
+        }
         setMessages((prev) => [...prev, {
           id: `aa-${Date.now()}-enterprise-ready`, role: 'ant',
           text: `Your AI enterprise "${project.name}" is set up with ${project.agents.length} agents, reporting lines, tasks, and approval checkpoints. Workspace is open.`,
@@ -25058,12 +25291,20 @@ function AIAntPage({
       }
       return null;
     });
-  }, [clearEnterpriseTimers]);
+  }, [clearEnterpriseTimers, onUpdateWorkItem]);
 
   const startAutoMatch = React.useCallback((task: string) => {
     const ts = () => new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const { agents: matched, reason } = analyzeAndMatchAgents(task);
     setActiveCrewRun(buildDefaultCrewRun(task));
+    onCreateFeatureWorkItem({
+      type: 'crew',
+      title: generateChatTitle(task),
+      status: 'assembling',
+      sourceConversationId: sourceConversationForFeature(activeChat),
+      replaceChatId: isEmptyDraftStandaloneChat(activeChat) ? activeChat!.id : undefined,
+      sessionId: `crew-${Date.now()}`,
+    });
     const states: SwarmState[] = ['analyzing_goal', 'matching_agents', 'creating_agents', 'assigning_tasks', 'agents_working', 'reviewing_outputs', 'deliverable_ready'];
     setSwarmState('analyzing_goal');
     setActivitySummaries((prev) => [...prev, 'AI Ant is assembling your Colony Crew and matching specialist agents.']);
@@ -25133,7 +25374,7 @@ function AIAntPage({
         setActivitySummaries((prev) => [...prev, isLast ? 'AI Ant combined agent outputs into a deliverable preview.' : `${agent.name} completed its assignment and handed off the summary.`]);
       }, (i + 1) * 1200 + 2400);
     });
-  }, []);
+  }, [activeChat, onCreateFeatureWorkItem]);
 
   const startGeneratedProject = React.useCallback((proposal: AntTeamProposal) => {
     const project: AntGeneratedProject = {
@@ -25151,6 +25392,14 @@ function AIAntPage({
       latestUpdate: 'AI Ant created the project workspace, team hierarchy, task plan, deliverables, and approval checkpoints.',
     };
     setActiveGeneratedProject(project);
+    onCreateFeatureWorkItem({
+      type: 'crew',
+      title: proposal.projectName || generateChatTitle(proposal.goal),
+      status: 'running',
+      sourceConversationId: sourceConversationForFeature(activeChat),
+      replaceChatId: isEmptyDraftStandaloneChat(activeChat) ? activeChat!.id : undefined,
+      sessionId: project.id,
+    });
     setTeamProposal(null);
     setView('project');
     setMessages((prev) => [...prev, {
@@ -25159,17 +25408,25 @@ function AIAntPage({
       timestamp: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
       confidence: 0.96, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general',
     }]);
-  }, []);
+  }, [activeChat, onCreateFeatureWorkItem]);
 
   const openWorkflowBuilder = React.useCallback((proposal: WorkflowProposal) => {
     const workflow = workflowFromProposal(proposal);
     clearWorkflowRunTimers();
     setActiveWorkflow(workflow);
+    onCreateFeatureWorkItem({
+      type: 'automation',
+      title: workflow.name || generateChatTitle(proposal.goal),
+      status: 'draft',
+      sourceConversationId: sourceConversationForFeature(activeChat),
+      replaceChatId: isEmptyDraftStandaloneChat(activeChat) ? activeChat!.id : undefined,
+      sessionId: workflow.id,
+    });
     setSelectedWorkflowNodeId(workflow.nodes[0]?.id ?? null);
     setSelectedWorkflowEdgeId(null);
     setWorkflowRunLogs(['Workflow draft created from proposal.']);
     setView('workflow-builder');
-  }, [clearWorkflowRunTimers]);
+  }, [activeChat, clearWorkflowRunTimers, onCreateFeatureWorkItem]);
 
   const updateWorkflowNode = React.useCallback((nodeId: string, patch: Partial<WorkflowNode>) => {
     setActiveWorkflow((prev) => prev ? {
@@ -25438,12 +25695,20 @@ function AIAntPage({
     if (!text.trim()) return;
     const now = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const trimmed = text.trim();
-    const currentChatId = activeChatId ?? onEnsureChat();
-    if (!activeChatId) skipHydrateChatIdRef.current = currentChatId;
-    onAutoTitleChat(currentChatId, trimmed);
-    const executionMode = classifyAntExecutionMode(trimmed);
     const inputMode = normalizeAgentInputMode(agentInputMode);
     const decision = classifyExecutionIntent(trimmed, inputMode);
+    const selectedFeatureMode = inputMode === 'One-man Enterprise' || inputMode === 'Colony Crew' || inputMode === 'Workflow' || inputMode === 'Device';
+    const replaceDraftChatId = selectedFeatureMode && isEmptyDraftStandaloneChat(activeChat) ? activeChat!.id : undefined;
+    const featureSourceConversationId = sourceConversationForFeature(activeChat);
+    const currentChatId = selectedFeatureMode
+      ? (featureSourceConversationId ?? activeChatId ?? null)
+      : (activeChatId ?? onEnsureChat());
+    if (!selectedFeatureMode && currentChatId && !activeChatId) skipHydrateChatIdRef.current = currentChatId;
+    if (!selectedFeatureMode && currentChatId) {
+      onAutoTitleChat(currentChatId, trimmed);
+      onMarkChatWork(currentChatId, 'chat', 'active');
+    }
+    const executionMode = classifyAntExecutionMode(trimmed);
     const projectLike = decision.mode !== 'simple_chat' && decision.mode !== 'operator_task';
     try {
       await recordMockAIRequest(usageFeatureForDecision(inputMode, decision), trimmed);
@@ -25481,7 +25746,7 @@ function AIAntPage({
     const shouldUseBackendChat = !isDedicatedMode && (inputMode === 'Chat' || decision.mode === 'simple_chat' || decision.mode === 'operator_task');
     if (shouldUseBackendChat) {
       setThinking(true);
-      const backendResponse = await requestBackendAIAntResponse(currentChatId, trimmed);
+      const backendResponse = await requestBackendAIAntResponse(currentChatId ?? onEnsureChat(), trimmed);
       setThinking(false);
       if (backendResponse) {
         setRoutingDecision(buildBackendRoutingDecision(trimmed, backendResponse, modelRoutingPreference));
@@ -25515,7 +25780,9 @@ function AIAntPage({
         id: `bridge-setup-${Date.now()}`,
         taskText: trimmed,
         status: 'pending',
+        sourceConversationId: featureSourceConversationId,
       });
+      if (replaceDraftChatId) onDiscardDraftChat(replaceDraftChatId);
       return;
     }
 
@@ -25616,7 +25883,10 @@ function AIAntPage({
       const d2 = createDemoDeliverable(decision, undefined, { sourceChatId: activeChat?.id });
       setColonyDeliverables((prev) => [d2, ...prev].slice(0, 6));
       onPublishDeliverable?.(colonyDeliverableToApp(d2, activeChat?.title));
-      launchEnterpriseSetup(trimmed);
+      launchEnterpriseSetup(trimmed, undefined, {
+        sourceConversationId: featureSourceConversationId,
+        replaceChatId: replaceDraftChatId,
+      });
       return;
     }
 
@@ -25782,7 +26052,7 @@ function AIAntPage({
 
       if (riskLevel === 'High Risk') setFailedTask(text.trim().slice(0, 50));
     }, 1600);
-	  }, [activeChatId, agentInputMode, mode, devices, onEnsureChat, onAutoTitleChat, startAutoMatch, launchColonyCrew, launchEnterpriseSetup, startDeviceAction, clearDeviceTimers, recordMockAIRequest, requestBackendAIAntResponse, usageFeatureForDecision, modelRoutingPreference, manualModelSelection]);
+	  }, [activeChat, activeChatId, agentInputMode, mode, devices, onEnsureChat, onAutoTitleChat, onMarkChatWork, onDiscardDraftChat, startAutoMatch, launchColonyCrew, launchEnterpriseSetup, startDeviceAction, clearDeviceTimers, recordMockAIRequest, requestBackendAIAntResponse, usageFeatureForDecision, modelRoutingPreference, manualModelSelection]);
 
   const handlePromptSuggestionPick = React.useCallback((suggestion: { label: string; mode: AgentInputMode }) => {
     setAgentInputMode(suggestion.mode);
@@ -26880,7 +27150,7 @@ function AIAntPage({
                   onApprove={() => {
                     const text = bridgeSetupCard.taskText;
                     setBridgeSetupCard((prev) => prev ? { ...prev, status: 'approved' } : prev);
-                    onLaunchBridgeSession(text, activeChat?.id);
+                    onLaunchBridgeSession(text, bridgeSetupCard.sourceConversationId);
                   }}
                   onCancel={() => setBridgeSetupCard(null)}
                 />
@@ -26991,7 +27261,10 @@ function AIAntPage({
                 confidence: 0.94, confidenceLevel: 'verified', riskLevel: 'Safe', domain: 'general',
                 actionType: 'ORGANIZATION',
               }]);
-              launchEnterpriseSetup(goal, ents);
+      launchEnterpriseSetup(goal, ents, {
+        sourceConversationId: sourceConversationForFeature(activeChat),
+        replaceChatId: isEmptyDraftStandaloneChat(activeChat) ? activeChat!.id : undefined,
+      });
             }}
           />
         )}
@@ -28633,6 +28906,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
   const [bridgeSessions, setBridgeSessions] = useState<BridgeSession[]>(() => loadBridgeSessions());
   const [activeBridgeSessionId, setActiveBridgeSessionId] = useState<string | null>(null);
+  const [activeWorkItemId, setActiveWorkItemId] = useState<string | null>(null);
 
   const refreshBridgeSessions = useCallback(() => {
     setBridgeSessions(loadBridgeSessions());
@@ -28643,6 +28917,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
     upsertBridgeSession(session);
     refreshBridgeSessions();
     setActiveBridgeSessionId(session.id);
+    setActiveWorkItemId(`bridge-${session.id}`);
     setPage('Bridge');
     return session;
   }, [refreshBridgeSessions, setPage]);
@@ -28656,6 +28931,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
 
   const openBridgeSession = useCallback((sessionId: string) => {
     setActiveBridgeSessionId(sessionId);
+    setActiveWorkItemId(`bridge-${sessionId}`);
     setPage('Bridge');
   }, [setPage]);
   const [connectors, setConnectors] = useState<AppConnector[]>(INITIAL_CONNECTORS);
@@ -28689,13 +28965,60 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
     const id = `wsc-${Date.now()}`;
     const now = Date.now();
     setWsChats((prev) => [
-      { id, projectId, title: 'New chat', mode: 'simple_chat', messages: [], createdAt: now, updatedAt: now },
+      { id, projectId, title: 'New chat', mode: 'simple_chat', messages: [], workType: 'chat', workStatus: 'draft', createdAt: now, updatedAt: now },
       ...prev,
     ]);
     setActiveWsChatId(id);
+    setActiveWorkItemId(id);
     setPage('AI Ant');
     return id;
   };
+
+  const markWsChatWork = useCallback((id: string, workType: WorkItemType, workStatus?: WorkItemStatus) => {
+    setWsChats((prev) => prev.map((chat) => chat.id === id ? { ...chat, workType, workStatus, updatedAt: Date.now() } : chat));
+    setActiveWorkItemId(id);
+  }, []);
+
+  const createFeatureWorkItem = useCallback((input: { type: Exclude<WorkItemType, 'chat' | 'bridge'>; title: string; status: WorkItemStatus; sourceConversationId?: string; sessionId?: string; replaceChatId?: string; enterpriseWorkspace?: EnterpriseWorkspaceProject }) => {
+    const now = Date.now();
+    const sessionId = input.sessionId ?? `${input.type}-${now}`;
+    const id = input.replaceChatId ?? `wsc-${input.type}-${sessionId}`;
+    setWsChats((prev) => {
+      const withoutExisting = prev.filter((chat) => chat.id !== id && chat.sessionId !== sessionId);
+      return [
+        {
+          id,
+          projectId: null,
+          title: input.title || 'Untitled work',
+          mode: input.type === 'crew' ? 'ai_team_task' : input.type === 'automation' ? 'workflow_task' : 'one_man_enterprise',
+          messages: [],
+          workType: input.type,
+          workStatus: input.status,
+          sourceConversationId: input.sourceConversationId,
+          sessionId,
+          enterpriseWorkspace: input.enterpriseWorkspace,
+          createdAt: now,
+          updatedAt: now,
+        },
+        ...withoutExisting,
+      ];
+    });
+    setActiveWsChatId(id);
+    setActiveWorkItemId(id);
+    setPage('AI Ant');
+    return id;
+  }, [setPage]);
+
+  const updateWorkItem = useCallback((id: string, patch: Partial<Pick<WorkspaceChat, 'title' | 'workStatus' | 'sourceConversationId' | 'sessionId' | 'enterpriseWorkspace'>>) => {
+    setWsChats((prev) => prev.map((chat) => chat.id === id ? { ...chat, ...patch, updatedAt: Date.now() } : chat));
+    setActiveWorkItemId(id);
+  }, []);
+
+  const discardDraftChat = useCallback((id: string) => {
+    setWsChats((prev) => prev.filter((chat) => !(chat.id === id && isEmptyDraftStandaloneChat(chat))));
+    setActiveWsChatId((current) => current === id ? null : current);
+    setActiveWorkItemId((current) => current === id ? null : current);
+  }, []);
 
   const updateWsChatMessages = useCallback((id: string, messages: WorkspaceMessage[]) => {
     setWsChats((prev) => prev.map((chat) => chat.id === id ? { ...chat, messages, updatedAt: Date.now() } : chat));
@@ -28895,11 +29218,12 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
         wsChats={wsChats}
         wsProjects={wsProjects}
         activeWsChatId={activeWsChatId}
+        activeWorkItemId={activeWorkItemId}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
         onNavigate={(target) => { setPage(target); setDrawerView(null); }}
         onNewChat={() => { createWsChat(null); setDrawerView(null); }}
-        onOpenWsChat={(id) => { setActiveWsChatId(id); setPage('AI Ant'); }}
+        onOpenWsChat={(id) => { setActiveWsChatId(id); setActiveWorkItemId(id); setPage('AI Ant'); }}
         onRenameChat={renameWsChat}
         onTogglePinChat={togglePinWsChat}
         onArchiveChat={archiveWsChat}
@@ -28924,7 +29248,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
         activeWsChatId={activeWsChatId}
         onNewChat={() => createWsChat(null)}
         onNewWsProject={(name, goal) => { createWsProject(name, goal); }}
-        onOpenWsChat={(id) => { setActiveWsChatId(id); setPage('AI Ant'); }}
+        onOpenWsChat={(id) => { setActiveWsChatId(id); setActiveWorkItemId(id); setPage('AI Ant'); }}
       />
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile top bar */}
@@ -28973,6 +29297,10 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
               onLaunchBridgeSession={(taskText, sourceConversationId) => {
                 launchBridgeSession(taskText, sourceConversationId ?? activeWsChatId ?? undefined);
               }}
+              onMarkChatWork={markWsChatWork}
+              onCreateFeatureWorkItem={createFeatureWorkItem}
+              onUpdateWorkItem={updateWorkItem}
+              onDiscardDraftChat={discardDraftChat}
             />
           )}
           {page === 'Projects' && (
@@ -28990,6 +29318,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
               session={bridgeSessions.find((s) => s.id === activeBridgeSessionId) ?? null}
               onBackToConversation={(conversationId) => {
                 setActiveWsChatId(conversationId);
+                setActiveWorkItemId(conversationId);
                 setActiveBridgeSessionId(null);
                 setPage('AI Ant');
               }}
@@ -29006,7 +29335,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
               wsChats={wsChats}
               wsProjects={wsProjects}
               setPage={setPage}
-              onOpenChat={(id) => { setActiveWsChatId(id); setPage('AI Ant'); }}
+              onOpenChat={(id) => { setActiveWsChatId(id); setActiveWorkItemId(id); setPage('AI Ant'); }}
             />
           )}
           {page === 'Approvals' && <ApprovalsOSPage />}

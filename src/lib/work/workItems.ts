@@ -2,15 +2,28 @@ import type { BridgeSession } from '../bridge/bridgeSessionStore';
 import { sessionStatusLabel } from '../bridge/bridgeSessionStore';
 
 export type WorkItemType = 'chat' | 'bridge' | 'crew' | 'automation' | 'enterprise';
+export type WorkItemStatus =
+  | 'draft'
+  | 'active'
+  | 'setup'
+  | 'assembling'
+  | 'running'
+  | 'waiting_approval'
+  | 'scheduled'
+  | 'paused'
+  | 'completed'
+  | 'failed';
 
 export interface WorkItem {
   id: string;
   title: string;
   type: WorkItemType;
-  status?: string;
+  status?: WorkItemStatus | string;
   updatedAt: number;
   sourceConversationId?: string;
+  sessionId?: string;
   isPinned?: boolean;
+  source: 'chat' | 'bridge';
 }
 
 export interface ChatLikeForWork {
@@ -19,15 +32,25 @@ export interface ChatLikeForWork {
   updatedAt: number;
   isPinned?: boolean;
   isArchived?: boolean;
+  workType?: WorkItemType;
+  workStatus?: WorkItemStatus;
+  sourceConversationId?: string;
+  sessionId?: string;
+  messages?: unknown[];
 }
 
 export function chatToWorkItem(chat: ChatLikeForWork): WorkItem {
+  const type = chat.workType ?? 'chat';
   return {
     id: chat.id,
     title: chat.title || 'Untitled chat',
-    type: 'chat',
+    type,
+    status: chat.workStatus ?? (type === 'chat' && chat.title === 'New chat' && (!chat.messages || chat.messages.length === 0) ? 'draft' : undefined),
     updatedAt: chat.updatedAt,
+    sourceConversationId: chat.sourceConversationId,
+    sessionId: chat.sessionId,
     isPinned: Boolean(chat.isPinned),
+    source: 'chat',
   };
 }
 
@@ -39,6 +62,8 @@ export function sessionToWorkItem(session: BridgeSession): WorkItem {
     status: sessionStatusLabel(session.status),
     updatedAt: session.updatedAt,
     sourceConversationId: session.sourceConversationId,
+    sessionId: session.id,
+    source: 'bridge',
   };
 }
 
