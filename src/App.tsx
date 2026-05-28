@@ -184,6 +184,8 @@ import { ProjectsOSPage } from './pages/projects/ProjectsOSPage';
 import { DeliverablesOSPage } from './pages/deliverables/DeliverablesOSPage';
 import { KnowledgeOSPage } from './pages/knowledge/KnowledgeOSPage';
 import { BossIntake } from './pages/one-man-enterprse/BossIntake';
+import { EnterpriseOrgPreviewPanel } from './pages/one-man-enterprse/oneManEnterprise';
+import { BridgeOperatorPage } from './pages/bridge/BridgeOperatorPage';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
@@ -1442,6 +1444,7 @@ function KimiStyleSidebar({
   page, profile, usageState, wsChats, wsProjects, activeWsChatId, collapsed, setCollapsed,
   onNavigate, onNewChat, onOpenWsChat, onRenameChat, onTogglePinChat, onArchiveChat, onDeleteChat,
   onRenameWsProject, onArchiveWsProject, onDeleteWsProject,
+  onNewWsProject, onOpenSettings, onSignOut,
 }: {
   page: Page;
   profile: UserProfile;
@@ -1461,6 +1464,9 @@ function KimiStyleSidebar({
   onRenameWsProject: (id: string, name: string) => void;
   onArchiveWsProject: (id: string) => void;
   onDeleteWsProject: (id: string) => void;
+  onNewWsProject: (name: string, goal: string) => void;
+  onOpenSettings: (tab?: string) => void;
+  onSignOut: () => void | Promise<void>;
 }) {
   const [contextMenu, setContextMenu] = React.useState<
     | { type: 'chat'; id: string; x: number; y: number }
@@ -1470,13 +1476,49 @@ function KimiStyleSidebar({
   const [modal, setModal] = React.useState<
     | { type: 'rename-chat'; id: string; currentTitle: string }
     | { type: 'rename-project'; id: string; currentName: string }
+    | { type: 'new-project' }
     | null
   >(null);
-  const mainItems: Array<{ label: string; icon: React.ElementType; page: Page }> = [
-    { label: 'AI Ant', icon: Bot, page: 'AI Ant' },
-    { label: 'Projects', icon: FolderOpen, page: 'Projects' },
-    { label: 'Deliverables', icon: FileText, page: 'Deliverables' },
-  ];
+  const [projectsExpanded, setProjectsExpanded] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('colony.sidebar.projectsExpanded.v1') !== '0'; } catch { return true; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem('colony.sidebar.projectsExpanded.v1', projectsExpanded ? '1' : '0'); } catch { /* ignore */ }
+  }, [projectsExpanded]);
+  const [accountOpen, setAccountOpen] = React.useState(false);
+  const [newProjectName, setNewProjectName] = React.useState('');
+  const [newProjectGoal, setNewProjectGoal] = React.useState('');
+  const accountTriggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const accountPopoverRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!accountOpen) return;
+    const handlePointer = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (accountPopoverRef.current?.contains(target)) return;
+      if (accountTriggerRef.current?.contains(target)) return;
+      setAccountOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAccountOpen(false);
+        accountTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', handlePointer);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handlePointer);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [accountOpen]);
+
+  const openNewProject = () => {
+    setNewProjectName('');
+    setNewProjectGoal('');
+    setModal({ type: 'new-project' });
+  };
+
   const libraryItems: Array<{ label: string; icon: React.ElementType; page: Page }> = [
     { label: 'Template Community', icon: Layers3, page: 'Templates' },
     { label: 'Connectors', icon: Plug, page: 'Connectors' },
@@ -1539,20 +1581,42 @@ function KimiStyleSidebar({
           )}
         </AnimatePresence>
         <nav className="space-y-0.5">
-          {mainItems.map(({ label, icon: Icon, page: targetPage }, idx) => {
-          const active = page === targetPage;
-          return (
-            <SidebarNavButton
-              key={label}
-              label={label}
-              Icon={Icon}
-              active={active}
-              collapsed={collapsed}
-              order={idx}
-              onClick={() => onNavigate(targetPage)}
-            />
-          );
-          })}
+          <SidebarNavButton
+            key="AI Ant"
+            label="AI Ant"
+            Icon={Bot}
+            active={page === 'AI Ant'}
+            collapsed={collapsed}
+            order={0}
+            onClick={() => onNavigate('AI Ant')}
+          />
+          <SidebarNavButton
+            key="Colony Bridge"
+            label="Colony Bridge"
+            Icon={Network}
+            active={page === 'Bridge'}
+            collapsed={collapsed}
+            order={1}
+            onClick={() => onNavigate('Bridge')}
+          />
+          <SidebarProjectsSection
+            active={page === 'Projects'}
+            collapsed={collapsed}
+            expanded={projectsExpanded}
+            onToggleExpanded={() => setProjectsExpanded((v) => !v)}
+            onNavigateProjects={() => onNavigate('Projects')}
+            onNewProject={openNewProject}
+            order={2}
+          />
+          <SidebarNavButton
+            key="Deliverables"
+            label="Deliverables"
+            Icon={FileText}
+            active={page === 'Deliverables'}
+            collapsed={collapsed}
+            order={3}
+            onClick={() => onNavigate('Deliverables')}
+          />
         </nav>
 
         <AnimatePresence initial={false}>
@@ -1577,7 +1641,7 @@ function KimiStyleSidebar({
                 Icon={Icon}
                 active={active}
                 collapsed={collapsed}
-                order={mainItems.length + idx}
+                order={4 + idx}
                 onClick={() => onNavigate(targetPage)}
               />
             );
@@ -1604,7 +1668,7 @@ function KimiStyleSidebar({
                 Icon={Terminal}
                 active={page === 'Admin'}
                 collapsed={collapsed}
-                order={mainItems.length + libraryItems.length}
+                order={4 + libraryItems.length}
                 onClick={() => onNavigate('Admin')}
               />
             </nav>
@@ -1800,26 +1864,54 @@ function KimiStyleSidebar({
         </AnimatePresence>
       </div>
 
-      <div className="shrink-0 border-t border-white/[0.07] p-3">
+      <div className="relative shrink-0 border-t border-white/[0.07] p-3">
         <button className={`mb-2 flex w-full items-center gap-2 rounded-[10px] px-2 py-2 text-[12px] text-white/42 transition hover:bg-white/[0.05] hover:text-white/75 ${collapsed ? 'justify-center' : ''}`} title="Get Desktop App">
           <Laptop className="h-4 w-4" />
           {!collapsed && <span>Get Desktop App</span>}
         </button>
-        <div className={`flex items-center gap-2 rounded-[12px] border border-white/[0.08] bg-white/[0.035] p-2 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-violet-500/18 text-xs font-bold text-violet-100">{profile.name.slice(0, 1).toUpperCase()}</div>
+        <button
+          ref={accountTriggerRef}
+          type="button"
+          onClick={() => setAccountOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={accountOpen}
+          aria-label={`Account menu for ${profile.name}`}
+          className={`flex w-full items-center gap-2 rounded-[12px] border p-2 text-left transition-colors duration-150 ease-out hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400/40 motion-reduce:transition-none ${
+            accountOpen ? 'border-white/[0.14] bg-white/[0.05]' : 'border-white/[0.08] bg-white/[0.035]'
+          } ${collapsed ? 'justify-center' : ''}`}
+        >
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-violet-500/18 text-xs font-bold text-violet-100">
+            {profile.name.slice(0, 1).toUpperCase()}
+          </span>
           {!collapsed && (
             <>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[12px] font-bold text-white/78">{profile.name}</p>
-                <span className={`mt-1 inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase ${planTone[usageState.currentPlan] ?? planTone.free}`}>{usageState.currentPlan}</span>
-              </div>
-              <button onClick={() => onNavigate('Billing')} className="rounded-[8px] bg-violet-600 px-2 py-1 text-[10px] font-bold text-white transition hover:bg-violet-500">Upgrade</button>
-              <button onClick={() => onNavigate('Settings')} className="grid h-7 w-7 place-items-center rounded-[8px] text-white/35 transition hover:bg-white/[0.07] hover:text-white/75" title="Settings">
-                <Settings className="h-3.5 w-3.5" />
-              </button>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-bold text-white/82">{profile.name}</span>
+                <span className={`mt-1 inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase ${planTone[usageState.currentPlan] ?? planTone.free}`}>
+                  {usageState.currentPlan}
+                </span>
+              </span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 shrink-0 text-white/35 transition-transform duration-200 ease-out motion-reduce:transition-none ${accountOpen ? 'rotate-180' : ''}`}
+              />
             </>
           )}
-        </div>
+        </button>
+        <AnimatePresence>
+          {accountOpen && (
+            <SidebarAccountPopover
+              ref={accountPopoverRef}
+              profile={profile}
+              usageState={usageState}
+              currentPage={page}
+              collapsed={collapsed}
+              onClose={() => setAccountOpen(false)}
+              onNavigate={onNavigate}
+              onOpenSettings={onOpenSettings}
+              onSignOut={onSignOut}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </aside>
     {contextMenu?.type === 'chat' && menuChat && (
@@ -1871,6 +1963,47 @@ function KimiStyleSidebar({
         onSave={(name) => { onRenameWsProject(modal.id, name); setModal(null); }}
         onCancel={() => setModal(null)}
       />
+    )}
+    {modal?.type === 'new-project' && (
+      <div className="fixed inset-0 z-[140] grid place-items-center bg-black/70 p-5 backdrop-blur-sm" onClick={() => setModal(null)}>
+        <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#0c111c] p-6 text-white shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
+          <h3 className="mb-1 font-heading text-xl font-extrabold">New project</h3>
+          <p className="mb-5 text-[13px] text-white/45">A project keeps its chats, sources, AI teams, and deliverables together.</p>
+          <label className="mb-1 block text-[12px] font-semibold text-white/55">Project name</label>
+          <input
+            autoFocus
+            value={newProjectName}
+            onChange={(e) => setNewProjectName(e.target.value)}
+            placeholder="e.g. Daily Sales Report"
+            className="mb-3 w-full rounded-xl border border-white/[0.12] bg-white/[0.04] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-violet-400/40"
+          />
+          <label className="mb-1 block text-[12px] font-semibold text-white/55">Goal (optional)</label>
+          <textarea
+            value={newProjectGoal}
+            onChange={(e) => setNewProjectGoal(e.target.value)}
+            placeholder="What should AI Ant accomplish in this project?"
+            rows={3}
+            className="mb-5 w-full resize-none rounded-xl border border-white/[0.12] bg-white/[0.04] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-violet-400/40"
+          />
+          <div className="flex gap-3">
+            <button onClick={() => setModal(null)} className="flex-1 rounded-xl border border-white/[0.18] py-2.5 text-[13px] font-semibold text-white/60 transition hover:bg-white/[0.06]">Cancel</button>
+            <button
+              disabled={!newProjectName.trim()}
+              onClick={() => {
+                const name = newProjectName.trim();
+                if (!name) return;
+                onNewWsProject(name, newProjectGoal.trim());
+                setNewProjectName('');
+                setNewProjectGoal('');
+                setModal(null);
+              }}
+              className="flex-1 rounded-xl bg-violet-600 py-2.5 text-[13px] font-semibold text-white transition hover:bg-violet-500 disabled:opacity-50"
+            >
+              Create project
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );
@@ -1925,6 +2058,240 @@ function SidebarNavButton({
         <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-lg border border-white/[0.08] bg-[#111827] px-2 py-1 text-xs text-white/80 shadow-xl group-hover:block">{label}</span>
       )}
     </motion.button>
+  );
+}
+
+function SidebarProjectsSection({
+  active,
+  collapsed,
+  expanded,
+  onToggleExpanded,
+  onNavigateProjects,
+  onNewProject,
+  order,
+}: {
+  active: boolean;
+  collapsed: boolean;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onNavigateProjects: () => void;
+  onNewProject: () => void;
+  order: number;
+}) {
+  if (collapsed) {
+    return (
+      <SidebarNavButton
+        label="Projects"
+        Icon={FolderOpen}
+        active={active}
+        collapsed={collapsed}
+        order={order}
+        onClick={onNavigateProjects}
+      />
+    );
+  }
+  return (
+    <div className="group/projects relative">
+      <motion.div
+        initial={{ opacity: 0, x: -8 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1], delay: 0.02 * order }}
+        className={`relative flex h-9 w-full items-center gap-2.5 rounded-[10px] pl-2 pr-1 text-[13px] font-medium transition-colors ${
+          active ? 'bg-violet-500/16 text-white ring-1 ring-violet-400/20' : 'text-white/48 hover:bg-white/[0.055] hover:text-white/85'
+        }`}
+      >
+        {active && (
+          <motion.span
+            layoutId="sidebar-active-rail"
+            className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-violet-400"
+            transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.6 }}
+          />
+        )}
+        <button
+          type="button"
+          onClick={onNavigateProjects}
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[8px] text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400/40"
+        >
+          <FolderOpen className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Projects</span>
+        </button>
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-label={expanded ? 'Collapse projects menu' : 'Expand projects menu'}
+          aria-expanded={expanded}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400/40"
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none ${expanded ? 'rotate-0' : '-rotate-90'}`}
+          />
+        </button>
+      </motion.div>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="projects-children"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="ml-[14px] mt-1 space-y-0.5 border-l border-white/[0.06] pl-2.5">
+              <button
+                type="button"
+                onClick={onNavigateProjects}
+                className={`flex h-7 w-full items-center gap-2 rounded-[8px] px-2 text-left text-[12px] transition-colors ${
+                  active ? 'text-white/85' : 'text-white/45 hover:bg-white/[0.045] hover:text-white/80'
+                }`}
+              >
+                <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                <span className="truncate">All projects</span>
+              </button>
+              <button
+                type="button"
+                onClick={onNewProject}
+                className="group/new flex h-7 w-full items-center gap-2 rounded-[8px] px-2 text-left text-[12px] text-white/70 transition-colors hover:bg-violet-500/10 hover:text-white"
+              >
+                <FolderPlus className="h-3.5 w-3.5 shrink-0 text-violet-300/80 group-hover/new:text-violet-200" />
+                <span className="truncate">New project</span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+const SidebarAccountPopover = React.forwardRef<HTMLDivElement, {
+  profile: UserProfile;
+  usageState: UsageState;
+  currentPage: Page;
+  collapsed: boolean;
+  onClose: () => void;
+  onNavigate: (page: Page) => void;
+  onOpenSettings: (tab?: string) => void;
+  onSignOut: () => void | Promise<void>;
+}>(function SidebarAccountPopover({ profile, usageState, currentPage, collapsed, onClose, onNavigate, onOpenSettings, onSignOut }, ref) {
+  const planLabel = usageState.currentPlan.charAt(0).toUpperCase() + usageState.currentPlan.slice(1);
+  const planTone: Record<string, string> = {
+    free: 'border-white/[0.10] bg-white/[0.04] text-white/55',
+    basic: 'border-blue-400/25 bg-blue-400/10 text-blue-200',
+    pro: 'border-violet-400/25 bg-violet-400/10 text-violet-200',
+    max: 'border-amber-400/25 bg-amber-400/10 text-amber-200',
+  };
+  const handle = (fn: () => void) => () => { onClose(); fn(); };
+  const items: Array<{
+    label: string;
+    icon: React.ElementType;
+    onSelect?: () => void;
+    active?: boolean;
+    disabled?: boolean;
+    badge?: string;
+    danger?: boolean;
+    tone?: 'accent';
+  }> = [
+    { label: 'Upgrade plan', icon: Sparkles, tone: 'accent', onSelect: handle(() => onNavigate('Billing')) },
+    { label: 'Personalization', icon: Sun, onSelect: handle(() => onOpenSettings('Appearance')) },
+    { label: 'Profile', icon: User, active: currentPage === 'Settings', onSelect: handle(() => onOpenSettings('Account')) },
+    { label: 'Settings', icon: Settings, onSelect: handle(() => onOpenSettings()) },
+    { label: 'Help', icon: HelpCircle, disabled: true, badge: 'Soon' },
+    { label: 'Log out', icon: LogOut, danger: true, onSelect: async () => { onClose(); await onSignOut(); } },
+  ];
+  const primary = items.slice(0, 4);
+  const secondary = items.slice(4);
+  const containerWidth = collapsed ? 'w-[260px] left-3' : 'left-3 right-3';
+  return (
+    <motion.div
+      ref={ref}
+      role="menu"
+      aria-label="Account menu"
+      initial={{ opacity: 0, y: 6, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 6, scale: 0.985 }}
+      transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+      style={{ transformOrigin: 'bottom left' }}
+      className={`absolute bottom-[calc(100%+6px)] z-50 rounded-[14px] border border-white/[0.08] bg-[#0c111c]/97 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl motion-reduce:transition-none ${containerWidth}`}
+    >
+      <div className="flex items-center gap-2.5 rounded-[10px] px-2 py-2">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-violet-500/20 text-sm font-bold text-violet-100">
+          {profile.name.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12.5px] font-semibold text-white/88">{profile.name}</span>
+          <span className={`mt-0.5 inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${planTone[usageState.currentPlan] ?? planTone.free}`}>
+            {planLabel}
+          </span>
+        </span>
+      </div>
+      <div className="my-1 h-px bg-white/[0.05]" />
+      <ul className="flex flex-col">
+        {primary.map((item) => (
+          <li key={item.label}>
+            <AccountMenuRow item={item} />
+          </li>
+        ))}
+      </ul>
+      <div className="my-1 h-px bg-white/[0.05]" />
+      <ul className="flex flex-col">
+        {secondary.map((item) => (
+          <li key={item.label}>
+            <AccountMenuRow item={item} />
+          </li>
+        ))}
+      </ul>
+    </motion.div>
+  );
+});
+
+function AccountMenuRow({ item }: {
+  item: {
+    label: string;
+    icon: React.ElementType;
+    onSelect?: () => void;
+    active?: boolean;
+    disabled?: boolean;
+    badge?: string;
+    danger?: boolean;
+    tone?: 'accent';
+  };
+}) {
+  const Icon = item.icon;
+  const base = 'group/row flex h-9 w-full items-center gap-2.5 rounded-[9px] px-2 text-left text-[12.5px] transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400/40 motion-reduce:transition-none';
+  const stateClass = item.disabled
+    ? 'cursor-not-allowed text-white/30'
+    : item.active
+      ? 'bg-violet-500/12 text-white/95 ring-1 ring-violet-400/15'
+      : item.danger
+        ? 'text-white/70 hover:bg-red-400/10 hover:text-red-200'
+        : 'text-white/72 hover:bg-white/[0.05] hover:text-white';
+  const iconClass = item.disabled
+    ? 'text-white/25'
+    : item.tone === 'accent'
+      ? 'text-violet-300 group-hover/row:text-violet-200'
+      : item.danger
+        ? 'text-white/45 group-hover/row:text-red-200'
+        : item.active
+          ? 'text-violet-200'
+          : 'text-white/45 group-hover/row:text-white/80';
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={item.disabled}
+      onClick={item.onSelect}
+      aria-label={item.label}
+      className={`${base} ${stateClass}`}
+    >
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${iconClass}`} />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.badge && (
+        <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-white/45">
+          {item.badge}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -19731,120 +20098,6 @@ function OneManEnterprisePanel({ onClose, onStart }: { onClose: () => void; onSt
   );
 }
 
-function EnterpriseOrgPreviewPanel({ project, onOpenWorkspace }: { project: EnterpriseWorkspaceProject; onOpenWorkspace: () => void }) {
-  const director = project.agents.find((agent) => !agent.parentAgentId) ?? project.agents[0];
-  const children = project.agents.filter((agent) => agent.parentAgentId === director?.id);
-  const remaining = project.agents.filter((agent) => agent.parentAgentId && agent.parentAgentId !== director?.id);
-  const statusTone: Record<EnterpriseAgentStatus, string> = {
-    idle: 'bg-white/[0.06] text-white/38',
-    thinking: 'bg-violet-400/10 text-violet-200',
-    working: 'bg-emerald-400/10 text-emerald-200',
-    waiting: 'bg-amber-400/10 text-amber-200',
-    done: 'bg-white/[0.06] text-white/35',
-    blocked: 'bg-red-400/10 text-red-200',
-  };
-  const overallProgress = Math.round(project.agents.reduce((sum, agent) => sum + agent.progress, 0) / Math.max(1, project.agents.length));
-  const renderAgent = (agent: EnterpriseWorkspaceAgent, compact = false) => (
-    <div key={agent.id} className="rounded-[14px] border border-white/[0.07] bg-white/[0.035] p-3 transition hover:border-white/[0.14] hover:bg-white/[0.05]">
-      <div className="flex items-start gap-2.5">
-        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12px] border border-white/[0.12] bg-[#f4f4f8]">
-          <img src={agent.avatar} alt={agent.name} draggable={false} className="h-full w-full object-cover" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-white/86">{agent.name}</p>
-              <p className="mt-0.5 truncate text-[11px] text-white/42"><span className="text-violet-200/70">{agent.code}</span> · {agent.role}</p>
-            </div>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone[agent.status]}`}>{agent.status}</span>
-          </div>
-        </div>
-      </div>
-      {!compact && <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-white/38">{agent.taskSummary ?? agent.currentTask}</p>}
-      <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
-        <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-emerald-300 transition-[width] duration-500" style={{ width: `${agent.progress}%` }} />
-      </div>
-      <p className="mt-1 text-[10px] text-white/28">{agent.progress}%</p>
-    </div>
-  );
-
-  return (
-    <aside className="hidden w-[340px] shrink-0 border-l border-white/[0.07] bg-[#0a101d]/92 p-4 text-white xl:flex xl:flex-col">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-200/60">Organization preview</p>
-          <h3 className="mt-1 font-heading text-base font-extrabold text-white/90">{project.name}</h3>
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/38">{project.goal}</p>
-        </div>
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] px-2 py-1 text-[10px] font-bold text-emerald-200">{project.status}</span>
-      </div>
-
-      <div className="mt-4 rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Overall progress</p>
-          <span className="text-xs font-bold text-white/70">{overallProgress}%</span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
-          <div className="h-full rounded-full bg-gradient-to-r from-violet-400 via-cyan-300 to-emerald-300" style={{ width: `${overallProgress}%` }} />
-        </div>
-      </div>
-
-      <div className="mt-4 flex-1 overflow-y-auto pr-1">
-        {director && renderAgent(director)}
-        {children.length > 0 && (
-          <div className="ml-4 mt-3 border-l border-violet-300/15 pl-3">
-            {children.map((agent) => (
-              <div key={agent.id} className="mb-3">
-                {renderAgent(agent, true)}
-              </div>
-            ))}
-          </div>
-        )}
-        {remaining.length > 0 && (
-          <div className="ml-8 mt-1 border-l border-emerald-300/10 pl-3">
-            {remaining.map((agent) => (
-              <div key={agent.id} className="mb-3">
-                {renderAgent(agent, true)}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-4 rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Live handoffs</p>
-          <div className="mt-3 space-y-2">
-            {project.messages.slice(-3).map((message) => {
-              const from = project.agents.find((agent) => agent.id === message.fromAgentId)?.name ?? 'Agent';
-              const to = project.agents.find((agent) => agent.id === message.toAgentId)?.name ?? 'AI Ant';
-              return (
-                <p key={message.id} className="text-[11px] leading-relaxed text-white/45">
-                  <span className="text-violet-200/75">{from}</span> → <span className="text-emerald-200/70">{to}</span>: {message.content}
-                </p>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 border-t border-white/[0.07] pt-4">
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          {[
-            ['Agents', project.agents.length],
-            ['Tasks', project.tasks.length],
-            ['Approvals', project.approvals.filter((item) => item.status === 'pending').length],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-[12px] bg-white/[0.035] p-2 text-center">
-              <p className="text-sm font-bold text-white/82">{value}</p>
-              <p className="text-[9px] uppercase tracking-widest text-white/25">{label}</p>
-            </div>
-          ))}
-        </div>
-        <button onClick={onOpenWorkspace} className="w-full rounded-[12px] bg-violet-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-violet-500">Open Workspace</button>
-      </div>
-    </aside>
-  );
-}
-
 function WorkspaceMemberAvatar({ member }: { member: WorkspaceMember }) {
   const avatar = workspaceMemberAvatar(member);
   return (
@@ -27085,7 +27338,7 @@ function SettingsToggle({ on, onToggle }: { on: boolean; onToggle: () => void })
   );
 }
 
-function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, setTheme, goBilling, onSignOut, onSwitchAccount, onChangePassword }: {
+function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, setTheme, goBilling, onSignOut, onSwitchAccount, onChangePassword, initialActive }: {
   onBack: () => void;
   profile: UserProfile;
   safetyMode: boolean;
@@ -27096,8 +27349,9 @@ function SettingsScreen({ onBack, profile, safetyMode, setSafetyMode, theme, set
   onSignOut: () => void | Promise<void>;
   onSwitchAccount: () => void | Promise<void>;
   onChangePassword: () => void;
+  initialActive?: string;
 }) {
-  const [active, setActive] = useState('Account');
+  const [active, setActive] = useState(initialActive ?? 'Account');
   const [confirm, setConfirm] = useState<null | 'logout' | 'switch' | 'delete'>(null);
   const [deleteText, setDeleteText] = useState('');
 
@@ -28335,6 +28589,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
   const [projects, setProjects] = useState<ChatProjectDef[]>(CHAT_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState('daily-sales');
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('dark');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>(undefined);
   const [connectors, setConnectors] = useState<AppConnector[]>(INITIAL_CONNECTORS);
   const [safetyMode, setSafetyMode] = useState(true);
   const [usageState, setUsageState] = useState<UsageState>(DEFAULT_USAGE_STATE);
@@ -28547,7 +28802,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
   if (page === 'Settings') {
     return (
       <SettingsScreen
-        onBack={() => setPage('AI Ant')}
+        onBack={() => { setSettingsInitialTab(undefined); setPage('AI Ant'); }}
         profile={profile}
         safetyMode={safetyMode} setSafetyMode={setSafetyMode}
         theme={theme} setTheme={setTheme}
@@ -28555,6 +28810,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
         onSignOut={onSignOut}
         onSwitchAccount={onSwitchAccount}
         onChangePassword={() => setPage('ForgotPassword')}
+        initialActive={settingsInitialTab}
       />
     );
   }
@@ -28583,6 +28839,9 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
         onRenameWsProject={renameWsProject}
         onArchiveWsProject={archiveWsProject}
         onDeleteWsProject={deleteWsProject}
+        onNewWsProject={(name, goal) => { createWsProject(name, goal); setPage('Projects'); setDrawerView(null); }}
+        onOpenSettings={(tab) => { setSettingsInitialTab(tab); setPage('Settings'); setDrawerView(null); }}
+        onSignOut={onSignOut}
       />
       <AppDrawer
         view={drawerView || (isMobileOpen ? 'more' : null)}
@@ -28609,7 +28868,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
         </header>
 
         {/* Desktop top-right: active project + safety badge (hidden on pages with own topbar) */}
-        <div className={`absolute right-6 top-4 z-20 items-center gap-3 ${page === 'AI Ant' ? 'hidden' : 'hidden md:flex'}`}>
+        <div className={`absolute right-6 top-4 z-20 items-center gap-3 ${page === 'AI Ant' || page === 'Bridge' ? 'hidden' : 'hidden md:flex'}`}>
           {page === 'Create Agent Team' && (
             <span className="rounded-full border border-white-07 bg-surface px-3 py-1.5 text-xs font-medium text-muted">
               {getProjectIcon(activeProject)} {activeProject.name}
@@ -28652,6 +28911,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
               deleteWsProject={deleteWsProjectRaw}
             />
           )}
+          {page === 'Bridge' && <BridgeOperatorPage />}
           {page === 'AI Teams' && <TeamsOSPage setPage={setPage} />}
           {page === 'Workflows' && <WorkflowsOSPage setPage={setPage} />}
           {page === 'Deliverables' && (
@@ -28687,7 +28947,7 @@ function AppShell({ page, setPage, profile, onSignOut, onSwitchAccount }: {
             />
           )}
           {page === 'Connectors' && <ConnectorsMarketplacePage />}
-          {!['AI Ant', 'Projects', 'AI Teams', 'Workflows', 'Deliverables', 'Approvals', 'Knowledge', 'Templates', 'Admin', 'Create Agent Team', 'Connectors', 'Billing', 'Settings'].includes(page) && (
+          {!['AI Ant', 'Bridge', 'Projects', 'AI Teams', 'Workflows', 'Deliverables', 'Approvals', 'Knowledge', 'Templates', 'Admin', 'Create Agent Team', 'Connectors', 'Billing', 'Settings'].includes(page) && (
             <div className="h-full p-6 md:p-12">
               <h2 className="mb-6 font-heading text-3xl font-extrabold">{page}</h2>
               <EmptyState

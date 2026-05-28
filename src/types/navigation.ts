@@ -7,6 +7,7 @@ export type Page =
   | 'Onboarding'
   | 'Admin'
   | 'AI Ant'
+  | 'Bridge'
   | 'Projects'
   | 'AI Teams'
   | 'Workflows'

@@ -9,6 +9,7 @@ export function pageFromPath(pathname: string): Page {
   if (pathname === '/onboarding') return 'Onboarding';
   if (pathname === '/access-pending') return 'AccessPending';
   if (pathname === '/ai-ant') return 'AI Ant';
+  if (pathname === '/bridge') return 'Bridge';
   if (pathname === '/product') return 'MarketingProduct';
   if (pathname === '/how-it-works') return 'MarketingHowItWorks';
   if (pathname === '/features') return 'MarketingFeatures';
@@ -37,6 +38,7 @@ export function pathFromPage(page: Page) {
     AccessPending: '/access-pending',
     Admin: '/admin',
     'AI Ant': '/ai-ant',
+    Bridge: '/bridge',
     MarketingProduct: '/product',
     MarketingHowItWorks: '/how-it-works',
     MarketingFeatures: '/features',

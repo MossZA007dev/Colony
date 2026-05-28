@@ -721,116 +721,220 @@ export function OneManEnterprisePanel({ onClose, onStart }: { onClose: () => voi
   );
 }
 
+const ENTERPRISE_STATUS_LABEL: Record<EnterpriseProjectStatus, string> = {
+  planning: 'Planning',
+  creating_team: 'Building',
+  running: 'Running',
+  waiting_approval: 'Awaiting approval',
+  completed: 'Completed',
+};
+
+const AGENT_STATUS_LABEL: Record<EnterpriseAgentStatus, string> = {
+  idle: 'Idle',
+  thinking: 'Thinking',
+  working: 'Working',
+  waiting: 'Waiting',
+  done: 'Done',
+  blocked: 'Blocked',
+};
+
+const AGENT_STATUS_PILL: Record<EnterpriseAgentStatus, string> = {
+  idle: 'bg-white/[0.05] text-white/45',
+  thinking: 'bg-violet-400/10 text-violet-200',
+  working: 'bg-emerald-400/[0.09] text-emerald-200',
+  waiting: 'bg-amber-400/10 text-amber-200',
+  done: 'bg-white/[0.05] text-white/40',
+  blocked: 'bg-red-400/10 text-red-200',
+};
+
+const AGENT_STATUS_RANK: Record<EnterpriseAgentStatus, number> = {
+  thinking: 0,
+  working: 1,
+  waiting: 2,
+  blocked: 3,
+  idle: 4,
+  done: 5,
+};
+
 export function EnterpriseOrgPreviewPanel({ project, onOpenWorkspace }: { project: EnterpriseWorkspaceProject; onOpenWorkspace: () => void }) {
-  const director = project.agents.find((agent) => !agent.parentAgentId) ?? project.agents[0];
-  const children = project.agents.filter((agent) => agent.parentAgentId === director?.id);
-  const remaining = project.agents.filter((agent) => agent.parentAgentId && agent.parentAgentId !== director?.id);
-  const statusTone: Record<EnterpriseAgentStatus, string> = {
-    idle: 'bg-white/[0.06] text-white/38',
-    thinking: 'bg-violet-400/10 text-violet-200',
-    working: 'bg-emerald-400/10 text-emerald-200',
-    waiting: 'bg-amber-400/10 text-amber-200',
-    done: 'bg-white/[0.06] text-white/35',
-    blocked: 'bg-red-400/10 text-red-200',
-  };
-  const overallProgress = Math.round(project.agents.reduce((sum, agent) => sum + agent.progress, 0) / Math.max(1, project.agents.length));
-  const renderAgent = (agent: EnterpriseWorkspaceAgent, compact = false) => (
-    <div key={agent.id} className="rounded-[14px] border border-white/[0.07] bg-white/[0.035] p-3 transition hover:border-white/[0.14] hover:bg-white/[0.05]">
-      <div className="flex items-start gap-2.5">
-        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12px] border border-white/[0.12] bg-[#f4f4f8]">
-          <img src={agent.avatar} alt={agent.name} draggable={false} className="h-full w-full object-cover" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-white/86">{agent.name}</p>
-              <p className="mt-0.5 truncate text-[11px] text-white/42"><span className="text-violet-200/70">{agent.code}</span> - {agent.role}</p>
-            </div>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone[agent.status]}`}>{agent.status}</span>
-          </div>
-        </div>
-      </div>
-      {!compact && <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-white/38">{agent.taskSummary ?? agent.currentTask}</p>}
-      <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
-        <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-emerald-300 transition-[width] duration-500" style={{ width: `${agent.progress}%` }} />
-      </div>
-      <p className="mt-1 text-[10px] text-white/28">{agent.progress}%</p>
-    </div>
+  const overallProgress = Math.round(
+    project.agents.reduce((sum, agent) => sum + agent.progress, 0) / Math.max(1, project.agents.length),
   );
+  const activeAgentCount = project.agents.filter((a) => a.status === 'thinking' || a.status === 'working').length;
+  const pendingApprovals = project.approvals.filter((a) => a.status === 'pending').length;
+  const deliverableCount = project.deliverables.length;
+  const taskCount = project.tasks.length;
+
+  const ranked = [...project.agents].sort((a, b) => {
+    const rank = AGENT_STATUS_RANK[a.status] - AGENT_STATUS_RANK[b.status];
+    if (rank !== 0) return rank;
+    return b.progress - a.progress;
+  });
+  const topRoles = ranked.slice(0, 3);
+  const moreCount = Math.max(0, project.agents.length - topRoles.length);
+
+  const activeApproval = project.approvals.find((a) => a.status === 'pending');
+  const inFlightDeliverable = project.deliverables.find((d) => d.status === 'review_ready' || d.status === 'draft');
+  const focusPrimary = inFlightDeliverable
+    ? `Work is consolidating into ${inFlightDeliverable.title.toLowerCase()}.`
+    : 'The team is coordinating on the next operating milestone.';
+  const focusSecondary = activeApproval
+    ? `Approval required before exporting the deliverable.`
+    : `${activeAgentCount} role${activeAgentCount === 1 ? '' : 's'} working in parallel.`;
+
+  const statusPillTone = project.status === 'waiting_approval'
+    ? 'border-amber-400/25 bg-amber-400/[0.08] text-amber-200'
+    : project.status === 'completed'
+      ? 'border-white/[0.12] bg-white/[0.05] text-white/55'
+      : 'border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-200';
 
   return (
-    <aside className="hidden w-[340px] shrink-0 border-l border-white/[0.07] bg-[#0a101d]/92 p-4 text-white xl:flex xl:flex-col">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-200/60">Organization preview</p>
-          <h3 className="mt-1 font-heading text-base font-extrabold text-white/90">{project.name}</h3>
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/38">{project.goal}</p>
-        </div>
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] px-2 py-1 text-[10px] font-bold text-emerald-200">{project.status}</span>
-      </div>
+    <aside className="hidden w-[340px] shrink-0 flex-col border-l border-white/[0.06] bg-[#0a101d]/92 text-white xl:flex">
+      <div className="flex flex-col gap-7 overflow-y-auto px-5 pt-6 pb-5">
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate font-heading text-[15px] font-extrabold tracking-tight text-white/92">Organization Preview</h3>
+            <p className="mt-1 truncate text-[11.5px] text-white/45">{project.name}</p>
+          </div>
+          <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none ${statusPillTone}`}>
+            <span className="relative inline-flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+              {ENTERPRISE_STATUS_LABEL[project.status]}
+            </span>
+          </span>
+        </header>
 
-      <div className="mt-4 rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Overall progress</p>
-          <span className="text-xs font-bold text-white/70">{overallProgress}%</span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
-          <div className="h-full rounded-full bg-gradient-to-r from-violet-400 via-cyan-300 to-emerald-300" style={{ width: `${overallProgress}%` }} />
-        </div>
-      </div>
+        <section>
+          <div className="flex items-baseline justify-between">
+            <p className="text-[11px] font-medium text-white/55">Overall progress</p>
+            <span className="font-heading text-[15px] font-extrabold tabular-nums text-white/90">{overallProgress}%</span>
+          </div>
+          <div
+            className="mt-2.5 h-[5px] overflow-hidden rounded-full bg-white/[0.06]"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={overallProgress}
+          >
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-violet-400 to-teal-300 shadow-[0_0_12px_rgba(124,92,252,0.35)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+              style={{ width: `${overallProgress}%` }}
+            />
+          </div>
+          <p className="mt-2.5 text-[11px] text-white/40">
+            {activeAgentCount} agent{activeAgentCount === 1 ? '' : 's'} active
+            {pendingApprovals > 0 && (
+              <>
+                <span className="mx-1.5 text-white/20">·</span>
+                <span className="text-amber-200/80">{pendingApprovals} approval{pendingApprovals === 1 ? '' : 's'} waiting</span>
+              </>
+            )}
+          </p>
 
-      <div className="mt-4 flex-1 overflow-y-auto pr-1">
-        {director && renderAgent(director)}
-        {children.length > 0 && (
-          <div className="ml-4 mt-3 border-l border-violet-300/15 pl-3">
-            {children.map((agent) => (
-              <div key={agent.id} className="mb-3">
-                {renderAgent(agent, true)}
-              </div>
+          <div className="mt-4 grid grid-cols-3 gap-2.5">
+            <PreviewMetric value={taskCount} label="Tasks" />
+            <PreviewMetric value={deliverableCount} label="Deliverables" />
+            <PreviewMetric value={pendingApprovals} label="Approval" accent={pendingApprovals > 0 ? 'amber' : undefined} />
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/35">Active roles</p>
+          </div>
+          <ul className="flex flex-col">
+            {topRoles.map((agent, idx) => (
+              <li key={agent.id}>
+                <PreviewAgentRow agent={agent} onSelect={onOpenWorkspace} />
+                {idx < topRoles.length - 1 && <div className="mx-1 h-px bg-white/[0.04]" />}
+              </li>
             ))}
-          </div>
-        )}
-        {remaining.length > 0 && (
-          <div className="ml-8 mt-1 border-l border-emerald-300/10 pl-3">
-            {remaining.map((agent) => (
-              <div key={agent.id} className="mb-3">
-                {renderAgent(agent, true)}
-              </div>
-            ))}
-          </div>
-        )}
+          </ul>
+          {moreCount > 0 && (
+            <button
+              type="button"
+              onClick={onOpenWorkspace}
+              className="mt-3 inline-flex items-center gap-1 text-[11.5px] font-medium text-white/45 transition hover:text-white/80"
+            >
+              View all {project.agents.length} agents
+              <ArrowRight className="h-3 w-3" />
+            </button>
+          )}
+        </section>
 
-        <div className="mt-4 rounded-[16px] border border-white/[0.07] bg-white/[0.03] p-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Live handoffs</p>
-          <div className="mt-3 space-y-2">
-            {project.messages.slice(-3).map((message) => {
-              const from = project.agents.find((agent) => agent.id === message.fromAgentId)?.name ?? 'Agent';
-              const to = project.agents.find((agent) => agent.id === message.toAgentId)?.name ?? 'AI Ant';
-              return (
-                <p key={message.id} className="text-[11px] leading-relaxed text-white/45">
-                  <span className="text-violet-200/75">{from}</span> - <span className="text-emerald-200/70">{to}</span>: {message.content}
-                </p>
-              );
-            })}
+        <section>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/35">Current focus</p>
+          <div className="relative rounded-[14px] border border-white/[0.05] bg-gradient-to-br from-violet-500/[0.06] to-transparent px-3.5 py-3">
+            <span className="absolute left-0 top-3 bottom-3 w-[2px] rounded-full bg-gradient-to-b from-violet-400/80 to-teal-300/40" aria-hidden />
+            <p className="text-[12.5px] leading-relaxed text-white/78">{focusPrimary}</p>
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-white/40">{focusSecondary}</p>
           </div>
-        </div>
+        </section>
       </div>
 
-      <div className="mt-4 border-t border-white/[0.07] pt-4">
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          {[
-            ['Agents', project.agents.length],
-            ['Tasks', project.tasks.length],
-            ['Approvals', project.approvals.filter((item) => item.status === 'pending').length],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-[12px] bg-white/[0.035] p-2 text-center">
-              <p className="text-sm font-bold text-white/82">{value}</p>
-              <p className="text-[9px] uppercase tracking-widest text-white/25">{label}</p>
-            </div>
-          ))}
-        </div>
-        <button onClick={onOpenWorkspace} className="w-full rounded-[12px] bg-violet-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-violet-500">Open Workspace</button>
+      <div className="mt-auto border-t border-white/[0.05] px-5 pt-4 pb-5">
+        {deliverableCount > 0 && (
+          <button
+            type="button"
+            onClick={onOpenWorkspace}
+            className="mb-3 block w-full text-center text-[11.5px] font-medium text-white/50 transition hover:text-white/85"
+          >
+            View deliverables
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onOpenWorkspace}
+          className="group relative w-full overflow-hidden rounded-[12px] bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition-[background-color,transform] duration-200 ease-out hover:bg-violet-500 active:scale-[0.985] motion-reduce:transition-none"
+        >
+          Open Workspace
+        </button>
       </div>
     </aside>
+  );
+}
+
+function PreviewMetric({ value, label, accent }: { value: number; label: string; accent?: 'amber' }) {
+  const tone = accent === 'amber' && value > 0
+    ? 'border-amber-400/20 bg-amber-400/[0.06]'
+    : 'border-white/[0.05] bg-white/[0.025]';
+  const valueTone = accent === 'amber' && value > 0 ? 'text-amber-200' : 'text-white/85';
+  return (
+    <div className={`rounded-[10px] border px-2.5 py-2 ${tone}`}>
+      <p className={`font-heading text-[15px] font-extrabold leading-none tabular-nums ${valueTone}`}>{value}</p>
+      <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-white/35">{label}</p>
+    </div>
+  );
+}
+
+function PreviewAgentRow({ agent, onSelect }: { agent: EnterpriseWorkspaceAgent; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group flex w-full items-center gap-3 rounded-[10px] px-1.5 py-2.5 text-left transition-colors duration-150 ease-out hover:bg-white/[0.025] motion-reduce:transition-none"
+    >
+      <span className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#f4f4f8]">
+        <img src={agent.avatar} alt="" draggable={false} className="h-full w-full object-cover" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate text-[12.5px] font-semibold text-white/88">{agent.name}</span>
+          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold leading-none ${AGENT_STATUS_PILL[agent.status]}`}>
+            {AGENT_STATUS_LABEL[agent.status]}
+          </span>
+        </span>
+        <span className="mt-0.5 flex items-center justify-between gap-2">
+          <span className="truncate text-[11px] text-white/40">{agent.taskSummary ?? agent.currentTask ?? agent.role}</span>
+          <span className="shrink-0 text-[10.5px] tabular-nums text-white/40">{agent.progress}%</span>
+        </span>
+        <span className="mt-1.5 block h-[2px] overflow-hidden rounded-full bg-white/[0.05]">
+          <span
+            className="block h-full rounded-full bg-gradient-to-r from-violet-400/80 to-teal-300/80 transition-[width] duration-500 ease-out motion-reduce:transition-none"
+            style={{ width: `${agent.progress}%` }}
+          />
+        </span>
+      </span>
+    </button>
   );
 }
