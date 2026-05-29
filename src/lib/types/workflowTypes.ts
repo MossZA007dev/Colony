@@ -2,7 +2,7 @@
 // Extracted from src/App.tsx as part of Phase 1 of the file split refactor.
 // Definitions are byte-for-byte the originals so behavior stays identical.
 
-import type { AgentCapability } from '../aiOrchestration';
+import type { AgentCapability, AgentSkill, ModelConfig } from '../aiOrchestration';
 
 // ── Canvas / agent shape ──────────────────────────────────────────────────────
 
@@ -18,6 +18,39 @@ export type AgentError = {
   message: string;
   failedStep: string;
   suggestedFix: string;
+};
+
+export type CanvasAgent = {
+  id: string;
+  type: CanvasAgentType;
+  label: string;
+  role: string;
+  icon: string;
+  color: string;
+  description: string;
+  goal?: string;
+  instructions?: string;
+  systemPrompt?: string;
+  input?: string;
+  output?: string;
+  model?: AgentModel;
+  activeModel?: ModelConfig;
+  memory?: boolean;
+  skills?: string[];
+  agentSkills?: AgentSkill[];
+  tools?: string[];
+  disabled?: boolean;
+  memoryEnabled?: boolean;
+  memories?: string[];
+  tone?: string[];
+  lastAction?: string;
+  lastUpdated?: string;
+  error?: AgentError | null;
+  lastRetryAt?: string | null;
+  stepApproval?: StepApprovalConfig;
+  x: number;
+  y: number;
+  status: AgentStatus;
 };
 
 // ── Trigger / scheduling ──────────────────────────────────────────────────────
