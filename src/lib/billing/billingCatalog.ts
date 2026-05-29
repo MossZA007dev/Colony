@@ -2,7 +2,7 @@
 // Extracted from src/App.tsx as part of Phase 2 of the file split refactor.
 // Behavior is byte-for-byte identical.
 
-import { getPlanEntitlements } from './plans';
+import { getPlanEntitlements } from './entitlements';
 import type { PlanId as BillingPlanId } from './types';
 import type {
   AddonItem,
