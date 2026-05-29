@@ -5,7 +5,89 @@
 // Extracted from src/App.tsx as part of Phase 1 of the file split refactor.
 // Definitions are byte-for-byte the originals so behavior stays identical.
 
+import type { UserRole } from '../admin/adminTypes';
 import type { AgentModelConfig } from '../aiOrchestration';
+import type { EnterpriseWorkspaceProject } from '../../pages/one-man-enterprse/oneManEnterprise';
+import type { WorkflowProposal } from './workflowTypes';
+import type { WorkItemStatus, WorkItemType } from '../work/workItems';
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  role: UserRole;
+  emailVerified: boolean;
+  onboarded: boolean;
+  answers: Record<string, string>;
+}
+
+export interface WorkspaceMessage {
+  id: string;
+  role: 'user' | 'ant';
+  text: string;
+  ts: number;
+  workflowProposal?: WorkflowProposal;
+}
+
+export interface WorkspaceChat {
+  id: string;
+  projectId: string | null;
+  title: string;
+  mode: ChatMode;
+  messages: WorkspaceMessage[];
+  isPinned?: boolean;
+  isArchived?: boolean;
+  userRenamed?: boolean;
+  workType?: WorkItemType;
+  workStatus?: WorkItemStatus;
+  sourceConversationId?: string;
+  sessionId?: string;
+  enterpriseWorkspace?: EnterpriseWorkspaceProject;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceProject {
+  id: string;
+  name: string;
+  goal: string;
+  description?: string;
+  isArchived?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  // Extended workspace fields
+  type?: 'crew' | 'enterprise' | 'workflow' | 'mixed';
+  status?: 'draft' | 'running' | 'waiting' | 'completed' | 'paused' | 'needs_approval';
+  agentCount?: number;
+  workflowCount?: number;
+  taskCount?: number;
+  deliverableCount?: number;
+  approvalCount?: number;
+  progress?: number;
+  nextAction?: string;
+  lastActivity?: string;
+  isPinned?: boolean;
+}
+
+export type AppDeliverable = {
+  id: string;
+  title: string;
+  description: string;
+  type: 'report' | 'strategy' | 'summary' | 'plan' | 'draft' | 'workflow_automation' | 'research';
+  status: 'draft' | 'needs_review' | 'approved' | 'export_ready';
+  ownerAgent?: string;
+  projectId?: string;
+  projectName?: string;
+  sourceChatId?: string;
+  sourceMessageId?: string;
+  sourceRunId?: string;
+  sourceWorkflowId?: string;
+  sourceCrewRunId?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  content?: string;
+  sourcePrompt?: string;
+};
 
 // ── App-shell scalars ────────────────────────────────────────────────────────
 

@@ -218,6 +218,39 @@ import {
 } from './lib/bridge/bridgeSessionStore';
 import { createBridgeSessionFromTask } from './lib/bridge/bridgeIntake';
 import { type WorkItemStatus, type WorkItemType } from './lib/work/workItems';
+import {
+  ONBOARDING_KEY,
+  getApiBaseUrl,
+  isAdminRole,
+  loadProfile,
+  resolveBackendUserId,
+  resolveSurveyUserId,
+  saveProfile,
+  usageFeatureToAdminFeature,
+} from './lib/profile/profileApi';
+import {
+  APP_DELIVERABLES_KEY,
+  SEED_APP_DELIVERABLES,
+  SEED_WS_CHATS,
+  SEED_WS_DELIVERABLES,
+  SEED_WS_PROJECTS,
+  WORK_STATUS_LABELS,
+  WORK_TYPE_META,
+  WS_CHATS_KEY,
+  WS_PROJECTS_KEY,
+  generateChatTitle,
+  isEmptyDraftStandaloneChat,
+  loadAppDeliverables,
+  loadWorkspaceChats,
+  loadWorkspaceProjects,
+  normalizeWorkItemStatus,
+  normalizeWorkItemType,
+  repairWorkspaceChats,
+  resolveChatWorkStatus,
+  resolveWorkItemType,
+  saveAppDeliverables,
+  sourceConversationForFeature,
+} from './lib/workspace/workspaceApi';
 import type {
   AddonItem,
   BillingInterval,
@@ -474,13 +507,20 @@ import type {
   ScheduledReportFrequency,
   SpriteState,
   SuggestionCategory,
+  AppDeliverable,
+  UserProfile,
   ValidationIssue,
+  WorkspaceChat,
+  WorkspaceMessage,
+  WorkspaceProject,
   ValidationIssueSeverity,
   WorkflowQualityScore,
   WorkflowSuggestion,
   WorkspaceDeliverableItem,
   WorkspaceSource,
 } from './lib/types/appTypes';
+// Re-export public-surface types so external pages keep their existing import paths.
+export type { AppDeliverable, WorkspaceChat, WorkspaceProject } from './lib/types/appTypes';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
@@ -1126,26 +1166,6 @@ const agentFlow = [
 
 
 
-// Backwards-compat alias — prefer the typed helpers in src/lib/auth/roles.ts.
-function isAdminRole(role?: UserRole) {
-  return isDeveloperOrAdmin({ role });
-}
-
-function resolveBackendUserId(profile?: Pick<UserProfile, 'email' | 'role'> | null) {
-  const byEmail = profile?.email ? getMockUserByEmail(profile.email) : null;
-  if (byEmail) return byEmail.id;
-  if (profile?.role === 'admin' || profile?.role === 'developer') return 'admin_001';
-  return 'usr_003';
-}
-
-function usageFeatureToAdminFeature(feature: UsageFeature): FeatureName {
-  if (feature === 'connector') return 'connected_workspace';
-  if (feature === 'image') return 'image_generation';
-  if (feature === 'video') return 'video_generation';
-  if (feature === 'tts') return 'tts_generation';
-  if (feature === 'automation') return 'workflow';
-  return feature;
-}
 
 
 
@@ -3537,147 +3557,10 @@ const ADD_AGENT_OPTIONS: Array<{
 
 // ── Colony Workspace Model (AI Ant command center) ──────────────────────────────
 
-const WORK_STATUS_LABELS: Record<WorkItemStatus, string> = {
-  draft: 'Draft',
-  active: 'Active',
-  setup: 'Setup',
-  assembling: 'Assembling',
-  running: 'Running',
-  waiting_approval: 'Approval required',
-  scheduled: 'Scheduled',
-  paused: 'Paused',
-  completed: 'Completed',
-  failed: 'Failed',
-};
 
-const WORK_TYPE_META: Record<WorkItemType, { label: string; icon: React.ElementType; tone: string }> = {
-  chat: { label: 'CHAT', icon: MessageSquare, tone: 'text-white/45' },
-  bridge: { label: 'BRIDGE', icon: Network, tone: 'text-violet-200/80' },
-  crew: { label: 'CREW', icon: Users, tone: 'text-fuchsia-200/78' },
-  automation: { label: 'AUTOMATION', icon: Workflow, tone: 'text-emerald-200/78' },
-  enterprise: { label: 'ENTERPRISE', icon: Building2, tone: 'text-sky-200/78' },
-};
 
-interface WorkspaceMessage {
-  id: string;
-  role: 'user' | 'ant';
-  text: string;
-  ts: number;
-  workflowProposal?: WorkflowProposal;
-}
 
-export interface WorkspaceChat {
-  id: string;
-  projectId: string | null;
-  title: string;
-  mode: ChatMode;
-  messages: WorkspaceMessage[];
-  isPinned?: boolean;
-  isArchived?: boolean;
-  userRenamed?: boolean;
-  workType?: WorkItemType;
-  workStatus?: WorkItemStatus;
-  sourceConversationId?: string;
-  sessionId?: string;
-  enterpriseWorkspace?: EnterpriseWorkspaceProject;
-  createdAt: number;
-  updatedAt: number;
-}
 
-function normalizeWorkItemType(value: unknown): WorkItemType | undefined {
-  return value === 'chat' || value === 'bridge' || value === 'crew' || value === 'automation' || value === 'enterprise'
-    ? value
-    : undefined;
-}
-
-function normalizeWorkItemStatus(value: unknown): WorkItemStatus | undefined {
-  return value === 'draft' || value === 'active' || value === 'setup' || value === 'assembling' || value === 'running'
-    || value === 'waiting_approval' || value === 'scheduled' || value === 'paused' || value === 'completed' || value === 'failed'
-    ? value
-    : undefined;
-}
-
-function resolveWorkItemType(item: Pick<WorkspaceChat, 'workType'>): WorkItemType {
-  return item.workType ?? 'chat';
-}
-
-function resolveChatWorkStatus(chat: WorkspaceChat): WorkItemStatus | undefined {
-  if (chat.workStatus) return chat.workStatus;
-  if (resolveWorkItemType(chat) === 'chat' && chat.title === 'New chat' && chat.messages.length === 0) return 'draft';
-  return undefined;
-}
-
-function isEmptyDraftStandaloneChat(chat: WorkspaceChat | null | undefined) {
-  return Boolean(
-    chat
-    && resolveWorkItemType(chat) === 'chat'
-    && chat.title === 'New chat'
-    && chat.messages.length === 0
-    && !chat.userRenamed
-  );
-}
-
-function sourceConversationForFeature(chat: WorkspaceChat | null | undefined) {
-  if (!chat || isEmptyDraftStandaloneChat(chat) || resolveWorkItemType(chat) !== 'chat') return undefined;
-  return chat.id;
-}
-
-export interface WorkspaceProject {
-  id: string;
-  name: string;
-  goal: string;
-  description?: string;
-  isArchived?: boolean;
-  createdAt: number;
-  updatedAt: number;
-  // Extended workspace fields
-  type?: 'crew' | 'enterprise' | 'workflow' | 'mixed';
-  status?: 'draft' | 'running' | 'waiting' | 'completed' | 'paused' | 'needs_approval';
-  agentCount?: number;
-  workflowCount?: number;
-  taskCount?: number;
-  deliverableCount?: number;
-  approvalCount?: number;
-  progress?: number;
-  nextAction?: string;
-  lastActivity?: string;
-  isPinned?: boolean;
-}
-
-interface UserProfile {
-  name: string;
-  email: string;
-  role: UserRole;
-  emailVerified: boolean;
-  onboarded: boolean;
-  answers: Record<string, string>;
-}
-
-const ONBOARDING_KEY = 'colony.profile.v1';
-
-function loadProfile(): UserProfile {
-  try {
-    const raw = localStorage.getItem(ONBOARDING_KEY);
-    if (raw) {
-      const profile = JSON.parse(raw) as Partial<UserProfile>;
-      return { name: profile.name ?? 'You', email: profile.email ?? '', role: profile.role ?? 'user', emailVerified: Boolean(profile.emailVerified), onboarded: Boolean(profile.onboarded), answers: profile.answers ?? {} };
-    }
-  } catch { /* ignore */ }
-  return { name: 'You', email: '', role: 'user', emailVerified: false, onboarded: false, answers: {} };
-}
-
-function saveProfile(p: UserProfile) {
-  try { localStorage.setItem(ONBOARDING_KEY, JSON.stringify(p)); } catch { /* ignore */ }
-}
-
-function getApiBaseUrl() {
-  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
-  return (configured || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '') || null;
-}
-
-function resolveSurveyUserId(profile?: Pick<UserProfile, 'email' | 'role'> | null) {
-  return profile?.email ? normalizeEmail(profile.email) : resolveBackendUserId(profile);
-}
 
 async function hasSurveySubmission(userId: string) {
   const apiBaseUrl = getApiBaseUrl();
@@ -3701,266 +3584,6 @@ async function saveSurveySubmission(userId: string, answers: Record<string, stri
       body: JSON.stringify({ user_id: userId, answers }),
     });
   } catch { /* ignore unavailable backend */ }
-}
-
-const SEED_WS_PROJECTS: WorkspaceProject[] = [
-  {
-    id: 'wsp-sales',
-    name: 'Daily Sales Report',
-    goal: 'Analyze sales, detect changes, and produce a business report.',
-    description: 'Sales analysis workspace',
-    type: 'enterprise',
-    status: 'running',
-    agentCount: 5, workflowCount: 1, taskCount: 6, deliverableCount: 3, approvalCount: 1,
-    progress: 44,
-    lastActivity: 'Research Agent summarized new sales changes.',
-    nextAction: 'Approve report export.',
-    createdAt: Date.now() - 864e5 * 6, updatedAt: Date.now() - 36e5,
-  },
-  {
-    id: 'wsp-launch',
-    name: 'Market Launch Project',
-    goal: 'Research competitors and prepare a 30-day marketing plan.',
-    description: 'Go-to-market workspace',
-    type: 'crew',
-    status: 'needs_approval',
-    agentCount: 4, workflowCount: 0, taskCount: 4, deliverableCount: 2, approvalCount: 2,
-    progress: 72,
-    lastActivity: 'Brand Strategist finalized competitor analysis.',
-    nextAction: 'Review and approve marketing plan.',
-    createdAt: Date.now() - 864e5 * 3, updatedAt: Date.now() - 72e5,
-  },
-  {
-    id: 'wsp-content',
-    name: 'Content Pipeline',
-    goal: 'Turn ideas into weekly posts, drafts, and review-ready assets.',
-    description: 'Creative content workflow',
-    type: 'workflow',
-    status: 'waiting',
-    agentCount: 2, workflowCount: 1, taskCount: 3, deliverableCount: 5, approvalCount: 0,
-    progress: 60,
-    lastActivity: 'Workflow paused — waiting for next Monday trigger.',
-    nextAction: 'Wait for scheduled run or resume manually.',
-    createdAt: Date.now() - 864e5 * 10, updatedAt: Date.now() - 864e5,
-  },
-];
-
-const SEED_WS_CHATS: WorkspaceChat[] = [
-  { id: 'wsc-1', projectId: null, title: 'Summarize this quarter', mode: 'simple_chat', messages: [], createdAt: Date.now() - 36e5, updatedAt: Date.now() - 36e5 },
-  { id: 'wsc-2', projectId: 'wsp-sales', title: 'Build the sales report team', mode: 'ai_team_task', messages: [], createdAt: Date.now() - 72e5, updatedAt: Date.now() - 50e5 },
-  { id: 'wsc-seed-crew', projectId: 'wsp-launch', title: 'Launch strategy report', mode: 'ai_team_task', messages: [], workType: 'crew', workStatus: 'completed', sessionId: 'crew-run-001', createdAt: Date.now() - 9e6, updatedAt: Date.now() - 9e6 },
-  { id: 'wsc-seed-automation', projectId: 'wsp-content', title: 'Weekly sales summary', mode: 'workflow_task', messages: [], workType: 'automation', workStatus: 'scheduled', sessionId: 'wf-weekly-sales', createdAt: Date.now() - 12e6, updatedAt: Date.now() - 12e6 },
-  { id: 'wsc-seed-enterprise', projectId: 'wsp-sales', title: 'Online store operations', mode: 'one_man_enterprise', messages: [], workType: 'enterprise', workStatus: 'active', sessionId: 'enterprise-online-store', createdAt: Date.now() - 16e6, updatedAt: Date.now() - 16e6 },
-];
-
-function generateChatTitle(message: string): string {
-  const stopWords = new Set(['can', 'you', 'please', 'help', 'me', 'the', 'this', 'that', 'with', 'for', 'and', 'a', 'an', 'to', 'my', 'our', 'i', 'want', 'need']);
-  const words = message
-    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-    .split(/\s+/)
-    .map((word) => word.trim())
-    .filter(Boolean)
-    .filter((word) => !stopWords.has(word.toLowerCase()))
-    .slice(0, 5);
-  const source = words.length ? words : message.replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean).slice(0, 5);
-  const title = source.join(' ').trim();
-  return title ? title.charAt(0).toUpperCase() + title.slice(1) : 'New chat';
-}
-
-const SEED_WS_DELIVERABLES: WorkspaceDeliverableItem[] = [
-  { id: 'wsd-1', projectId: 'wsp-sales', title: 'Daily Sales Summary', type: 'Report', status: 'Needs review', ownerAgent: 'Report Writer', preview: 'Revenue, cost, margin, and recommended actions.', updatedAt: Date.now() - 18e5 },
-  { id: 'wsd-2', projectId: 'wsp-launch', title: '30-day Marketing Plan', type: 'Marketing plan', status: 'Approved', ownerAgent: 'Brand Strategist', preview: 'Action calendar, channels, content ideas, metrics.', updatedAt: Date.now() - 9e6 },
-];
-
-const WS_CHATS_KEY = 'colony.workspace.chats.v1';
-const WS_PROJECTS_KEY = 'colony.workspace.projects.v1';
-
-// ── App-level Deliverables (Deliverables page) ────────────────────────────────
-
-export type AppDeliverable = {
-  id: string;
-  title: string;
-  description: string;
-  type: 'report' | 'strategy' | 'summary' | 'plan' | 'draft' | 'workflow_automation' | 'research';
-  status: 'draft' | 'needs_review' | 'approved' | 'export_ready';
-  ownerAgent?: string;
-  projectId?: string;
-  projectName?: string;
-  sourceChatId?: string;
-  sourceMessageId?: string;
-  sourceRunId?: string;
-  sourceWorkflowId?: string;
-  sourceCrewRunId?: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  content?: string;
-  sourcePrompt?: string;
-};
-
-const APP_DELIVERABLES_KEY = 'colony.app.deliverables.v1';
-
-const SEED_APP_DELIVERABLES: AppDeliverable[] = [
-  {
-    id: 'del-seed-1',
-    title: 'Daily Sales Summary',
-    description: 'Cleaned sales summary with revenue, cost, margin, and recommended actions.',
-    type: 'report',
-    status: 'needs_review',
-    ownerAgent: 'Report Writer',
-    projectId: 'wsp-sales',
-    projectName: 'Daily Sales Report',
-    sourceChatId: 'wsc-2',
-    createdAt: new Date(Date.now() - 18e5).toISOString(),
-    updatedAt: new Date(Date.now() - 18e5).toISOString(),
-    version: 2,
-    content: 'Revenue: $42,800 · Cost: $28,600 · Margin: 33% · Top platform: Grab Food (38%). Recommended actions: increase promotional budget for Line MAN and renegotiate delivery fee tier.',
-    sourcePrompt: 'Build the sales report team for daily sales data',
-  },
-  {
-    id: 'del-seed-2',
-    title: 'Competitor Comparison',
-    description: 'Positioning gaps, pricing notes, and launch opportunities identified from market research.',
-    type: 'research',
-    status: 'draft',
-    ownerAgent: 'Research Agent',
-    sourceChatId: 'wsc-1',
-    createdAt: new Date(Date.now() - 72e5).toISOString(),
-    updatedAt: new Date(Date.now() - 72e5).toISOString(),
-    version: 3,
-    content: 'Competitor A: leads on price. Competitor B: strong brand. Mid-market segment underserved. Recommend positioning at quality/service intersection with 15–20% premium over Competitor A.',
-    sourcePrompt: 'Summarize this quarter — competitive landscape',
-  },
-  {
-    id: 'del-seed-3',
-    title: '30-day Marketing Plan',
-    description: 'Action calendar, channels, content ideas, and success metrics for the product launch.',
-    type: 'plan',
-    status: 'approved',
-    ownerAgent: 'Brand Strategist',
-    projectId: 'wsp-launch',
-    projectName: 'Market Launch',
-    sourceCrewRunId: 'crew-run-001',
-    createdAt: new Date(Date.now() - 9e6).toISOString(),
-    updatedAt: new Date(Date.now() - 9e6).toISOString(),
-    version: 1,
-    content: 'Week 1: brand awareness campaign. Week 2: influencer seeding. Week 3–4: paid acquisition + retargeting. KPIs: 5,000 impressions, 200 signups, CPL < $8.',
-    sourcePrompt: 'Create a 30-day marketing plan for the product launch',
-  },
-  {
-    id: 'del-seed-4',
-    title: 'Q2 Content Strategy',
-    description: 'Weekly content pillars, topic clusters, and publishing schedule across all channels.',
-    type: 'strategy',
-    status: 'export_ready',
-    ownerAgent: 'Content Planner Agent',
-    projectId: 'wsp-content',
-    projectName: 'Content Workflow',
-    sourceWorkflowId: 'wf-content-q2',
-    createdAt: new Date(Date.now() - 5e6).toISOString(),
-    updatedAt: new Date(Date.now() - 5e6).toISOString(),
-    version: 2,
-    content: 'Pillar 1: Product education (40%). Pillar 2: Case studies (30%). Pillar 3: Community (30%). Schedule: 3×/week blog, 5×/week social, 1×/week newsletter.',
-    sourcePrompt: 'Build Q2 content strategy with publishing calendar',
-  },
-];
-
-function loadAppDeliverables(): AppDeliverable[] {
-  try {
-    const raw = localStorage.getItem(APP_DELIVERABLES_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as AppDeliverable[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch { /* ignore */ }
-  return SEED_APP_DELIVERABLES;
-}
-
-function saveAppDeliverables(items: AppDeliverable[]) {
-  try { localStorage.setItem(APP_DELIVERABLES_KEY, JSON.stringify(items)); } catch { /* ignore */ }
-}
-
-function repairWorkspaceChats(items: WorkspaceChat[]): WorkspaceChat[] {
-  const sorted = [...items].sort((a, b) => b.updatedAt - a.updatedAt);
-  const seenFeatureKeys = new Set<string>();
-  const recentFeatureByTitle = new Map<string, WorkspaceChat>();
-  const kept: WorkspaceChat[] = [];
-  const enterpriseItems: WorkspaceChat[] = [];
-
-  for (const item of sorted) {
-    const type = resolveWorkItemType(item);
-    if (type !== 'chat') {
-      const key = `${type}:${item.sessionId ?? item.sourceConversationId ?? item.title.toLowerCase()}`;
-      const titleKey = `${type}:${item.title.trim().toLowerCase()}`;
-      const recentSameTitle = recentFeatureByTitle.get(titleKey);
-      const sameLaunchWindow = recentSameTitle
-        ? Math.abs(item.createdAt - recentSameTitle.createdAt) < 5 * 60 * 1000 || Math.abs(item.updatedAt - recentSameTitle.updatedAt) < 5 * 60 * 1000
-        : false;
-      if (sameLaunchWindow) continue;
-      if (seenFeatureKeys.has(key)) continue;
-      seenFeatureKeys.add(key);
-      const normalized = type === 'enterprise' && item.workStatus === 'setup' && item.enterpriseWorkspace
-        ? { ...item, workStatus: 'running' as WorkItemStatus }
-        : item;
-      kept.push(normalized);
-      recentFeatureByTitle.set(titleKey, normalized);
-      if (type === 'enterprise') enterpriseItems.push(normalized);
-      continue;
-    }
-    kept.push(item);
-  }
-
-  const enterpriseTitles = new Map(enterpriseItems.map((item) => [item.title.trim().toLowerCase(), item]));
-  return kept
-    .filter((item) => {
-      if (resolveWorkItemType(item) !== 'chat') return true;
-      const enterprise = enterpriseTitles.get(item.title.trim().toLowerCase());
-      if (!enterprise) return true;
-      const closeInTime = Math.abs(item.createdAt - enterprise.createdAt) < 5 * 60 * 1000 || Math.abs(item.updatedAt - enterprise.updatedAt) < 5 * 60 * 1000;
-      return !(item.workStatus === 'active' && !item.userRenamed && closeInTime);
-    })
-    .sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)) || b.updatedAt - a.updatedAt);
-}
-
-function loadWorkspaceChats(): WorkspaceChat[] {
-  try {
-    const raw = localStorage.getItem(WS_CHATS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<WorkspaceChat>[];
-      if (Array.isArray(parsed)) {
-        const normalized = parsed.map((chat, index) => {
-          const now = Date.now();
-          return {
-            id: typeof chat.id === 'string' ? chat.id : `wsc-migrated-${now}-${index}`,
-            projectId: chat.projectId ?? null,
-            title: typeof chat.title === 'string' && chat.title.trim() ? chat.title : 'New chat',
-            mode: chat.mode ?? 'simple_chat',
-            messages: Array.isArray(chat.messages) ? chat.messages : [],
-            isPinned: chat.isPinned,
-            isArchived: chat.isArchived,
-            userRenamed: chat.userRenamed,
-            workType: normalizeWorkItemType(chat.workType),
-            workStatus: normalizeWorkItemStatus(chat.workStatus),
-            sourceConversationId: typeof chat.sourceConversationId === 'string' ? chat.sourceConversationId : undefined,
-            sessionId: typeof chat.sessionId === 'string' ? chat.sessionId : undefined,
-            enterpriseWorkspace: chat.enterpriseWorkspace,
-            createdAt: typeof chat.createdAt === 'number' ? chat.createdAt : now,
-            updatedAt: typeof chat.updatedAt === 'number' ? chat.updatedAt : (typeof chat.createdAt === 'number' ? chat.createdAt : now),
-          };
-        });
-        return repairWorkspaceChats(normalized);
-      }
-    }
-  } catch { /* ignore */ }
-  return SEED_WS_CHATS;
-}
-
-function loadWorkspaceProjects(): WorkspaceProject[] {
-  try {
-    const raw = localStorage.getItem(WS_PROJECTS_KEY);
-    if (raw) return JSON.parse(raw) as WorkspaceProject[];
-  } catch { /* ignore */ }
-  return SEED_WS_PROJECTS;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
