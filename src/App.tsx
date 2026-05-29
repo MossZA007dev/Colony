@@ -185,6 +185,30 @@ import { DeliverablesOSPage } from './pages/deliverables/DeliverablesOSPage';
 import { KnowledgeOSPage } from './pages/knowledge/KnowledgeOSPage';
 import { BossIntake } from './pages/one-man-enterprse/BossIntake';
 import { EnterpriseOrgPreviewPanel } from './pages/one-man-enterprse/oneManEnterprise';
+import type {
+  AgentConnection,
+  AgentConnectionStatus,
+  AgentConnectionType,
+  AgentNodePosition,
+  EnterpriseAgent,
+  EnterpriseAgentStatus,
+  EnterpriseApprovalStatus,
+  EnterpriseDeliverableStatus,
+  EnterpriseDepartment,
+  EnterpriseDepartmentColor,
+  EnterpriseMessageType,
+  EnterpriseProjectStatus,
+  EnterpriseSetupStep,
+  EnterpriseTaskStatus,
+  EnterpriseWorkspaceAgent,
+  EnterpriseWorkspaceApproval,
+  EnterpriseWorkspaceChannel,
+  EnterpriseWorkspaceDeliverable,
+  EnterpriseWorkspaceMessage,
+  EnterpriseWorkspaceProject,
+  EnterpriseWorkspaceTask,
+  OneManEnterpriseSetup,
+} from './pages/one-man-enterprse/oneManEnterprise';
 import { BridgeOperatorPage } from './pages/bridge/BridgeOperatorPage';
 import { BridgeSetupCard, type BridgeSetupCardData } from './pages/bridge/BridgeSetupCard';
 import {
@@ -194,6 +218,42 @@ import {
 } from './lib/bridge/bridgeSessionStore';
 import { createBridgeSessionFromTask } from './lib/bridge/bridgeIntake';
 import { type WorkItemStatus, type WorkItemType } from './lib/work/workItems';
+import type {
+  AddonItem,
+  BillingInterval,
+  ColonyBillingState,
+  CostEstimate,
+  FeatureRow,
+  Invoice,
+  PlanDef,
+  PlanTier,
+  UpgradeModalState,
+  UpgradeReason,
+  UsageEvent,
+  UsageState,
+} from './lib/types/billingTypes';
+import type {
+  AgentAvatarColor,
+  AgentInstructionMessage,
+  ColonyCrewSession,
+  CrewActivityEvent,
+  CrewAgent,
+  CrewAgentKind,
+  CrewAgentStatus,
+  CrewControlIntent,
+  CrewControlMessage,
+  CrewPanelAgent,
+  CrewPhase,
+  CrewRun,
+  CrewStatus,
+  CrewTask,
+  CrewTaskStatus,
+  MatchedAgent,
+  OrchAgent,
+  OrchMessage,
+  OrchestrationMode,
+  OrchestrationView,
+} from './lib/types/crewTypes';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
@@ -2700,44 +2760,6 @@ type SafetyRule = {
   enabled: boolean;
 };
 
-type PlanTier = 'free' | 'basic' | 'pro' | 'max';
-
-type UpgradeReason =
-  | 'run-limit'
-  | 'credits'
-  | 'pro-feature'
-  | 'team-feature'
-  | 'connector'
-  | 'cost-warning'
-  | 'project-limit';
-
-type UpgradeModalState = {
-  toPlan: PlanTier;
-  reason: UpgradeReason;
-  featureName?: string;
-  requiredCredits?: number;
-  estimatedCredits?: number;
-};
-
-type CostEstimate = {
-  credits: number;
-  tokens: number;
-  estimatedCostUSD: string;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  reason: string;
-  breakdown: Array<{ label: string; credits: number }>;
-  exceedsPlan: boolean;
-  nearLimit: boolean;
-};
-
-type Invoice = {
-  id: string;
-  date: string;
-  plan: string;
-  amount: string;
-  status: 'Paid' | 'Pending' | 'Failed';
-};
-
 type AuditActorType = 'User' | 'Agent' | 'System' | 'Approval';
 type AuditActionType =
   | 'agent-added' | 'agent-deleted' | 'agent-edited' | 'agent-disabled' | 'agent-enabled'
@@ -2766,23 +2788,6 @@ type AuditLog = {
   beforeState?: Record<string, unknown>;
   afterState?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
-};
-
-type PlanDef = {
-  id: PlanTier;
-  name: string;
-  price: string;
-  priceYearly: string;
-  priceDesc: string;
-  workflowRunsLimit: number;
-  creditsLimit: number;
-  projectLimit: number;
-  activeWorkflowLimit: number;
-  seats: number;
-  features: string[];
-  cta: string;
-  recommended?: boolean;
-  accentColor?: string;
 };
 
 type RunStatus = 'Completed' | 'Failed' | 'Running' | 'Paused' | 'Stopped' | 'Waiting Approval' | 'Cancelled';
@@ -2837,27 +2842,6 @@ type WorkflowRun = {
   safetyMode: boolean;
   steps: RunStep[];
   error?: RunError;
-};
-
-type UsageEvent = {
-  id: string;
-  timestamp: string;
-  workflowName: string;
-  actionType: string;
-  agentsUsed: number;
-  creditsUsed: number;
-  tokensUsed: number;
-  status: 'Completed' | 'Failed' | 'Cancelled';
-};
-
-type UsageState = {
-  currentPlan: PlanTier;
-  workflowRunsUsed: number;
-  agentCreditsUsed: number;
-  tokenUsageThisMonth: number;
-  estimatedCost: number;
-  resetDate: string;
-  usageEvents: UsageEvent[];
 };
 
 type CanvasAgent = {
@@ -19523,75 +19507,6 @@ function AIAntColonyPanel({ session }: { session: AntColonySession }) {
 
 
 
-// ── Orchestration types ───────────────────────────────────────────────────────
-
-type OrchestrationMode = 'chat' | 'agent-selection' | 'agent-running';
-type OrchestrationView = 'chat' | 'graph';
-type AgentAvatarColor = 'green' | 'amber' | 'blue' | 'purple' | 'gray';
-
-interface OrchAgent {
-  id: string;
-  name: string;
-  role: string;
-  avatar: string;
-  color: string;
-  status: 'idle' | 'running' | 'waiting' | 'queued' | 'done' | 'error';
-  position: { x: number; y: number };
-  currentTask?: string;
-}
-
-interface OrchMessage {
-  id: string;
-  from: string;
-  to?: string;
-  content: string;
-  timestamp: string;
-  type: 'user' | 'task' | 'handoff' | 'result' | 'system';
-}
-
-interface MatchedAgent {
-  id: string;
-  name: string;
-  role: string;
-  avatarInitial: string;
-  avatarColor: AgentAvatarColor;
-  status: 'running' | 'queued' | 'waiting' | 'done' | 'error';
-  currentTask?: string;
-  matchedBy: 'ai' | 'user';
-  matchScore?: number;
-}
-
-type CrewStatus = 'matching' | 'creating_agents' | 'running' | 'reviewing' | 'completed' | 'stopped';
-type CrewAgentStatus = 'candidate' | 'matched' | 'creating' | 'working' | 'waiting' | 'done';
-type CrewTaskStatus = 'todo' | 'running' | 'done';
-
-type CrewAgent = {
-  id: string;
-  name: string;
-  role: string;
-  description: string;
-  status: CrewAgentStatus;
-  avatar: string;
-  task: string;
-  progress: number;
-};
-
-type CrewTask = {
-  id: string;
-  title: string;
-  assignedAgentId: string;
-  status: CrewTaskStatus;
-};
-
-type CrewRun = {
-  id: string;
-  title: string;
-  userPrompt: string;
-  status: CrewStatus;
-  agents: CrewAgent[];
-  tasks: CrewTask[];
-};
-
 // ── Execution mode classification ─────────────────────────────────────────────
 // AI Ant decides how to handle a prompt before doing the work. Small asks are
 // answered directly; complex goals propose a team or workflow.
@@ -19685,67 +19600,6 @@ function buildDefaultCrewRun(prompt: string): CrewRun {
 
 // ── One-man Enterprise ────────────────────────────────────────────────────────
 
-interface EnterpriseAgent { id: string; code?: string; name: string; role: string; dept: string; avatar?: string; taskSummary?: string }
-type EnterpriseProjectStatus = 'planning' | 'creating_team' | 'running' | 'waiting_approval' | 'completed';
-type EnterpriseAgentStatus = 'idle' | 'thinking' | 'working' | 'waiting' | 'done' | 'blocked';
-type EnterpriseTaskStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'blocked';
-type EnterpriseMessageType = 'handoff' | 'update' | 'question' | 'result' | 'approval_request';
-type EnterpriseDeliverableStatus = 'draft' | 'review_ready' | 'approved' | 'exported';
-type EnterpriseApprovalStatus = 'pending' | 'approved' | 'rejected';
-type AgentNodePosition = { x: number; y: number };
-type AgentConnectionStatus = 'normal' | 'active' | 'completed' | 'blocked';
-type AgentConnectionType = 'reports_to' | 'handoff' | 'collaboration' | 'review';
-
-type EnterpriseWorkspaceAgent = EnterpriseAgent & {
-  avatar: string;
-  code: string;
-  description: string;
-  parentAgentId?: string;
-  status: EnterpriseAgentStatus;
-  position: AgentNodePosition;
-  currentTask?: string;
-  progress: number;
-  thoughtsSummary: string;
-  output: string;
-  tools: string[];
-  dependencies: string[];
-  agentSkills?: AgentSkill[];
-  activeModel?: ModelConfig;
-};
-
-type AgentConnection = {
-  id: string;
-  fromAgentId: string;
-  toAgentId: string;
-  label?: string;
-  type: AgentConnectionType;
-  status: AgentConnectionStatus;
-  animated?: boolean;
-  lastHandoff?: string;
-};
-
-type EnterpriseWorkspaceChannel = {
-  id: string;
-  name: string;
-  type: 'system' | 'agent' | 'team' | 'department';
-  agentId?: string;
-  departmentId?: string;
-  archived?: boolean;
-};
-
-type EnterpriseDepartmentColor = 'purple' | 'cyan' | 'mint' | 'amber' | 'blue' | 'pink' | 'gray';
-
-interface EnterpriseDepartment {
-  id: string;
-  name: string;
-  color: EnterpriseDepartmentColor;
-  agentIds: string[];
-  channelId: string;
-  bounds: { x: number; y: number; width: number; height: number };
-  manuallyPositioned?: boolean;
-  description?: string;
-}
-
 const ENTERPRISE_DEPARTMENT_COLOR_MAP: Record<EnterpriseDepartmentColor, { dot: string; ring: string; bg: string; border: string; text: string }> = {
   purple: { dot: 'bg-violet-400', ring: 'ring-violet-400/40', bg: 'bg-violet-500/[0.06]', border: 'border-violet-400/30', text: 'text-violet-200' },
   cyan:   { dot: 'bg-cyan-400',   ring: 'ring-cyan-400/40',   bg: 'bg-cyan-500/[0.06]',   border: 'border-cyan-400/30',   text: 'text-cyan-200' },
@@ -19757,55 +19611,6 @@ const ENTERPRISE_DEPARTMENT_COLOR_MAP: Record<EnterpriseDepartmentColor, { dot: 
 };
 
 const ENTERPRISE_DEPARTMENT_COLORS: EnterpriseDepartmentColor[] = ['purple', 'cyan', 'mint', 'amber', 'blue', 'pink', 'gray'];
-
-type EnterpriseWorkspaceTask = {
-  id: string;
-  title: string;
-  description: string;
-  assignedAgentId: string;
-  status: EnterpriseTaskStatus;
-  progress: number;
-  dependsOn?: string[];
-};
-
-type EnterpriseWorkspaceMessage = {
-  id: string;
-  fromAgentId: string;
-  toAgentId?: string;
-  content: string;
-  timestamp: string;
-  type: EnterpriseMessageType;
-};
-
-type EnterpriseWorkspaceDeliverable = {
-  id: string;
-  title: string;
-  type: 'report' | 'plan' | 'summary' | 'spreadsheet' | 'workflow' | 'other';
-  status: EnterpriseDeliverableStatus;
-  content: string;
-};
-
-type EnterpriseWorkspaceApproval = {
-  id: string;
-  title: string;
-  description: string;
-  requestedByAgentId: string;
-  status: EnterpriseApprovalStatus;
-};
-
-type EnterpriseWorkspaceProject = {
-  id: string;
-  name: string;
-  goal: string;
-  mode: 'one_man_enterprise' | 'auto' | 'chat';
-  status: EnterpriseProjectStatus;
-  agents: EnterpriseWorkspaceAgent[];
-  tasks: EnterpriseWorkspaceTask[];
-  messages: EnterpriseWorkspaceMessage[];
-  deliverables: EnterpriseWorkspaceDeliverable[];
-  approvals: EnterpriseWorkspaceApproval[];
-  connections: AgentConnection[];
-};
 
 const ENTERPRISE_AGENT_AVATARS = {
   director: '/assets/agents/7.png',
@@ -19857,20 +19662,9 @@ const ENTERPRISE_PRESETS: Record<string, EnterpriseAgent[]> = {
 };
 
 // ── One-Man Enterprise startup / setup flow ──────────────────────────────────
-type EnterpriseSetupStep = { id: string; label: string; description: string; status: 'pending' | 'active' | 'done' };
+// Note: EnterpriseSetupAgent below is currently unused; left in place during the
+// types refactor and flagged for follow-up cleanup.
 interface EnterpriseSetupAgent { id: string; code: string; name: string; role: string; avatar: string }
-interface OneManEnterpriseSetup {
-  projectId: string;
-  goal: string;
-  projectTitle: string;
-  overallProgress: number;
-  status: 'initializing' | 'building' | 'ready';
-  steps: EnterpriseSetupStep[];
-  agents: EnterpriseWorkspaceAgent[];
-  revealCount: number;
-  startedAt: string;
-  completedAt?: string;
-}
 
 const ENTERPRISE_SETUP_BLUEPRINT: Array<{ label: string; description: string }> = [
   { label: 'Understanding business goal', description: 'Analyzing your one-person business goal' },
@@ -21851,76 +21645,10 @@ function AgentRightPanel({ agents, matchReason, onStopAll, onToggleGraphView, or
 // Slide-in execution viewer. Opens only when the user picked "Colony Crew" mode
 // and submitted a task. Process lives here; final result returns to the chat.
 
-type CrewPhase = 'matching' | 'crew_ready' | 'running' | 'reviewing' | 'completed' | 'stopped';
-
-type CrewAgentKind = 'research' | 'analyst' | 'writer' | 'reviewer';
-
-interface CrewPanelAgent {
-  id: string;
-  name: string;
-  shortId: string;
-  kind: CrewAgentKind;
-  role: string;
-  avatar: string;
-  status: 'matching' | 'matched' | 'working' | 'done';
-  progress: number;
-  currentTask: string;
-  thinkingSummary: string;
-  outputSoFar: string;
-  toolsUsed: string[];
-  skills: AgentSkill[];
-  activeModel?: ModelConfig;
-  // Structured mock workspace content — shaped so real data can plug in later.
-  notes: string[];
-  sources: { title: string; snippet: string }[];
-  insights: string[];
-  patterns: string[];
-  draftSections: { title: string; body: string }[];
-  checklist: { item: string; ok: boolean }[];
-  instructionMessages: AgentInstructionMessage[];
-}
-
-interface AgentInstructionMessage {
-  id: string;
-  sender: 'user' | 'agent';
-  text: string;
-  createdAt: string;
-}
-
-interface CrewActivityEvent {
-  id: string;
-  text: string;
-  ts: string;
-}
-
-interface CrewControlMessage {
-  id: string;
-  senderType: 'user' | 'agent' | 'system';
-  senderId?: string;
-  senderName?: string;
-  targetId?: string;
-  targetName?: string;
-  text: string;
-  createdAt: string;
-}
-
-interface ColonyCrewSession {
-  task: string;
-  phase: CrewPhase;
-  stepIndex: number;
-  agents: CrewPanelAgent[];
-  activity: CrewActivityEvent[];
-  control: CrewControlMessage[];
-  paused: boolean;
-  resultMsgId: string | null;
-}
-
 const CREW_CONTROL_TARGETS_EXTRA = [
   { id: 'crew', name: 'Full Crew' },
   { id: 'director', name: 'AI Ant / Director' },
 ];
-
-type CrewControlIntent = 'stop' | 'pause' | 'resume' | 'update' | 'reassign' | 'refine';
 
 function parseCrewControl(text: string): { intent: CrewControlIntent; reassignTo?: string } {
   const t = text.trim().toLowerCase();
@@ -28030,19 +27758,6 @@ function DeleteAccountModal({ deleteText, setDeleteText, onCancel, onConfirm }: 
 
 // ─── Billing / Entitlement System ────────────────────────────────────────────
 
-type BillingInterval = 'monthly' | 'yearly';
-
-interface ColonyBillingState {
-  plan: PlanTier;
-  interval: BillingInterval;
-  addonCrewPacks: number;
-  addonCreditPacks: number;
-  addonStoragePacks: number;
-  addonSeatPacks: number;
-  cardLast4: string | null;
-  nextRenewal: string | null;
-}
-
 const BILLING_LS_KEY = 'colony_billing_v1';
 
 const PLAN_LIMITS: Record<PlanTier, {
@@ -28062,16 +27777,6 @@ const PLAN_LIMITS: Record<PlanTier, {
   pro:   { antMessages: -1,  workflowRuns: 500,  crewRuns: 500, agentCredits: 10000, projects: -1, activeWorkflows: 25, seats: 1, storageGb: 20,  monthlyPrice: 19, yearlyPrice: 15 },
   max:   { antMessages: -1,  workflowRuns: 2000, crewRuns: -1,  agentCredits: 50000, projects: -1, activeWorkflows: -1, seats: 5, storageGb: 100, monthlyPrice: 49, yearlyPrice: 39 },
 };
-
-interface FeatureRow {
-  group: string;
-  label: string;
-  free: string | boolean;
-  basic: string | boolean;
-  pro: string | boolean;
-  max: string | boolean;
-  highlight?: boolean;
-}
 
 const FEATURE_TABLE: FeatureRow[] = [
   { group: 'AI Ant',               label: 'Messages / month',        free: '20',            basic: '200',       pro: 'Unlimited',  max: 'Unlimited', highlight: true },
@@ -28135,16 +27840,6 @@ function buildBillingFeatureTable(): FeatureRow[] {
     row('Internal', 'Admin dashboard entitlement', 'adminDashboard'),
     row('Execution', 'Priority execution', 'priorityExecution'),
   ];
-}
-
-interface AddonItem {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  unit: string;
-  emoji: string;
-  requiredPlan: PlanTier[];
 }
 
 const ADDON_CATALOG: AddonItem[] = [
