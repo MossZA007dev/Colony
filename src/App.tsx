@@ -254,6 +254,158 @@ import type {
   OrchestrationMode,
   OrchestrationView,
 } from './lib/types/crewTypes';
+import type {
+  AgentError,
+  AgentModel,
+  AgentStatus,
+  AgentType,
+  ApprovalRequest,
+  ApprovalRule,
+  AuditActionType,
+  AuditActorType,
+  AuditLog,
+  AuditRollbackStatus,
+  BranchRule,
+  CanvasAgentType,
+  CanvasTool,
+  LoopConfig,
+  LoopSource,
+  ManualModelSelection,
+  ModelRoutingPreference,
+  NodeChange,
+  NodeInstruction,
+  ParallelGroup,
+  PendingAction,
+  RiskAssessment,
+  RunError,
+  RunStatus,
+  RunStep,
+  RunStepStatus,
+  RunTrigger,
+  SafetyConfig,
+  SafetyRule,
+  StepApprovalConfig,
+  TemplateCategory,
+  Workflow,
+  WorkflowApprovalRule,
+  WorkflowApprovalType,
+  WorkflowBuilderRun,
+  WorkflowConfig,
+  WorkflowConnector,
+  WorkflowConnectorStatus,
+  WorkflowDestinationType,
+  WorkflowEdge,
+  WorkflowEdgeStatus,
+  WorkflowErrorHandling,
+  WorkflowExecution,
+  WorkflowExecutionStatus,
+  WorkflowFileFormat,
+  WorkflowInputType,
+  WorkflowMode,
+  WorkflowNode,
+  WorkflowNodeConfig,
+  WorkflowNodeStatus,
+  WorkflowNodeType,
+  WorkflowNotificationChannel,
+  WorkflowOutputFormat,
+  WorkflowOutputType,
+  WorkflowProposal,
+  WorkflowRun,
+  WorkflowRunLog,
+  WorkflowSchedule,
+  WorkflowSourceType,
+  WorkflowStatus,
+  WorkflowStep,
+  WorkflowTemplate,
+  WorkflowTone,
+  WorkflowTransformType,
+  WorkflowTrigger,
+  WorkflowTriggerKind,
+  WorkflowTriggerType,
+  WorkflowValidationState,
+  WorkflowVersion,
+  WorkflowVersionSnapshot,
+} from './lib/types/workflowTypes';
+import type {
+  AiAntBackendResponse,
+  AntActionType,
+  AntActivityEntry,
+  AntAgent,
+  AntAgentStatus,
+  AntApproval,
+  AntAutonomyLevel,
+  AntColonySession,
+  AntConfidenceLevel,
+  AntCorrectionField,
+  AntDelivery,
+  AntDevice,
+  AntDeviceStatus,
+  AntDeviceType,
+  AntDomain,
+  AntExecutionMode,
+  AntFileCard,
+  AntGeneratedProject,
+  AntHandoff,
+  AntLearnedPattern,
+  AntLiveEvent,
+  AntMemoryEntry,
+  AntMessage,
+  AntMode,
+  AntNotification,
+  AntNotificationCategory,
+  AntNotificationPriority,
+  AntPermissionScope,
+  AntPlanStep,
+  AntRecoverySuggestion,
+  AntRiskLevel,
+  AntRole,
+  AntSearchFilter,
+  AntSearchResult,
+  AntSuggestion,
+  AntSuggestionType,
+  AntTask,
+  AntTaskPlan,
+  AntTaskStatus,
+  AntTeamAgent,
+  AntTeamProposal,
+  AntTool,
+  AntToolCategory,
+  AntWorkflowDef,
+  AntWorkflowOrigin,
+  AntWorkflowStatus,
+  AntWorkflowTriggerSource,
+  AntWorkspace,
+  AntWorkspaceSource,
+  ApprovalLevel,
+  ColonyDeliverable,
+  ColonyDeliverableStatus,
+  ColonyDeliverableType,
+  DeviceAccessLevel,
+  DeviceAction,
+  DeviceActionRequest,
+  DeviceActionRisk,
+  DeviceActionStatus,
+  DeviceActionType,
+  DeviceActionVerb,
+  ExecutionDecision,
+  ExecutionMode,
+  GraphEdge,
+  GraphNode,
+  GraphNodeType,
+  KnowledgeCategory,
+  KnowledgeEntry,
+  KnowledgeSource,
+  ProjectIntent,
+  SwarmState,
+  TeamMember,
+  TeamMemberRole,
+  VoiceState,
+  WorkspaceMember,
+  WorkspaceMemberModalState,
+  WorkspaceMemberPermission,
+  WorkspaceMemberStatus,
+  WorkspaceMemberType,
+} from './lib/types/antTypes';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
@@ -2566,283 +2718,6 @@ const quickStarts = [
   { icon: glyph.chart, label: 'Analyze my sales file', prompt: 'Read my daily sales spreadsheet and find the best selling items.' },
   { icon: '\uD83D\uDCDD', label: 'Content planning', prompt: 'Research weekly content ideas and prepare captions for review.' },
 ];
-
-type CanvasTool = 'select' | 'pan' | 'connect';
-type AgentStatus = 'idle' | 'running' | 'done' | 'waiting' | 'failed';
-type AgentType = 'ant' | 'collector' | 'cleaner' | 'analyst' | 'writer' | 'guard';
-type CanvasAgentType = AgentType | 'custom';
-
-type AgentModel = 'Fast' | 'Balanced' | 'Accurate';
-
-type AgentError = {
-  title: string;
-  message: string;
-  failedStep: string;
-  suggestedFix: string;
-};
-
-type WorkflowTriggerType = 'manual' | 'daily' | 'weekly' | 'file-upload' | 'sheet-row' | 'webhook';
-
-type WorkflowSchedule = {
-  triggerType: WorkflowTriggerType;
-  scheduleEnabled: boolean;
-  time: string;
-  timezone: string;
-  weekdays: string[];
-};
-
-type WorkflowInputType = 'file-upload' | 'screenshot' | 'google-sheets' | 'text-prompt' | 'api-data' | 'manual-entry' | 'ai-ant-data';
-type WorkflowOutputType = 'report' | 'pdf' | 'csv' | 'chat-message' | 'email-draft' | 'dashboard-card' | 'approval-card' | 'sheet-update';
-
-type WorkflowStep = {
-  id: string;
-  agentId: string;
-  name: string;
-  inputFrom: string;
-  inputType: string;
-  outputTo: string;
-  outputType: string;
-};
-
-type BranchRule = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  metric: string;
-  operator: string;
-  value: string;
-  thenAction: string;
-  elseAction: string;
-};
-
-type WorkflowConfig = {
-  inputs: WorkflowInputType[];
-  outputs: WorkflowOutputType[];
-  steps: WorkflowStep[];
-  branchRules: BranchRule[];
-};
-
-type LoopSource = 'none' | 'files' | 'rows' | 'orders' | 'messages' | 'custom';
-
-type LoopConfig = {
-  enabled: boolean;
-  source: LoopSource;
-  totalItems: number;
-  currentItem: number;
-  maxItems: number;
-  skipFailedItems: boolean;
-};
-
-type ParallelGroup = {
-  id: string;
-  name: string;
-  agentIds: string[];
-};
-
-type WorkflowExecutionStatus = 'idle' | 'running' | 'paused' | 'stopped' | 'completed' | 'failed' | 'waiting-approval';
-
-type WorkflowExecution = {
-  status: WorkflowExecutionStatus;
-  currentStepIndex: number;
-  executionMode: 'sequential' | 'parallel';
-  parallelEnabled: boolean;
-  startedAt: string | null;
-  pausedAt: string | null;
-  stoppedAt: string | null;
-};
-
-type WorkflowMode = 'draft' | 'live';
-
-type WorkflowVersionSnapshot = {
-  agentCount: number;
-  agentLabels: string[];
-  connectionCount: number;
-  inputSummary: string;
-  outputSummary: string;
-  instructionsSummary: string;
-};
-
-type WorkflowVersion = {
-  id: string;
-  version: number;
-  title: string;
-  timestamp: string;
-  author: string;
-  isCurrent: boolean;
-  snapshot: WorkflowVersionSnapshot;
-};
-
-type TemplateCategory = 'Restaurant' | 'Sales' | 'Content' | 'File-to-Report' | 'Research' | 'Customer Support' | 'Custom';
-
-type WorkflowTemplate = {
-  id: string;
-  name: string;
-  category: TemplateCategory;
-  description: string;
-  includeAgents: boolean;
-  includeInstructions: boolean;
-  includeIO: boolean;
-  includeBranching: boolean;
-  includeApproval: boolean;
-};
-
-type StepApprovalConfig = {
-  requiresApproval: boolean;
-  approvalReason: string;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  approvalOwner: 'Me' | 'Team owner' | 'Manager' | 'Custom';
-  actionType: string;
-};
-
-type ApprovalRequest = {
-  id: string;
-  title: string;
-  workflowId: string;
-  agentId: string;
-  agentName: string;
-  actionType: string;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Edited';
-  requestedBy: string;
-  approvedBy: string | null;
-  createdAt: string;
-  resolvedAt: string | null;
-  summary: string;
-  previewContent: string;
-  notes: string;
-};
-
-type ApprovalRule = {
-  id: string;
-  name: string;
-  conditionType: string;
-  operator: string;
-  value: string;
-  action: string;
-  enabled: boolean;
-};
-
-type SafetyConfig = {
-  safetyMode: boolean;
-  defaultToolAccess: 'Read only' | 'Read & write';
-  requireApprovalForSend: boolean;
-  requireApprovalForExport: boolean;
-  requireApprovalForWrite: boolean;
-  requireConfirmationForDelete: boolean;
-  requireConfirmationForHighRisk: boolean;
-  blockOnValidationErrors: boolean;
-};
-
-type RiskAssessment = {
-  riskLevel: 'Low' | 'Medium' | 'High';
-  reason: string;
-  approvalRequired: boolean;
-  confirmationRequired: boolean;
-};
-
-type PendingAction = {
-  id: string;
-  actionName: string;
-  actionType: string;
-  requestedByAgentId: string;
-  requestedByAgentName: string;
-  workflowStep: string;
-  destination: string;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  reason: string;
-  previewContent: string;
-};
-
-type SafetyRule = {
-  id: string;
-  title: string;
-  description: string;
-  enabled: boolean;
-};
-
-type AuditActorType = 'User' | 'Agent' | 'System' | 'Approval';
-type AuditActionType =
-  | 'agent-added' | 'agent-deleted' | 'agent-edited' | 'agent-disabled' | 'agent-enabled'
-  | 'connection-added' | 'connection-deleted'
-  | 'workflow-run' | 'workflow-saved' | 'workflow-published' | 'workflow-restored'
-  | 'approval-approved' | 'approval-rejected' | 'approval-edited'
-  | 'safety-enabled' | 'safety-disabled' | 'safety-rule-changed'
-  | 'model-changed' | 'data-edit' | 'tool-access-changed'
-  | 'connector-connected' | 'connector-disconnected'
-  | 'plan-upgraded' | 'system-init';
-type AuditRollbackStatus = 'none' | 'pending' | 'rolled-back';
-type AuditLog = {
-  id: string;
-  timestamp: string;
-  actorType: AuditActorType;
-  actorName: string;
-  actionType: AuditActionType;
-  title: string;
-  description: string;
-  workflowName: string;
-  stepName?: string;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  status: 'Success' | 'Failed' | 'Pending';
-  reversible: boolean;
-  rollbackStatus: AuditRollbackStatus;
-  beforeState?: Record<string, unknown>;
-  afterState?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-};
-
-type RunStatus = 'Completed' | 'Failed' | 'Running' | 'Paused' | 'Stopped' | 'Waiting Approval' | 'Cancelled';
-type RunTrigger = 'Manual' | 'Schedule' | 'Webhook' | 'File upload' | 'API' | 'Email';
-type RunStepStatus = 'Completed' | 'Failed' | 'Running' | 'Skipped' | 'Waiting Approval' | 'Pending';
-type RunError = {
-  errorType: string;
-  failedStepId: string;
-  failedAgentName: string;
-  message: string;
-  likelyCause: string;
-  suggestedFix: string;
-  severity: 'Warning' | 'Error' | 'Critical';
-};
-type RunStep = {
-  id: string;
-  agentId: string;
-  agentName: string;
-  role: string;
-  status: RunStepStatus;
-  startedAt: string;
-  endedAt?: string;
-  durationSeconds: number;
-  inputSource: string;
-  outputProduced: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  estimatedCost: number;
-  summary: string;
-  error?: RunError;
-};
-type WorkflowRun = {
-  id: string;
-  runNumber: number;
-  workflowId: string;
-  workflowName: string;
-  status: RunStatus;
-  triggerType: RunTrigger;
-  startedAt: string;
-  completedAt?: string;
-  durationSeconds: number;
-  agentsUsed: number;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  creditsUsed: number;
-  estimatedCost: number;
-  outputType: string;
-  outputSummary?: string;
-  approvalStatus?: 'Approved' | 'Pending' | 'Rejected' | 'None';
-  safetyMode: boolean;
-  steps: RunStep[];
-  error?: RunError;
-};
 
 type CanvasAgent = {
   id: string;
@@ -15706,194 +15581,6 @@ function AuditLogModal({
 
 // ── AI Ant ───────────────────────────────────────────────────────────────────
 
-type AntMode = 'read-only' | 'assist' | 'approval' | 'auto';
-type AntTaskStatus = 'queued' | 'reading' | 'analyzing' | 'waiting-approval' | 'completed' | 'failed';
-type AntRiskLevel = 'Safe' | 'Moderate' | 'Sensitive' | 'High Risk';
-type AntDeviceType = 'mac' | 'windows' | 'iphone' | 'android';
-type AntDeviceStatus = 'active' | 'idle' | 'secure';
-type AntConfidenceLevel = 'verified' | 'needs-review' | 'manual-override';
-type AntDomain = 'finance' | 'hr' | 'email' | 'file-deletion' | 'external-export' | 'general';
-type AntWorkspaceSource = 'google-drive' | 'slack' | 'notion' | 'browser' | 'local' | 'email-client' | 'spreadsheets';
-
-type AntCorrectionField = {
-  id: string; label: string; detected: string;
-  edited?: string; confidence: number;
-};
-type AntFileCard = {
-  id: string; name: string; type: string; size: string;
-  modified: string; path: string; confidence: number;
-};
-type AntDevice = {
-  id: string; name: string; type: AntDeviceType;
-  online: boolean; lastSeen: string; batteryLevel?: number;
-  status: AntDeviceStatus; activeSession?: string;
-};
-type AntWorkspace = {
-  id: string; name: string; source: AntWorkspaceSource;
-  connected: boolean; lastAccessed?: string; icon: string;
-};
-type WorkspaceMemberType = 'human' | 'agent';
-type WorkspaceMemberStatus = 'active' | 'invited' | 'offline';
-type WorkspaceMemberPermission = 'owner' | 'editor' | 'viewer' | 'agent';
-type WorkspaceMember = {
-  id: string;
-  type: WorkspaceMemberType;
-  name: string;
-  email?: string;
-  role: string;
-  permission: WorkspaceMemberPermission;
-  status: WorkspaceMemberStatus;
-  avatar?: string;
-  instructions?: string;
-  createdAt: string;
-};
-type WorkspaceMemberModalState =
-  | { mode: 'add'; member?: undefined }
-  | { mode: 'edit'; member: WorkspaceMember };
-type AntTask = {
-  id: string; title: string; status: AntTaskStatus;
-  device: string; progress: number; confidence: number;
-  confidenceLevel: AntConfidenceLevel;
-  estimatedTime: string; startedAt: string; icon: string;
-  riskLevel: AntRiskLevel; domain: AntDomain;
-  requiresCorrection?: boolean;
-  correctionFields?: AntCorrectionField[];
-};
-type AntMessage = {
-  id: string; role: 'user' | 'ant'; text: string; timestamp: string;
-  actions?: Array<{ label: string; icon: string }>;
-  fileCards?: AntFileCard[];
-  confidence?: number; confidenceLevel?: AntConfidenceLevel;
-  riskLevel?: AntRiskLevel; domain?: AntDomain;
-  correctionFields?: AntCorrectionField[];
-  requiresCorrection?: boolean;
-  systemNote?: string;
-  plan?: AntTaskPlan;
-  actionType?: AntActionType;
-  workflowProposal?: WorkflowProposal;
-};
-type AntActivityEntry = {
-  id: string; time: string; action: string;
-  device: string; confidence: number;
-  confidenceLevel: AntConfidenceLevel;
-  result: string; icon: string;
-  riskLevel: AntRiskLevel; domain: AntDomain;
-  approvalStatus?: 'approved' | 'rejected' | 'pending' | 'auto';
-};
-type AntMemoryEntry = {
-  id: string; pattern: string; description: string;
-  confidence: number; uses: number; domain: AntDomain;
-};
-type AntApproval = {
-  id: string; action: string; fileName?: string;
-  destination?: string; risk: AntRiskLevel;
-  domain: AntDomain; reason: string; confidence: number;
-  requestedBy: string; dataPreview?: string;
-  correctionFields?: AntCorrectionField[];
-};
-type AntActionType = 'FILE_OPS' | 'SYSTEM_OPS' | 'COMMUNICATION' | 'DATA_ANALYSIS' | 'AUTOMATION' | 'SEARCH' | 'ORGANIZATION';
-type AntPlanStep = {
-  id: number; label: string; device: string; operation: string;
-  expectedOutcome: string; reversible: boolean;
-  status: 'pending' | 'running' | 'done' | 'failed';
-  dependsOn?: number[];
-};
-type AntTaskPlan = {
-  id: string; actionType: AntActionType; intent: string;
-  implicitNeeds?: string; urgency: 'low' | 'normal' | 'high';
-  steps: AntPlanStep[]; riskLevel: AntRiskLevel;
-  requiresApproval: boolean;
-  status: 'preview' | 'confirmed' | 'executing' | 'complete' | 'cancelled';
-};
-type AiAntBackendResponse = {
-  conversation_id: string;
-  message_id: string;
-  reply: string;
-  intent: string;
-  status: 'completed' | 'approval_required' | 'draft_created';
-  model: string;
-  confidence: number;
-  approval_required: boolean;
-  usage?: { input_tokens: number; output_tokens: number; estimated_cost_usd: number };
-  plan_id?: string | null;
-  plan_name?: string | null;
-  route_source?: string | null;
-};
-
-type AntExecutionMode = 'simple-chat' | 'single-agent' | 'ai-team' | 'workflow' | 'tool-action' | 'approval-sensitive';
-type ExecutionMode = 'simple_chat' | 'operator_task' | 'device_action' | 'single_agent' | 'agent_swarm' | 'one_man_enterprise' | 'workflow' | 'approval_sensitive' | 'deliverable_generation';
-type ApprovalLevel = 'none' | 'low' | 'medium' | 'high' | 'critical';
-type SwarmState = 'analyzing_goal' | 'matching_agents' | 'creating_agents' | 'assigning_tasks' | 'agents_working' | 'reviewing_outputs' | 'deliverable_ready';
-type ColonyDeliverableType = 'report' | 'strategy' | 'spreadsheet' | 'presentation' | 'email_draft' | 'research_summary' | 'business_plan' | 'marketing_plan' | 'task_list' | 'workflow_automation' | 'decision_recommendation';
-type ColonyDeliverableStatus = 'draft' | 'in_progress' | 'needs_review' | 'approved' | 'exported' | 'archived';
-type DeviceActionType = 'read_file' | 'summarize_file' | 'inspect_screenshot' | 'search_browser' | 'open_app' | 'extract_data' | 'write_file' | 'send_message' | 'update_spreadsheet' | 'upload_file' | 'download_file';
-type DeviceActionRisk = 'low' | 'medium' | 'high' | 'critical';
-
-type ExecutionDecision = {
-  id: string;
-  mode: ExecutionMode;
-  confidence: number;
-  reason: string;
-  suggestedNextStep: string;
-  approvalLevel: ApprovalLevel;
-  expectedDeliverables: string[];
-  suggestedAgents: string[];
-  sourcePrompt: string;
-};
-
-type ColonyDeliverable = {
-  id: string;
-  projectId?: string;
-  ownerAgentId?: string;
-  title: string;
-  type: ColonyDeliverableType;
-  status: ColonyDeliverableStatus;
-  content: string;
-  preview: string;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-  sourceTasks: string[];
-  approvalStatus: 'none' | 'pending' | 'approved' | 'rejected';
-  artifacts?: Artifact[];
-  sourceChatId?: string;
-  sourceCrewRunId?: string;
-  sourceWorkflowId?: string;
-};
-
-type DeviceAction = {
-  id: string;
-  deviceId: string;
-  actionType: DeviceActionType;
-  target: string;
-  description: string;
-  riskLevel: DeviceActionRisk;
-  status: 'proposed' | 'waiting_approval' | 'running' | 'completed' | 'rejected';
-  approvalRequired: boolean;
-  preview: string;
-  result?: string;
-};
-
-// ── Device mode: action / permission flow ─────────────────────────────────────
-type DeviceActionStatus = 'permission_required' | 'approved' | 'running' | 'completed' | 'rejected' | 'failed';
-type DeviceAccessLevel = 'read-only' | 'edit' | 'export' | 'send';
-type DeviceActionVerb = 'read' | 'summarize' | 'inspect' | 'edit' | 'export' | 'send' | 'upload' | 'download';
-
-interface DeviceActionRequest {
-  id: string;
-  task: string;
-  sourceTool: string;
-  target: string;
-  verb: DeviceActionVerb;
-  accessLevel: DeviceAccessLevel;
-  risk: 'low' | 'medium' | 'high';
-  affectedData: string;
-  status: DeviceActionStatus;
-  progressStep: number;
-  result?: string;
-  approvedForProject?: boolean;
-}
-
 const DEVICE_RUN_STEPS = [
   'Preparing secure access',
   'Reading selected source',
@@ -15954,128 +15641,6 @@ function analyzeDeviceAction(task: string): DeviceActionRequest {
   };
 }
 
-type ProjectIntent = {
-  id: string;
-  name: string;
-  goal: string;
-  description: string;
-  status: 'draft' | 'planning' | 'running' | 'waiting_for_approval' | 'completed' | 'paused' | 'failed';
-  suggestedMode: ExecutionMode;
-  sourcesNeeded: string[];
-  expectedDeliverables: string[];
-};
-
-type AntTeamAgent = {
-  name: string;
-  role: string;
-  responsibility: string;
-  tools: string[];
-  output: string;
-  status: 'proposed' | 'queued' | 'working' | 'done';
-  skills?: AgentSkill[];
-  activeModel?: ModelConfig;
-};
-
-type AntTeamProposal = {
-  id: string;
-  mode: AntExecutionMode;
-  projectName: string;
-  goal: string;
-  whyTeam: string;
-  hierarchy: string[];
-  agents: AntTeamAgent[];
-  plan: string[];
-  tools: string[];
-  approvals: string[];
-  deliverables: Array<{ title: string; type: string; owner: string; status: 'Planned' | 'In progress' | 'Review' | 'Ready'; preview: string }>;
-};
-
-type WorkflowDestinationType = 'chat' | 'download' | 'google_drive' | 'project_deliverables' | 'email_after_approval' | 'csv' | 'pdf' | 'notion' | 'google_sheets' | 'gmail' | 'sheets' | 'webhook';
-type WorkflowStatus = 'draft' | 'ready_to_test' | 'testing' | 'ready_to_activate' | 'active' | 'paused' | 'failed';
-type WorkflowNodeType = 'trigger' | 'source' | 'ai_step' | 'condition' | 'transform' | 'tool_action' | 'connector' | 'approval' | 'output' | 'notification';
-type WorkflowNodeStatus = 'idle' | 'configured' | 'warning' | 'waiting' | 'running' | 'success' | 'failed' | 'needs_approval' | 'skipped';
-type WorkflowEdgeStatus = 'idle' | 'active' | 'success' | 'failed' | 'approval';
-type WorkflowConnectorStatus = 'connected' | 'not_connected' | 'permission_required';
-type ModelRoutingPreference = 'auto' | 'fast' | 'balanced' | 'best_quality' | 'low_cost' | 'manual';
-type WorkflowTriggerKind = 'manual' | 'schedule' | 'webhook' | 'file_added' | 'app_event';
-type WorkflowSourceType = 'file_upload' | 'browser' | 'google_drive' | 'notion' | 'gmail' | 'sheets' | 'manual_input';
-type WorkflowOutputFormat = 'summary' | 'table' | 'bullet_points' | 'report' | 'json' | 'email_draft';
-type WorkflowTone = 'neutral' | 'professional' | 'friendly' | 'concise';
-type WorkflowTransformType = 'clean' | 'filter' | 'merge' | 'format' | 'extract_fields';
-type WorkflowApprovalType = 'before_external_action' | 'before_saving' | 'before_sending' | 'manual_review';
-type WorkflowFileFormat = 'markdown' | 'pdf' | 'docx' | 'csv' | 'json' | 'plain_text';
-type WorkflowNotificationChannel = 'in_app' | 'email' | 'line' | 'slack' | 'discord';
-type WorkflowErrorHandling = 'continue' | 'retry' | 'stop' | 'ask_user';
-type WorkflowValidationState = {
-  isValid: boolean;
-  missingFields: string[];
-  warnings: string[];
-};
-type WorkflowNodeConfig = {
-  triggerType?: WorkflowTriggerKind;
-  schedule?: {
-    frequency: 'daily' | 'weekly' | 'monthly' | 'custom';
-    dayOfWeek?: string;
-    time?: string;
-    timezone?: string;
-  };
-  sourceType?: WorkflowSourceType;
-  connectionStatus?: WorkflowConnectorStatus;
-  selectedSource?: string;
-  readMode?: 'read_only' | 'extract' | 'sync';
-  instruction?: string;
-  inputFrom?: string[];
-  outputFormat?: WorkflowOutputFormat;
-  tone?: WorkflowTone;
-  modelPreference?: ModelRoutingPreference;
-  modelRouting?: ModelRoutingPreference;
-  assignedAgent?: string;
-  reviewRequired?: boolean;
-  transformType?: WorkflowTransformType;
-  fields?: string[];
-  outputSchema?: Record<string, string>;
-  conditionText?: string;
-  truePathLabel?: string;
-  falsePathLabel?: string;
-  approvalRequired?: boolean;
-  approvalType?: WorkflowApprovalType;
-  approver?: 'user' | 'workspace_admin';
-  message?: string;
-  destination?: WorkflowDestinationType;
-  format?: WorkflowFileFormat;
-  fileName?: string;
-  folderPath?: string;
-  channel?: WorkflowNotificationChannel;
-  messageTemplate?: string;
-  sendAfter?: string;
-  errorHandling?: WorkflowErrorHandling;
-  // Backward-compatible display/runtime fields used by older Colony UI pieces.
-  capability?: AgentCapability;
-  model?: string;
-  action?: string;
-  rule?: string;
-  approvalBefore?: string;
-  approvalMode?: string;
-  sourcePath?: string;
-  timezone?: string;
-};
-type ManualModelSelection = {
-  capability: string;
-  provider: string;
-  modelId: string;
-};
-type NodeChange = {
-  field: string;
-  before: any;
-  after: any;
-};
-type NodeInstruction = {
-  id: string;
-  text: string;
-  createdAt: string;
-  appliedChanges: NodeChange[];
-};
-
 const MODEL_ROUTING_OPTIONS: Array<{ value: ModelRoutingPreference; label: string; shortLabel: string; description: string }> = [
   { value: 'auto', label: 'Auto', shortLabel: 'Auto', description: 'Let Colony Bridge choose a suitable model preference.' },
   { value: 'fast', label: 'Fast', shortLabel: 'Fast', description: 'Quicker responses for simple tasks.' },
@@ -16115,110 +15680,6 @@ function readableField(field: string) {
     .replace(/_/g, ' ')
     .replace(/^\w/, (letter) => letter.toUpperCase());
 }
-
-type WorkflowTrigger = {
-  type: 'manual' | 'schedule' | 'event';
-  label: string;
-  schedule?: string;
-  timezone?: string;
-  enabled: boolean;
-};
-
-type WorkflowNode = {
-  id: string;
-  type: WorkflowNodeType;
-  title: string;
-  description?: string;
-  position: { x: number; y: number };
-  status: WorkflowNodeStatus;
-  config: WorkflowNodeConfig;
-  promptNote?: string;
-  userInstructions?: NodeInstruction[];
-  instructionHistory?: NodeInstruction[];
-  modelRoutingPreference?: ModelRoutingPreference;
-  selectedModel?: ManualModelSelection;
-  validation?: WorkflowValidationState;
-};
-
-type WorkflowEdge = {
-  id: string;
-  from: string;
-  to: string;
-  status?: WorkflowEdgeStatus;
-  animated?: boolean;
-};
-
-type WorkflowConnector = {
-  id: string;
-  provider: string;
-  status: WorkflowConnectorStatus;
-  scopes: string[];
-};
-
-type WorkflowApprovalRule = {
-  id: string;
-  before: string;
-  approver: 'current_user' | 'project_owner';
-  mode: 'once' | 'every_run' | 'risk_detected';
-  message: string;
-};
-
-type WorkflowRunLog = {
-  id: string;
-  time: string;
-  level: 'info' | 'warning' | 'error';
-  message: string;
-  nodeId?: string;
-};
-
-type WorkflowBuilderRun = {
-  id: string;
-  status: 'running' | 'success' | 'failed' | 'needs_approval';
-  startedAt: string;
-  endedAt?: string;
-  logs: WorkflowRunLog[];
-};
-
-type Workflow = {
-  id: string;
-  name: string;
-  description: string;
-  trigger: WorkflowTrigger;
-  nodes: WorkflowNode[];
-  edges: WorkflowEdge[];
-  connectors?: WorkflowConnector[];
-  approvals?: WorkflowApprovalRule[];
-  runHistory?: WorkflowBuilderRun[];
-  status: WorkflowStatus;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type WorkflowProposal = {
-  id: string;
-  prompt: string;
-  goal: string;
-  trigger: WorkflowTrigger;
-  sources: string[];
-  steps: string[];
-  outputs: string[];
-  approval: string;
-  destination: WorkflowDestinationType;
-  destinationLabel: string;
-  connectorsNeeded: string[];
-  complexity: 'Low' | 'Medium' | 'High';
-};
-
-type AntGeneratedProject = {
-  id: string;
-  proposal: AntTeamProposal;
-  progress: number;
-  status: 'Planning' | 'Working' | 'Review needed' | 'Delivered';
-  activeAgent: string;
-  currentTask: string;
-  nextStep: string;
-  latestUpdate: string;
-};
 
 function classifyAntExecutionMode(prompt: string): AntExecutionMode {
   const lower = prompt.toLowerCase();
@@ -16744,134 +16205,6 @@ function buildAntTeamProposal(goal: string, mode: AntExecutionMode): AntTeamProp
     ],
   };
 }
-
-// ── Extended Types: Features 61-75 ────────────────────────────────────────────
-
-type AntToolCategory = 'filesystem' | 'browser' | 'workflow' | 'spreadsheets' | 'ocr' | 'email' | 'cloud' | 'messaging' | 'mobile' | 'desktop' | 'api';
-type AntTool = {
-  id: string; name: string; category: AntToolCategory;
-  confidence: number; available: boolean; offline?: boolean;
-  requiresPermission: string; cost: 'free' | 'low' | 'medium' | 'high';
-  icon: string; reason?: string; fallback?: string;
-};
-type AntPermissionScope = {
-  id: string; name: string; type: 'folder' | 'app' | 'service' | 'api';
-  access: 'read' | 'write' | 'read-write' | 'none';
-  temporary?: boolean; expiresAt?: string;
-  risk: AntRiskLevel; granted: boolean; icon: string;
-};
-type AntDelivery = {
-  id: string; fileName: string;
-  destination: 'line' | 'email' | 'google-drive' | 'slack' | 'discord' | 'colony';
-  status: 'pending' | 'approved' | 'sent' | 'failed' | 'expired';
-  createdAt: string; deliveredAt?: string; fileSize: string;
-  approvalRequired: boolean; icon: string;
-};
-type AntHandoff = {
-  id: string; taskTitle: string; fromDevice: string; toDevice: string;
-  progress: number; status: 'pending' | 'active' | 'complete'; transferredAt: string;
-};
-type AntLiveEvent = {
-  id: string; time: string;
-  type: 'action' | 'screenshot' | 'step' | 'error' | 'approval' | 'memory';
-  message: string; device: string; icon: string;
-};
-type AntRecoverySuggestion = {
-  id: string; type: 'retry' | 'rollback' | 'switch-tool' | 'ask-user';
-  label: string; description: string; icon: string;
-};
-type AntAutonomyLevel = {
-  id: AntMode; label: string; power: number;
-  description: string; checkpoints: string[]; risk: string; dot: string;
-};
-
-// ── Intelligence & Memory Types (Features 76-83) ──────────────────────────────
-
-type AntLearnedPattern = {
-  id: string; name: string; description: string;
-  confidence: number; frequency: number; learnedFrom: string;
-  domain: AntDomain; suggestedAutomation?: string;
-  enabled: boolean; lastSeen: string;
-};
-
-type AntSearchFilter = 'all' | 'pdf' | 'images' | 'sheets' | 'reports' | 'recent' | 'shared' | 'workflow-output';
-type AntSearchResult = {
-  id: string; name: string; type: string; relevance: number;
-  matchReason: string; path: string; lastOpened: string;
-  source: 'local' | 'drive' | 'workflow' | 'chat' | 'report';
-  relatedWorkflows?: string[]; preview?: string; icon: string;
-};
-
-type GraphNodeType = 'file' | 'folder' | 'workflow' | 'agent' | 'app' | 'report' | 'device' | 'task';
-type GraphNode = {
-  id: string; type: GraphNodeType; label: string;
-  icon: string; x: number; y: number; active: boolean;
-};
-type GraphEdge = { from: string; to: string; label: string };
-
-type KnowledgeCategory = 'recent' | 'important' | 'insight' | 'resource' | 'system';
-type KnowledgeSource = 'workflow' | 'chat' | 'file' | 'report' | 'pattern' | 'approval';
-type KnowledgeEntry = {
-  id: string; title: string; summary: string;
-  source: KnowledgeSource; category: KnowledgeCategory;
-  confidence: number; createdAt: string; pinned: boolean; archived: boolean;
-};
-
-type VoiceState = 'idle' | 'listening' | 'processing' | 'responding';
-
-type AntNotificationPriority = 'info' | 'warning' | 'critical' | 'success';
-type AntNotificationCategory = 'workflow' | 'approval' | 'task' | 'file' | 'export' | 'device' | 'suggestion' | 'risk';
-type AntNotification = {
-  id: string; title: string; body: string;
-  priority: AntNotificationPriority; time: string; read: boolean;
-  category: AntNotificationCategory;
-  actions?: Array<{ label: string; variant: 'primary' | 'secondary' | 'danger' }>;
-};
-
-type AntSuggestionType = 'automation' | 'optimization' | 'organization' | 'repair' | 'memory' | 'connector' | 'export' | 'safety';
-type AntSuggestion = {
-  id: string; title: string; explanation: string; benefit: string;
-  confidence: number; type: AntSuggestionType;
-  action: string; dismissed: boolean; applied: boolean;
-};
-
-// ── Workflow Integration Types (84-87) ────────────────────────────────────────
-
-type AntWorkflowStatus = 'idle' | 'running' | 'paused' | 'complete' | 'failed' | 'repairing';
-type AntWorkflowTriggerSource = 'user' | 'ant' | 'schedule' | 'event';
-type AntWorkflowOrigin = 'prompt' | 'template' | 'repair' | 'manual';
-type AntWorkflowDef = {
-  id: string; name: string; description: string; icon: string;
-  stepCount: number; status: AntWorkflowStatus; progress: number;
-  origin: AntWorkflowOrigin; lastRun?: string; nextRun?: string;
-  triggeredBy: AntWorkflowTriggerSource; estimatedDuration: string;
-  repairLog?: string[];
-};
-
-// ── Multi-Ant Collaboration Types (88-90) ────────────────────────────────────
-
-type AntRole = 'orchestrator' | 'research' | 'finance' | 'file' | 'browser' | 'communication' | 'data';
-type AntAgentStatus = 'idle' | 'active' | 'waiting' | 'complete' | 'failed';
-type AntAgent = {
-  id: string; name: string; role: AntRole; icon: string; color: string;
-  status: AntAgentStatus; currentTask?: string; progress?: number;
-  confidence: number; delegatedFrom?: string; subAgents?: string[];
-  completedTasks: number;
-};
-type AntColonySession = {
-  id: string; objective: string; agents: AntAgent[];
-  status: 'planning' | 'executing' | 'complete' | 'failed';
-  overallProgress: number; startedAt: string; estimatedComplete: string;
-};
-
-// ── Enterprise Types (91-94) ─────────────────────────────────────────────────
-
-type TeamMemberRole = 'admin' | 'member' | 'viewer';
-type TeamMember = {
-  id: string; name: string; role: TeamMemberRole; initials: string;
-  online: boolean; devicesShared: number; lastActive: string;
-  color: string;
-};
 
 // ── State machine helpers ─────────────────────────────────────────────────────
 
