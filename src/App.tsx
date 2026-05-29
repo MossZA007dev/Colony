@@ -406,12 +406,86 @@ import type {
   WorkspaceMemberStatus,
   WorkspaceMemberType,
 } from './lib/types/antTypes';
+import type {
+  AIComplexity,
+  AIConfidence,
+  AIImpact,
+  AIRiskLevel,
+  AIWorkflowResult,
+  AIWorkflowType,
+  AgentInputMode,
+  AgentInstructionResult,
+  AppConnector,
+  AppDrawerView,
+  BuildWorkflowModalState,
+  CanvasComment,
+  CanvasConnection,
+  CanvasNote,
+  CellEdit,
+  CharacterConfig,
+  ChatChannel,
+  ChatChannelType,
+  ChatCommandConfirm,
+  ChatMemoryItem,
+  ChatMode,
+  ChatMsg,
+  ChatMsgType,
+  ChatProjectDef,
+  ChatServer,
+  ColumnMappingEntry,
+  ConnectionMapping,
+  ConnectorAccessLevel,
+  ConnectorStatus,
+  ContextMenuDef,
+  CustomModelEntry,
+  DataPreviewRow,
+  DataPreviewState,
+  DataSourceHistoryItem,
+  DataValidationIssue,
+  DebugIssue,
+  DebugSeverity,
+  DebugWorkflowState,
+  EditableRow,
+  EmailDraftState,
+  ExplainWorkflowState,
+  ExplanationMode,
+  ExportModalState,
+  ExtractedTable,
+  GenerateInstructionsState,
+  GeneratedAgentDef,
+  ImproveWorkflowState,
+  InstructionQuality,
+  LineDraftState,
+  NewProjectType,
+  ProcessedFile,
+  ProcessedFileStatus,
+  ProcessedFileType,
+  QualityDimension,
+  Report,
+  ReportExportRecord,
+  ReportSection,
+  ReportSectionType,
+  ReportStatus,
+  ReportTemplate,
+  ReportTemplateId,
+  ReportVersion,
+  ScheduledReport,
+  ScheduledReportDestination,
+  ScheduledReportFrequency,
+  SpriteState,
+  SuggestionCategory,
+  ValidationIssue,
+  ValidationIssueSeverity,
+  WorkflowQualityScore,
+  WorkflowSuggestion,
+  WorkspaceDeliverableItem,
+  WorkspaceSource,
+} from './lib/types/appTypes';
 import { runColonyCrew } from './lib/crew/crewApi';
 import { PermissionModal } from './components/bridge/PermissionModal';
 import { createBridgeRequest, approveBridgeRequest, executeBridgeRequest, fetchBridgeRequests } from './lib/bridge/bridgeApi';
 import type { BridgeRequest } from './lib/bridge/bridgeTypes';
 
-type NewProjectType = 'Sales Analysis' | 'Content Workflow' | 'File Report' | 'Custom';
 
 // PROVIDER_LABELS, MANUAL_PROVIDERS, inferCapabilitiesFromText, skillsForCapabilities,
 // defaultActiveModel, resolveSkillModel, shortResolvedModelName, MODEL_DESCRIPTIONS,
@@ -454,12 +528,6 @@ const ALL_CAPABILITIES = Object.keys(CAPABILITY_LABELS) as AgentCapability[];
 // User-defined custom models / providers persist locally (no API keys stored).
 // TODO(backend): replace localStorage with a real per-workspace store and add
 // secure secret storage for API keys (KMS / encrypted vault).
-interface CustomModelEntry extends AgentModelConfig {
-  id: string;
-  providerName: string;
-  apiBaseUrl?: string;
-  createdAt: string;
-}
 const CUSTOM_MODELS_STORAGE_KEY = 'colony.customModels.v1';
 function loadCustomModels(): CustomModelEntry[] {
   try {
@@ -1093,13 +1161,6 @@ function EmptyState({ title, message }: { title: string; message: string }) {
   );
 }
 
-type ContextMenuDef = {
-  label: string;
-  icon?: string;
-  danger?: boolean;
-  separator?: boolean;
-  onClick: () => void;
-};
 
 function ContextMenu({ x, y, items, onClose, dark = false }: {
   x: number;
@@ -1668,7 +1729,6 @@ function Sidebar({
   );
 }
 
-type AppDrawerView = 'ai-ant' | 'projects' | 'more';
 
 function KimiStyleSidebar({
   page, profile, usageState, wsChats, wsProjects, activeWsChatId, collapsed, setCollapsed,
@@ -2752,45 +2812,6 @@ type CanvasAgent = {
   status: AgentStatus;
 };
 
-type ConnectionMapping = {
-  id: string;
-  fromField: string;
-  toField: string;
-};
-
-type CanvasConnection = {
-  id: string;
-  from: string;
-  to: string;
-  label?: string;
-  active?: boolean;
-  mapping?: ConnectionMapping[];
-  sampleData?: Record<string, string>;
-};
-
-type ValidationIssueSeverity = 'error' | 'warning' | 'info';
-
-type ValidationIssue = {
-  id: string;
-  severity: ValidationIssueSeverity;
-  title: string;
-  description: string;
-  affectedType: 'agent' | 'connection' | 'workflow';
-  affectedId: string;
-  suggestedFix: string;
-  action?: {
-    label: string;
-    type: 'select-agent' | 'select-connection';
-    targetId: string;
-  };
-};
-
-type CanvasNote = {
-  id: string;
-  x: number;
-  y: number;
-  text: string;
-};
 
 const ALL_SKILLS = [
   'Read files', 'Read screenshots', 'Extract data', 'Clean data',
@@ -2924,25 +2945,6 @@ const DEFAULT_WORKFLOW_CONFIG: WorkflowConfig = {
   ],
 };
 
-type CanvasComment = {
-  id: string;
-  x: number;
-  y: number;
-  text: string;
-};
-
-type SpriteState = 'idle' | 'walk' | 'talk' | 'celebrate';
-
-type CharacterConfig = {
-  skinColor: string;
-  hairColor: string;
-  outfitColor: string;
-  outfitDetail?: string;
-  pantsColor: string;
-  shoeColor: string;
-  accessory?: 'glasses' | 'antenna' | 'hat' | 'shield' | 'pen';
-  accentColor?: string;
-};
 
 const BOARD_SIZE = { width: 4000, height: 3000 };
 const SOURCE_AGENT_TYPES: CanvasAgentType[] = ['ant'];
@@ -3533,31 +3535,7 @@ const ADD_AGENT_OPTIONS: Array<{
   },
 ];
 
-type ChatMsgType = 'user' | 'agent' | 'system' | 'approval' | 'report' | 'file' | 'command' | 'log';
-type ChatMsg = { id?: string; role: 'agent' | 'user'; sender?: string; agentId?: string; text: string; timestamp: string; pinned?: boolean; type?: ChatMsgType; channelId?: string; metadata?: Record<string, unknown> };
-type ChatChannelType = 'main' | 'analysis' | 'approval' | 'report' | 'files' | 'research' | 'writing' | 'publishing' | 'insights' | 'logs' | 'general';
-type ChatChannel = { id: string; name: string; type?: ChatChannelType; unread?: number };
-type ChatMemoryItem = { id: string; text: string; createdAt: string };
-type ChatCommandConfirm = { description: string; action: () => void };
-type ChatProjectDef = {
-  id: string;
-  emoji?: string;
-  icon?: string;
-  name: string;
-  description?: string;
-  instructions?: string;
-  status?: 'Draft' | 'Running' | 'Waiting' | 'Complete';
-  projectStatus: 'running' | 'waiting' | 'done' | 'idle';
-  channels: ChatChannel[];
-  initialMessages?: ChatMsg[];
-  channelMessages?: Record<string, ChatMsg[]>;
-};
-
 // ── Colony Workspace Model (AI Ant command center) ──────────────────────────────
-type ChatMode =
-  | 'simple_chat' | 'create_project' | 'add_source' | 'single_agent_task'
-  | 'ai_team_task' | 'one_man_enterprise' | 'workflow_task'
-  | 'tool_device_action' | 'approval_sensitive_action';
 
 const WORK_STATUS_LABELS: Record<WorkItemStatus, string> = {
   draft: 'Draft',
@@ -3642,28 +3620,6 @@ function isEmptyDraftStandaloneChat(chat: WorkspaceChat | null | undefined) {
 function sourceConversationForFeature(chat: WorkspaceChat | null | undefined) {
   if (!chat || isEmptyDraftStandaloneChat(chat) || resolveWorkItemType(chat) !== 'chat') return undefined;
   return chat.id;
-}
-
-interface WorkspaceSource {
-  id: string;
-  projectId: string;
-  type: 'file' | 'link' | 'screenshot' | 'connector' | 'note';
-  title: string;
-  meta?: string;
-  addedAt: number;
-}
-
-interface WorkspaceDeliverableItem {
-  id: string;
-  projectId: string | null;
-  title: string;
-  type: 'Report' | 'Strategy' | 'Spreadsheet' | 'Presentation' | 'Email draft'
-    | 'Research summary' | 'Business plan' | 'Marketing plan' | 'Task list'
-    | 'Workflow automation' | 'Decision recommendation';
-  status: 'Draft' | 'In progress' | 'Needs review' | 'Approved' | 'Exported' | 'Archived';
-  ownerAgent: string;
-  preview: string;
-  updatedAt: number;
 }
 
 export interface WorkspaceProject {
@@ -4007,134 +3963,6 @@ function loadWorkspaceProjects(): WorkspaceProject[] {
   return SEED_WS_PROJECTS;
 }
 
-// ── Report System Types ────────────────────────────────────────────────────────
-type ReportStatus = 'Draft' | 'Edited' | 'Approved' | 'Final' | 'Waiting Approval' | 'Archived';
-type ReportTemplateId = 'executive-summary' | 'detailed-analysis' | 'audit-report' | 'workflow-summary' | 'weekly-digest' | 'incident-report' | 'operational-review' | 'blank';
-type ReportSectionType = 'summary' | 'insights' | 'metrics' | 'findings' | 'recommendations' | 'table' | 'timeline' | 'appendix' | 'approval';
-type ReportSection = { id: string; type: ReportSectionType; title: string; content: string; enabled: boolean; order: number };
-type ReportVersion = { id: string; version: number; editedBy: string; editedAt: string; status: ReportStatus; summary: string; sections: ReportSection[] };
-type ReportExportRecord = { id: string; format: 'pdf' | 'csv' | 'sheets' | 'email' | 'line'; exportedAt: string; exportedBy: string };
-type Report = {
-  id: string; workflowId: string; runId?: string; title: string;
-  template: ReportTemplateId; templateName: string;
-  version: number; currentVersionId: string;
-  status: ReportStatus; approvalRequired: boolean; approvalStatus?: 'None' | 'Pending' | 'Approved' | 'Rejected';
-  createdAt: string; updatedAt: string;
-  generatedBy: string[]; workflowName: string;
-  sections: ReportSection[];
-  versions: ReportVersion[];
-  exports: ReportExportRecord[];
-  tags?: string[];
-};
-type ReportTemplate = {
-  id: ReportTemplateId; name: string; description: string; icon: string;
-  defaultSections: ReportSectionType[]; supportsCharts: boolean; supportsTables: boolean; supportsTimeline: boolean;
-};
-type ScheduledReportFrequency = 'daily' | 'weekly' | 'monthly' | 'custom';
-type ScheduledReportDestination = 'email' | 'sheets' | 'channel' | 'folder' | 'approval-queue';
-type ScheduledReport = {
-  id: string; workflowId: string; workflowName: string;
-  title: string; template: ReportTemplateId; templateName: string;
-  frequency: ScheduledReportFrequency; time: string; timezone: string;
-  destination: ScheduledReportDestination; destinationLabel: string;
-  recipients: string; channel: string;
-  approvalRequired: boolean; active: boolean;
-  nextRun: string; lastRun?: string;
-  createdAt: string;
-};
-type ExportModalState = {
-  reportId: string; format: 'pdf' | 'csv' | 'sheets' | 'email' | 'line';
-  fileName: string; includeCharts: boolean; includeTimeline: boolean; includeAuditLog: boolean; includeAppendix: boolean;
-  sheetDestination: string; appendOrOverwrite: 'append' | 'overwrite'; worksheetName: string;
-};
-type EmailDraftState = { reportId: string; recipient: string; subject: string; messagePreview: string; includeAttachments: boolean; includeSummary: boolean };
-type LineDraftState = { reportId: string; message: string };
-
-// ── AI Workflow Intelligence Types ────────────────────────────────────────────
-type AIWorkflowType = 'research' | 'reporting' | 'data-processing' | 'approval' | 'document' | 'automation' | 'support' | 'blank';
-type AIComplexity = 'Simple' | 'Medium' | 'Advanced';
-type AIConfidence = 'Low' | 'Medium' | 'High';
-type AIRiskLevel = 'Safe' | 'Moderate' | 'High Risk';
-type AIImpact = 'Low' | 'Medium' | 'High';
-type SuggestionCategory = 'Performance' | 'Safety' | 'Cost' | 'Reliability' | 'Readability' | 'Structure';
-type DebugSeverity = 'Warning' | 'Error' | 'Critical';
-type ExplanationMode = 'Simple' | 'Technical' | 'Executive';
-type InstructionQuality = 'Basic' | 'Balanced' | 'Detailed';
-
-type GeneratedAgentDef = {
-  id: string; label: string; role: string; icon: string;
-  instructions: string; model: AgentModel; x: number; y: number;
-};
-
-type AIWorkflowResult = {
-  title: string; description: string;
-  agents: GeneratedAgentDef[];
-  connections: Array<{ from: string; to: string; label?: string }>;
-  estimatedComplexity: AIComplexity;
-  estimatedCostPerRun: string;
-  estimatedRuntimeSeconds: number;
-  confidence: AIConfidence;
-  risk: AIRiskLevel;
-  suggestedTools: string[];
-  suggestedTrigger: string;
-  suggestedOutput: string;
-  recommendations: string[];
-  approvalPoints: string[];
-};
-
-type WorkflowSuggestion = {
-  id: string; title: string; explanation: string;
-  impact: AIImpact; category: SuggestionCategory;
-  confidence: AIConfidence; applied: boolean;
-  action?: () => void;
-};
-
-type DebugIssue = {
-  id: string; severity: DebugSeverity; title: string;
-  affectedAgent: string; explanation: string;
-  suggestedFix: string; autoFixAvailable: boolean; fixed: boolean;
-};
-
-type AgentInstructionResult = {
-  role: string; instruction: string; goals: string;
-  constraints: string; expectedOutput: string;
-  tone: string; toolGuidance: string;
-};
-
-type QualityDimension = { label: string; score: number; suggestion: string };
-type WorkflowQualityScore = {
-  overall: number;
-  dimensions: QualityDimension[];
-  grade: 'A' | 'B' | 'C' | 'D' | 'F';
-  summary: string;
-};
-
-type BuildWorkflowModalState = {
-  prompt: string; workflowType: AIWorkflowType; complexity: AIComplexity;
-  industry: string; outputPreference: 'Minimal' | 'Balanced' | 'Detailed';
-  safetyMode: boolean; generating: boolean; result: AIWorkflowResult | null;
-};
-
-type ImproveWorkflowState = {
-  open: boolean; analyzing: boolean;
-  suggestions: WorkflowSuggestion[];
-};
-
-type ExplainWorkflowState = {
-  open: boolean; mode: ExplanationMode; generating: boolean;
-  explanation: string; steps: string[]; inputs: string; outputs: string; risks: string;
-};
-
-type DebugWorkflowState = {
-  open: boolean; analyzing: boolean;
-  issues: DebugIssue[];
-};
-
-type GenerateInstructionsState = {
-  open: boolean; agentId: string; agentName: string;
-  quality: InstructionQuality; generating: boolean;
-  result: AgentInstructionResult | null;
-};
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CHAT_PROJECTS: ChatProjectDef[] = [
@@ -4263,17 +4091,6 @@ function getProjectChannelMessages(project: ChatProjectDef, channelId: string) {
 
   return messages;
 }
-
-type ChatServer = {
-  id: string;
-  name: string;
-  icon: string;
-  instructions?: string;
-  channels: ChatChannel[];
-  messages: Record<string, ChatMsg[]>;
-  memoryEnabled?: boolean;
-  memories?: ChatMemoryItem[];
-};
 
 const CHAT_SERVERS: ChatServer[] = [
   {
@@ -4461,21 +4278,6 @@ const ROLE_OPTIONS = [
 
 // ── Connector system ────────────────────────────────────────────────────────
 
-type ConnectorStatus = 'connected' | 'not-connected' | 'needs-setup' | 'error' | 'coming-soon';
-type ConnectorAccessLevel = 'Read only' | 'Read & write' | 'Approval required';
-
-type AppConnector = {
-  id: string;
-  name: string;
-  icon: string;
-  status: ConnectorStatus;
-  accessLevel: ConnectorAccessLevel;
-  lastSynced?: string;
-  agentsWithAccess: string[];
-  permissions: string[];
-  config: Record<string, string | boolean | string[]>;
-};
-
 const INITIAL_CONNECTORS: AppConnector[] = [
   { id: 'file-upload',       name: 'File Upload',       icon: '📄', status: 'connected',     accessLevel: 'Read only',           lastSynced: '2 min ago',  agentsWithAccess: ['AI Ant Scout', 'Data Collector'], permissions: ['read_files'],       config: {} },
   { id: 'screenshot-upload', name: 'Screenshot Upload', icon: '📷', status: 'connected',     accessLevel: 'Read only',           lastSynced: '2 min ago',  agentsWithAccess: ['AI Ant Scout'],                   permissions: ['read_screenshots'], config: {} },
@@ -4512,33 +4314,6 @@ const TOOL_TO_CONNECTOR_ID: Record<string, string> = {
 };
 
 // ── File Processing types ────────────────────────────────────────────────────
-
-type ProcessedFileType = 'pdf' | 'excel' | 'csv' | 'image' | 'unknown';
-type ProcessedFileStatus = 'idle' | 'processing' | 'done' | 'error';
-
-type ExtractedTable = {
-  id: string;
-  name: string;
-  headers: string[];
-  rows: string[][];
-  rowCount: number;
-};
-
-type ProcessedFile = {
-  id: string;
-  name: string;
-  type: ProcessedFileType;
-  size: string;
-  status: ProcessedFileStatus;
-  uploadedAt: string;
-  summary?: string;
-  keyPoints?: string[];
-  tables?: ExtractedTable[];
-  ocrText?: string;
-  ocrConfidence?: number;
-  ocrFields?: { label: string; value: string }[];
-  errorMessage?: string;
-};
 
 const MOCK_PROCESSED_FILES: ProcessedFile[] = [
   {
@@ -4648,70 +4423,6 @@ const MOCK_PROCESSED_FILES: ProcessedFile[] = [
 ];
 
 // ── Data Pipeline types ──────────────────────────────────────────────────────
-
-type ColumnMappingEntry = {
-  id: string;
-  sourceColumn: string;
-  targetField: string;
-  confidence: number;
-  ignored: boolean;
-};
-
-type DataValidationIssue = {
-  id: string;
-  severity: 'error' | 'warning' | 'info';
-  title: string;
-  description: string;
-  affectedRows: number;
-  suggestedFix: string;
-};
-
-type DataPreviewRow = Record<string, string>;
-
-type DataPreviewState = {
-  sourceName: string;
-  sourceType: 'csv' | 'excel' | 'pdf' | 'screenshot' | 'manual';
-  columns: string[];
-  rows: DataPreviewRow[];
-  totalRows: number;
-  cleaned: boolean;
-  mappings: ColumnMappingEntry[];
-  validationIssues: DataValidationIssue[];
-  qualityScore: number;
-  missingCount: number;
-  duplicateCount: number;
-};
-
-type EditableRow = {
-  _id: string;
-  _edited: boolean;
-  _manuallyAdded: boolean;
-  _isNew: boolean;
-  _originalData: Record<string, string>;
-  data: Record<string, string>;
-};
-
-type CellEdit = {
-  id: string;
-  rowId: string;
-  column: string;
-  oldValue: string;
-  newValue: string;
-  editedBy: string;
-  editedAt: string;
-};
-
-type DataSourceHistoryItem = {
-  id: string;
-  name: string;
-  type: 'image' | 'csv' | 'excel' | 'pdf' | 'google_sheet';
-  status: 'extracted' | 'cleaned' | 'validated' | 'failed' | 'ready';
-  createdAt: string;
-  rowsExtracted: string;
-  usedByAgent: string;
-  runId: string;
-  qualityScore: number;
-};
 
 const MOCK_SOURCE_HISTORY: DataSourceHistoryItem[] = [
   { id: 'sh-1', name: 'LINE MAN screenshot May 12', type: 'image',   status: 'extracted', createdAt: '2026-05-12 18:30', rowsExtracted: '126 orders', usedByAgent: 'AI Ant Scout',  runId: 'Run #024', qualityScore: 78 },
@@ -17109,7 +16820,6 @@ function AIAntApprovalModal({ approval, onApprove, onEdit, onReject }: {
   );
 }
 
-type AgentInputMode = 'Auto' | 'Chat' | 'Agent' | 'Colony Crew' | 'Deep Research' | 'One-man Enterprise' | 'Workflow' | 'Device';
 
 function normalizeAgentInputMode(mode: AgentInputMode): AgentInputMode {
   if (mode === 'Agent' || mode === 'Deep Research') return 'Colony Crew';
