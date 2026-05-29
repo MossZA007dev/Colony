@@ -228,6 +228,7 @@ import {
   saveProfile,
   usageFeatureToAdminFeature,
 } from './lib/profile/profileApi';
+import { CUSTOM_MODELS_STORAGE_KEY, loadCustomModels } from './lib/profile/customModels';
 import {
   APP_DELIVERABLES_KEY,
   SEED_APP_DELIVERABLES,
@@ -602,21 +603,6 @@ const glyph = {
 
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_LABELS) as AgentCapability[];
 
-// ── Custom Model storage ──────────────────────────────────────────────────────
-// User-defined custom models / providers persist locally (no API keys stored).
-// TODO(backend): replace localStorage with a real per-workspace store and add
-// secure secret storage for API keys (KMS / encrypted vault).
-const CUSTOM_MODELS_STORAGE_KEY = 'colony.customModels.v1';
-function loadCustomModels(): CustomModelEntry[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_MODELS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed as CustomModelEntry[];
-    }
-  } catch { /* ignore corrupt storage */ }
-  return [];
-}
 
 function ModelPickerModal({ title, skill, activeModel, onSave, onClose }: {
   title: string;
